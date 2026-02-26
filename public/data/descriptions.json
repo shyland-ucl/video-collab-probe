@@ -1,0 +1,416 @@
+{
+  "video": {
+    "id": "morning-routine-001",
+    "title": "Morning Coffee Routine",
+    "src": "/videos/sample.mp4",
+    "duration": 15,
+    "segments": [
+      {
+        "id": "seg-1",
+        "start_time": 0,
+        "end_time": 3,
+        "name": "Walking to Kitchen",
+        "color": "#E74C3C",
+        "descriptions": {
+          "level_1": "You are walking from the living room towards a doorway, trailing your right hand along the wall.",
+          "level_2": "You turn away from the living room and walk toward a hallway. Your right hand trails along the white wall, passing just above a light switch as you head toward the kitchen.",
+          "level_3": "The view shifts from a living room with a television and framed pictures to a short hallway. You are walking forward, moving from a space with warm hardwood floors toward a doorway. Your right hand reaches out to touch the white wall, gliding smoothly past a light switch and a black-framed picture. The lighting is bright and natural, coming from windows in the adjacent rooms."
+        },
+        "vqa_prepared": {
+          "Which hand is trailing along the wall?": "The right hand trails along the wall.",
+          "What is on the wall being passed?": "A light switch and a black-framed picture are on the wall.",
+          "What type of flooring is visible?": "Warm hardwood floors are visible.",
+          "What room is being walked away from?": "The living room, which has a television and framed pictures.",
+          "What is the lighting like?": "The lighting is bright and natural, coming from windows in the adjacent rooms."
+        }
+      },
+      {
+        "id": "seg-2",
+        "start_time": 3,
+        "end_time": 6,
+        "name": "Entering the Kitchen",
+        "color": "#F0AD4E",
+        "descriptions": {
+          "level_1": "You enter a well-lit kitchen with wooden cabinets and a white refrigerator.",
+          "level_2": "You pass through the doorway into the kitchen. There is a peninsula counter on your left and a large white refrigerator on your right, with wooden cabinets lining the walls.",
+          "level_3": "You step through the hallway and enter a bright kitchen with wooden floors and matching wooden cabinetry. Overhead fluorescent lighting illuminates the space. To your left is a raised counter with wooden bar stools, and to your right is a tall white refrigerator covered in magnets and photos. You walk straight ahead into the center of the kitchen, approaching the main countertop area near the sink."
+        },
+        "vqa_prepared": {
+          "What is on the refrigerator?": "The white refrigerator is covered in magnets and photos.",
+          "What type of seating is at the peninsula counter?": "Wooden bar stools are at the raised counter on the left.",
+          "What kind of lighting is in the kitchen?": "Overhead fluorescent lighting illuminates the space.",
+          "What type of flooring is in the kitchen?": "Wooden floors match the wooden cabinetry.",
+          "Where are you heading as you enter the kitchen?": "You walk straight ahead into the center of the kitchen, toward the main countertop area near the sink."
+        }
+      },
+      {
+        "id": "seg-3",
+        "start_time": 6,
+        "end_time": 9,
+        "name": "Grabbing Mug and Coffee",
+        "color": "#5CB85C",
+        "descriptions": {
+          "level_1": "You reach the kitchen counter, grab a beige mug, and open a red tin of coffee.",
+          "level_2": "You stop in front of the counter next to the sink. You use your right hand to pick up a beige mug, set it down in front of you, and then use both hands to twist the red lid off a coffee tin.",
+          "level_3": "You stop at the main counter area, which is illuminated by an under-cabinet light and natural light from the window above the sink. Various kitchen items, including oils, a toaster, and an electric kettle, sit on the speckled, light-colored countertop. You reach out with your right hand to grab a simple beige mug, placing it firmly in the center of your workspace. Then, using both hands, you grab a red cylindrical tin of instant coffee and twist off its plastic lid, setting the lid down nearby."
+        },
+        "vqa_prepared": {
+          "What color is the mug?": "The mug is beige.",
+          "What type of coffee is being used?": "Instant coffee granules from a red cylindrical tin.",
+          "What other appliances are on the counter?": "Oils, a toaster, and an electric kettle are on the countertop.",
+          "How is the counter lit?": "By an under-cabinet light and natural light from the window above the sink.",
+          "How is the coffee tin opened?": "Both hands are used to twist off the plastic lid."
+        }
+      },
+      {
+        "id": "seg-4",
+        "start_time": 9,
+        "end_time": 12,
+        "name": "Making the Coffee",
+        "color": "#9B59B6",
+        "descriptions": {
+          "level_1": "You pour instant coffee into the mug, then use an electric kettle to pour in hot water.",
+          "level_2": "Holding the red tin, you shake some instant coffee granules into the beige mug. You then set the tin down, grab the silver electric kettle to your right, and pour steaming water into the cup.",
+          "level_3": "Holding the open red coffee tin, you gently tip it to pour a small amount of dark instant coffee granules into the bottom of the beige mug. You set the tin aside on the left side of the mug. Reaching to your right, you grasp the black handle of a brushed stainless steel electric kettle. You lift the heavy kettle and carefully pour hot water into the mug, filling it close to the top."
+        },
+        "vqa_prepared": {
+          "What does the electric kettle look like?": "It is a brushed stainless steel kettle with a black handle.",
+          "Where is the kettle positioned relative to the mug?": "The kettle is to the right of the mug on the counter.",
+          "How full is the mug after pouring the water?": "The mug is filled close to the top.",
+          "Where is the coffee tin placed after pouring?": "The tin is set aside to the left side of the mug.",
+          "What color are the coffee granules?": "The instant coffee granules are dark in color."
+        }
+      },
+      {
+        "id": "seg-5",
+        "start_time": 12,
+        "end_time": 15,
+        "name": "Taking a Sip",
+        "color": "#1ABC9C",
+        "descriptions": {
+          "level_1": "You set the kettle down and pick up the mug of hot coffee to take a drink.",
+          "level_2": "After filling the mug, you place the electric kettle back onto the counter. You then pick up the warm mug with both hands and bring it toward your face to take a sip.",
+          "level_3": "You finish pouring the water and smoothly set the stainless steel kettle back down onto its base on the counter. Taking a moment, you reach out with both hands to wrap your fingers around the warm beige mug. You lift the mug toward you, tilting it slightly to reveal the dark, freshly made coffee inside. You bring the mug up to your mouth for a drink, filling the view. The simple routine concludes with a sense of warm morning comfort."
+        },
+        "vqa_prepared": {
+          "How many hands are used to hold the mug?": "Both hands are used to hold the warm mug.",
+          "What is visible inside the mug when it is tilted?": "Dark, freshly made coffee is visible inside.",
+          "Where is the kettle placed after pouring?": "The kettle is set back down onto its base on the counter.",
+          "How does the scene end?": "The mug is brought up to the mouth for a drink, ending with a sense of warm morning comfort.",
+          "What does tilting the mug reveal?": "Tilting the mug reveals the dark coffee inside."
+        }
+      }
+    ]
+  },
+  "videos": [
+    {
+      "id": "video-sample",
+      "title": "Morning Coffee Routine",
+      "src": "/videos/sample.mp4",
+      "duration": 15,
+      "segments": [
+        {
+          "id": "v1-seg-1",
+          "start_time": 0,
+          "end_time": 3,
+          "name": "Walking to Kitchen",
+          "color": "#E74C3C",
+          "descriptions": {
+            "level_1": "You are walking from the living room towards a doorway, trailing your right hand along the wall.",
+            "level_2": "You turn away from the living room and walk toward a hallway. Your right hand trails along the white wall, passing just above a light switch as you head toward the kitchen.",
+            "level_3": "The view shifts from a living room with a television and framed pictures to a short hallway. You are walking forward, moving from a space with warm hardwood floors toward a doorway. Your right hand reaches out to touch the white wall, gliding smoothly past a light switch and a black-framed picture. The lighting is bright and natural, coming from windows in the adjacent rooms."
+          },
+          "vqa_prepared": {
+            "Which hand is trailing along the wall?": "The right hand trails along the wall.",
+            "What is on the wall being passed?": "A light switch and a black-framed picture are on the wall.",
+            "What type of flooring is visible?": "Warm hardwood floors are visible.",
+            "What room is being walked away from?": "The living room, which has a television and framed pictures.",
+            "What is the lighting like?": "The lighting is bright and natural, coming from windows in the adjacent rooms."
+          }
+        },
+        {
+          "id": "v1-seg-2",
+          "start_time": 3,
+          "end_time": 6,
+          "name": "Entering the Kitchen",
+          "color": "#F0AD4E",
+          "descriptions": {
+            "level_1": "You enter a well-lit kitchen with wooden cabinets and a white refrigerator.",
+            "level_2": "You pass through the doorway into the kitchen. There is a peninsula counter on your left and a large white refrigerator on your right, with wooden cabinets lining the walls.",
+            "level_3": "You step through the hallway and enter a bright kitchen with wooden floors and matching wooden cabinetry. Overhead fluorescent lighting illuminates the space. To your left is a raised counter with wooden bar stools, and to your right is a tall white refrigerator covered in magnets and photos. You walk straight ahead into the center of the kitchen, approaching the main countertop area near the sink."
+          },
+          "vqa_prepared": {
+            "What is on the refrigerator?": "The white refrigerator is covered in magnets and photos.",
+            "What type of seating is at the peninsula counter?": "Wooden bar stools are at the raised counter on the left.",
+            "What kind of lighting is in the kitchen?": "Overhead fluorescent lighting illuminates the space.",
+            "What type of flooring is in the kitchen?": "Wooden floors match the wooden cabinetry.",
+            "Where are you heading as you enter the kitchen?": "You walk straight ahead into the center of the kitchen, toward the main countertop area near the sink."
+          }
+        },
+        {
+          "id": "v1-seg-3",
+          "start_time": 6,
+          "end_time": 9,
+          "name": "Grabbing Mug and Coffee",
+          "color": "#5CB85C",
+          "descriptions": {
+            "level_1": "You reach the kitchen counter, grab a beige mug, and open a red tin of coffee.",
+            "level_2": "You stop in front of the counter next to the sink. You use your right hand to pick up a beige mug, set it down in front of you, and then use both hands to twist the red lid off a coffee tin.",
+            "level_3": "You stop at the main counter area, which is illuminated by an under-cabinet light and natural light from the window above the sink. Various kitchen items, including oils, a toaster, and an electric kettle, sit on the speckled, light-colored countertop. You reach out with your right hand to grab a simple beige mug, placing it firmly in the center of your workspace. Then, using both hands, you grab a red cylindrical tin of instant coffee and twist off its plastic lid, setting the lid down nearby."
+          },
+          "vqa_prepared": {
+            "What color is the mug?": "The mug is beige.",
+            "What type of coffee is being used?": "Instant coffee granules from a red cylindrical tin.",
+            "What other appliances are on the counter?": "Oils, a toaster, and an electric kettle are on the countertop.",
+            "How is the counter lit?": "By an under-cabinet light and natural light from the window above the sink.",
+            "How is the coffee tin opened?": "Both hands are used to twist off the plastic lid."
+          }
+        },
+        {
+          "id": "v1-seg-4",
+          "start_time": 9,
+          "end_time": 12,
+          "name": "Making the Coffee",
+          "color": "#9B59B6",
+          "descriptions": {
+            "level_1": "You pour instant coffee into the mug, then use an electric kettle to pour in hot water.",
+            "level_2": "Holding the red tin, you shake some instant coffee granules into the beige mug. You then set the tin down, grab the silver electric kettle to your right, and pour steaming water into the cup.",
+            "level_3": "Holding the open red coffee tin, you gently tip it to pour a small amount of dark instant coffee granules into the bottom of the beige mug. You set the tin aside on the left side of the mug. Reaching to your right, you grasp the black handle of a brushed stainless steel electric kettle. You lift the heavy kettle and carefully pour hot water into the mug, filling it close to the top."
+          },
+          "vqa_prepared": {
+            "What does the electric kettle look like?": "It is a brushed stainless steel kettle with a black handle.",
+            "Where is the kettle positioned relative to the mug?": "The kettle is to the right of the mug on the counter.",
+            "How full is the mug after pouring the water?": "The mug is filled close to the top.",
+            "Where is the coffee tin placed after pouring?": "The tin is set aside to the left side of the mug.",
+            "What color are the coffee granules?": "The instant coffee granules are dark in color."
+          }
+        },
+        {
+          "id": "v1-seg-5",
+          "start_time": 12,
+          "end_time": 15,
+          "name": "Taking a Sip",
+          "color": "#1ABC9C",
+          "descriptions": {
+            "level_1": "You set the kettle down and pick up the mug of hot coffee to take a drink.",
+            "level_2": "After filling the mug, you place the electric kettle back onto the counter. You then pick up the warm mug with both hands and bring it toward your face to take a sip.",
+            "level_3": "You finish pouring the water and smoothly set the stainless steel kettle back down onto its base on the counter. Taking a moment, you reach out with both hands to wrap your fingers around the warm beige mug. You lift the mug toward you, tilting it slightly to reveal the dark, freshly made coffee inside. You bring the mug up to your mouth for a drink, filling the view. The simple routine concludes with a sense of warm morning comfort."
+          },
+          "vqa_prepared": {
+            "How many hands are used to hold the mug?": "Both hands are used to hold the warm mug.",
+            "What is visible inside the mug when it is tilted?": "Dark, freshly made coffee is visible inside.",
+            "Where is the kettle placed after pouring?": "The kettle is set back down onto its base on the counter.",
+            "How does the scene end?": "The mug is brought up to the mouth for a drink, ending with a sense of warm morning comfort.",
+            "What does tilting the mug reveal?": "Tilting the mug reveals the dark coffee inside."
+          }
+        }
+      ]
+    },
+    {
+      "id": "video-sample2",
+      "title": "Coffee Vlog",
+      "src": "/videos/sample2.mp4",
+      "duration": 15,
+      "segments": [
+        {
+          "id": "v2-seg-1",
+          "start_time": 0,
+          "end_time": 3,
+          "name": "Opening Coffee Tin",
+          "color": "#3B82F6",
+          "descriptions": {
+            "level_1": "You are in a kitchen, opening a tin of instant coffee and pouring it into a mug.",
+            "level_2": "From a first-person view in a kitchen, you use both hands to open a red tin of instant coffee. You pour a scoop of the dark granules into a beige mug resting on the counter.",
+            "level_3": "A first-person perspective shows wooden kitchen cabinets and a speckled countertop. You are holding a red cylindrical tin of instant coffee. With your right hand, you tip the tin, pouring a generous amount of dark coffee granules into a sturdy beige mug sitting in the center of the workspace next to an electric kettle."
+          },
+          "vqa_prepared": {
+            "What color is the coffee tin?": "The coffee tin is red and cylindrical.",
+            "What is on the countertop?": "A beige mug and an electric kettle are on the speckled countertop.",
+            "What type of cabinets are in the kitchen?": "Wooden kitchen cabinets.",
+            "What is being poured into the mug?": "Dark instant coffee granules from the red tin.",
+            "What view is this filmed from?": "A first-person perspective."
+          }
+        },
+        {
+          "id": "v2-seg-2",
+          "start_time": 3,
+          "end_time": 6,
+          "name": "Pouring Water and Drinking",
+          "color": "#8B5CF6",
+          "descriptions": {
+            "level_1": "You pour hot water from an electric kettle into the mug and bring the mug to your mouth.",
+            "level_2": "You grab a stainless steel electric kettle and pour steaming water into the mug of coffee granules. You place the kettle down, pick up the mug with both hands, and bring it up to take a drink.",
+            "level_3": "You place the red coffee tin down and grab the black handle of a brushed stainless steel electric kettle. You lift it and pour steaming hot water into the beige mug, filling it up. Quickly setting the kettle back onto its base, you wrap both hands around the warm mug, lift it off the counter, and tilt it toward the camera to take a sip."
+          },
+          "vqa_prepared": {
+            "What type of kettle is used?": "A brushed stainless steel electric kettle with a black handle.",
+            "How is the mug held?": "Both hands are wrapped around the warm mug.",
+            "What happens after pouring the water?": "The kettle is set back on its base, then the mug is picked up for a drink.",
+            "Is the water hot?": "Yes, the water is steaming as it is poured.",
+            "How full is the mug?": "The mug is filled up with the hot water."
+          }
+        },
+        {
+          "id": "v2-seg-3",
+          "start_time": 6,
+          "end_time": 9,
+          "name": "Man Introduces Himself",
+          "color": "#10B981",
+          "descriptions": {
+            "level_1": "The scene cuts to a young man speaking to the camera in a different kitchen, saying he's about to make coffee.",
+            "level_2": "The video cuts to a wide shot of a man with short brown hair wearing a black t-shirt. He is standing in a brightly lit kitchen with white cabinets, stating he is about to make a cup of coffee.",
+            "level_3": "The perspective shifts from a first-person view to a front-facing shot of a young man. He has short brown hair and is wearing a black t-shirt. He stands in the center of a different kitchen featuring modern white cabinetry, white walls, and a stainless steel microwave. He looks directly at the camera and begins to speak, announcing, \"I'm in the kitchen, I'm about to make a cup of coffee\"."
+          },
+          "vqa_prepared": {
+            "What is the man wearing?": "A black t-shirt.",
+            "What does the kitchen look like?": "A brightly lit kitchen with modern white cabinetry, white walls, and a stainless steel microwave.",
+            "What does the man say?": "He says 'I'm in the kitchen, I'm about to make a cup of coffee'.",
+            "What is his hair like?": "He has short brown hair.",
+            "How has the camera angle changed?": "It shifted from a first-person view to a front-facing shot."
+          }
+        },
+        {
+          "id": "v2-seg-4",
+          "start_time": 9,
+          "end_time": 12,
+          "name": "Man Explains Absence",
+          "color": "#F59E0B",
+          "descriptions": {
+            "level_1": "The man continues speaking to the camera, gesturing with his hands and explaining he hasn't filmed in a while.",
+            "level_2": "The man remains in the center of the kitchen, continuing his explanation to the camera. He uses his hands and arms to emphasize his words as he says he just realized he hasn't filmed a video in a while.",
+            "level_3": "The shot remains fixed on the young man in the white kitchen. He continues speaking directly to the audience, his expression engaged and conversational. He actively uses hand gestures, raising his hands to animate his points, as he states, \"and I just realized that I haven't filmed a video in a while\"."
+          },
+          "vqa_prepared": {
+            "What is the man doing with his hands?": "He is using hand gestures to emphasize his words, raising his hands to animate his points.",
+            "What does he say?": "He says 'and I just realized that I haven't filmed a video in a while'.",
+            "What is his expression like?": "His expression is engaged and conversational.",
+            "Where is he standing?": "In the center of the white kitchen.",
+            "Who is he speaking to?": "He is speaking directly to the camera audience."
+          }
+        },
+        {
+          "id": "v2-seg-5",
+          "start_time": 12,
+          "end_time": 15,
+          "name": "Man Announces Video",
+          "color": "#EF4444",
+          "descriptions": {
+            "level_1": "The man concludes his thought by stating he is going to film a video, while still looking directly at the camera.",
+            "level_2": "Still standing in the kitchen with white cabinets, the man finishes his sentence. He maintains eye contact with the lens and concludes his explanation by saying, \"So I'm gonna film a video\".",
+            "level_3": "The man in the black t-shirt continues his direct address from the bright white kitchen. He brings his hands back down slightly as he wraps up his statement. He maintains steady eye contact with the camera lens, his facial expression remaining friendly as he concludes, \"So I'm gonna film a video...\"."
+          },
+          "vqa_prepared": {
+            "What does the man say?": "He says 'So I'm gonna film a video'.",
+            "What is his body language?": "He brings his hands back down slightly as he wraps up his statement.",
+            "Does he maintain eye contact?": "Yes, he maintains steady eye contact with the camera lens.",
+            "What is his expression?": "His facial expression remains friendly.",
+            "Where is this scene set?": "In a bright white kitchen with white cabinets."
+          }
+        }
+      ]
+    },
+    {
+      "id": "video-sample3",
+      "title": "Lakeside Adventure",
+      "src": "/videos/sample3.mp4",
+      "duration": 15,
+      "segments": [
+        {
+          "id": "v3-seg-1",
+          "start_time": 0,
+          "end_time": 3,
+          "name": "Opening Backpack by Window",
+          "color": "#EC4899",
+          "descriptions": {
+            "level_1": "You are standing by a window, opening a black backpack.",
+            "level_2": "You stand by a window overlooking a body of water. You use both hands to open the zipper of a black backpack resting on the windowsill.",
+            "level_3": "From a first-person perspective, you are looking out a window at a lake and some trees. Your hands are resting on a white windowsill where a black backpack sits. You unzip the main compartment of the backpack and briefly reach inside, revealing a glimpse of something blue."
+          },
+          "vqa_prepared": {
+            "What can you see through the window?": "A lake and some trees.",
+            "What color is the backpack?": "The backpack is black.",
+            "Where is the backpack?": "Resting on a white windowsill.",
+            "What is glimpsed inside the backpack?": "Something blue is briefly visible inside.",
+            "What perspective is this filmed from?": "A first-person perspective."
+          }
+        },
+        {
+          "id": "v3-seg-2",
+          "start_time": 3,
+          "end_time": 6,
+          "name": "Walking Along Lakeside Path",
+          "color": "#06B6D4",
+          "descriptions": {
+            "level_1": "You are walking along a stone path next to a lake, following a jogger.",
+            "level_2": "The scene shifts outdoors. You are holding the black backpack in your hands as you walk along a stone path bordering a lake, following behind a man jogging in black athletic wear.",
+            "level_3": "The perspective jumps to an outdoor scene on a sunny day with scattered clouds. You are walking along a winding path made of large, flat gray stones lined with rocks, right next to a calm blue lake. You are carrying the black backpack in front of you. Ahead on the path, a bald man in a black t-shirt and shorts is jogging away from you."
+          },
+          "vqa_prepared": {
+            "What is the path made of?": "Large, flat gray stones lined with rocks.",
+            "What is the weather like?": "A sunny day with scattered clouds.",
+            "Who is ahead on the path?": "A bald man in a black t-shirt and shorts is jogging.",
+            "What are you carrying?": "The black backpack is being carried in front of you.",
+            "What is next to the path?": "A calm blue lake is right next to the path."
+          }
+        },
+        {
+          "id": "v3-seg-3",
+          "start_time": 6,
+          "end_time": 9,
+          "name": "Unzipping Backpack While Walking",
+          "color": "#84CC16",
+          "descriptions": {
+            "level_1": "You continue along the lakeside path and begin unzipping the backpack again.",
+            "level_2": "You keep walking along the path, nearing a paved area by the water as the jogger pulls further ahead. You look down and use your right hand to pull the zipper on the backpack you are holding.",
+            "level_3": "You continue your walk along the edge of the lake, approaching a paved section where a bench sits on the grass. The jogger in front of you is getting further away. You look down at the black backpack held in your left hand, reach out with your right hand, and grasp the zipper pull to open it as you walk."
+          },
+          "vqa_prepared": {
+            "What is near the paved section?": "A bench sits on the grass.",
+            "Which hand holds the backpack?": "The left hand holds the backpack.",
+            "Which hand opens the zipper?": "The right hand grasps the zipper pull.",
+            "Where is the jogger?": "The jogger is getting further ahead on the path.",
+            "What are you approaching?": "A paved section by the water where a bench sits."
+          }
+        },
+        {
+          "id": "v3-seg-4",
+          "start_time": 9,
+          "end_time": 12,
+          "name": "Car Door and Gas Station",
+          "color": "#F97316",
+          "descriptions": {
+            "level_1": "You hold an open car door by the lake, then the scene cuts abruptly to you standing by a black SUV at a gas station.",
+            "level_2": "There is a quick cut showing you holding open the driver's side door of a car parked near the lake. Then, the scene jumps to a Shell gas station, where you are standing outside an open car door, reaching towards the hood of a black SUV.",
+            "level_3": "The view shifts rapidly. First, you are looking out from inside an open vehicle door parked right next to the lakeside path, holding the inner door handle. In the next instant, the setting completely changes to a Shell gas station on a sunny day. You are standing next to the open driver's door of a black SUV, reaching your right hand out towards the center of the vehicle's hood."
+          },
+          "vqa_prepared": {
+            "What type of gas station is it?": "A Shell gas station.",
+            "What kind of vehicle is at the gas station?": "A black SUV.",
+            "What door is open?": "The driver's side door is open.",
+            "What happens in the scene transition?": "It cuts from a car by the lake to a gas station setting.",
+            "What are you reaching towards?": "You are reaching towards the hood of the black SUV."
+          }
+        },
+        {
+          "id": "v3-seg-5",
+          "start_time": 12,
+          "end_time": 15,
+          "name": "Opening SUV Hood",
+          "color": "#A855F7",
+          "descriptions": {
+            "level_1": "You are at the gas station, attempting to open the hood of the black SUV.",
+            "level_2": "Standing by the open door of the black SUV at the gas station, you reach forward. You place your hand under the edge of the hood, attempting to release the latch and open it.",
+            "level_3": "You are standing between the open driver's side door and the body of a black, modern SUV parked at a Shell gas station canopy. You extend your right arm toward the front of the car, slipping your fingers under the slightly raised edge of the hood above the large silver grille. You grope around, seemingly feeling for the secondary latch to open the hood completely."
+          },
+          "vqa_prepared": {
+            "What are you trying to do?": "You are trying to release the hood latch to open the hood of the SUV.",
+            "Where exactly are you standing?": "Between the open driver's side door and the body of the SUV.",
+            "What is visible on the front of the car?": "A large silver grille is visible below the hood.",
+            "Which hand is being used?": "The right arm is extended toward the front of the car.",
+            "What is the SUV parked under?": "The Shell gas station canopy."
+          }
+        }
+      ]
+    }
+  ]
+}

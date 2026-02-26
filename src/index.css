@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* High contrast theme overrides */
+.high-contrast {
+  --bg: #000000;
+  --text: #FFFFFF;
+  --accent: #00FFFF;
+  --border: #FFFFFF;
+}
+.high-contrast body,
+.high-contrast .bg-white,
+.high-contrast .bg-gray-50,
+.high-contrast .bg-gray-100 {
+  background-color: #000000 !important;
+  color: #FFFFFF !important;
+}
+.high-contrast button {
+  border: 2px solid #FFFFFF !important;
+}
+.high-contrast input, .high-contrast textarea {
+  background-color: #1a1a1a !important;
+  color: #FFFFFF !important;
+  border-color: #FFFFFF !important;
+}
