@@ -15,16 +15,37 @@ class WsRelayService {
     this.onDataCallbacks = [];
     this.onConnectedCallbacks = [];
     this.onDisconnectedCallbacks = [];
+    this.isPeerConnected = false;
+  }
+
+  _emitConnected() {
+    if (this.isPeerConnected) return;
+    this.isPeerConnected = true;
+    this.onConnectedCallbacks.forEach((cb) => cb());
+  }
+
+  _emitDisconnected() {
+    if (!this.isPeerConnected) return;
+    this.isPeerConnected = false;
+    this.onDisconnectedCallbacks.forEach((cb) => cb());
   }
 
   connect(role) {
+    // Ensure reconnects are clean and idempotent.
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED) {
+      this.ws.close();
+    }
+
+    this.ws = null;
+    this.isPeerConnected = false;
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${protocol}//${window.location.host}/__ws_relay`;
 
     this.ws = new WebSocket(url);
 
     this.ws.addEventListener('open', () => {
-      this.ws.send(JSON.stringify({ type: 'JOIN', role }));
+      this.ws?.send(JSON.stringify({ type: 'JOIN', role }));
     });
 
     this.ws.addEventListener('message', (event) => {
@@ -36,12 +57,12 @@ class WsRelayService {
       }
 
       if (msg.type === 'PAIRED') {
-        this.onConnectedCallbacks.forEach((cb) => cb());
+        this._emitConnected();
         return;
       }
 
       if (msg.type === 'PEER_DISCONNECTED') {
-        this.onDisconnectedCallbacks.forEach((cb) => cb());
+        this._emitDisconnected();
         return;
       }
 
@@ -49,7 +70,7 @@ class WsRelayService {
     });
 
     this.ws.addEventListener('close', () => {
-      this.onDisconnectedCallbacks.forEach((cb) => cb());
+      this._emitDisconnected();
     });
 
     this.ws.addEventListener('error', (err) => {
@@ -87,6 +108,7 @@ class WsRelayService {
   disconnect() {
     this.ws?.close();
     this.ws = null;
+    this.isPeerConnected = false;
     this.onDataCallbacks = [];
     this.onConnectedCallbacks = [];
     this.onDisconnectedCallbacks = [];

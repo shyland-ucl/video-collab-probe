@@ -22,10 +22,13 @@ export default function Probe3Page() {
   const [searchParams] = useSearchParams();
   const isResearcher = searchParams.get('mode') === 'researcher';
   const roleParam = searchParams.get('role'); // 'creator' | 'helper' | null
+  const validRoleParam = roleParam === 'creator' || roleParam === 'helper'
+    ? roleParam
+    : null;
 
   // Phase: roleSelect -> waiting -> active
-  const [phase, setPhase] = useState(roleParam ? 'waiting' : 'roleSelect');
-  const [role, setRole] = useState(roleParam || null);
+  const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
+  const [role, setRole] = useState(validRoleParam || null);
 
   // Video state
   const playerRef = useRef(null);
@@ -206,11 +209,11 @@ export default function Probe3Page() {
   // If role came from URL param, auto-connect on mount
   const didAutoConnect = useRef(false);
   useEffect(() => {
-    if (roleParam && !didAutoConnect.current) {
+    if (validRoleParam && !didAutoConnect.current) {
       didAutoConnect.current = true;
-      handleRoleSelect(roleParam);
+      handleRoleSelect(validRoleParam);
     }
-  }, [roleParam, handleRoleSelect]);
+  }, [validRoleParam, handleRoleSelect]);
 
   useEffect(() => () => {
     clearSubscriptions();
