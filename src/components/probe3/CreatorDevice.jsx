@@ -103,7 +103,8 @@ export default function CreatorDevice({
         setControlRequest(data);
       }
     };
-    webrtcService.onData(handleData);
+    const unsubscribe = webrtcService.onData(handleData);
+    return unsubscribe;
   }, [webrtcService]);
 
   // Send message to helper

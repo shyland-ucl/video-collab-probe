@@ -60,7 +60,8 @@ export default function HelperDevice({
         }
       }
     };
-    webrtcService.onData(handleData);
+    const unsubscribe = webrtcService.onData(handleData);
+    return unsubscribe;
   }, [webrtcService, independentMode, onToggleIndependentMode]);
 
   // Send activity updates to creator

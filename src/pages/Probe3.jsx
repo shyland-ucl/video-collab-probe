@@ -22,10 +22,13 @@ export default function Probe3Page() {
   const [searchParams] = useSearchParams();
   const isResearcher = searchParams.get('mode') === 'researcher';
   const roleParam = searchParams.get('role'); // 'creator' | 'helper' | null
+  const validRoleParam = roleParam === 'creator' || roleParam === 'helper'
+    ? roleParam
+    : null;
 
   // Phase: roleSelect -> waiting -> active
-  const [phase, setPhase] = useState(roleParam ? 'waiting' : 'roleSelect');
-  const [role, setRole] = useState(roleParam || null);
+  const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
+  const [role, setRole] = useState(validRoleParam || null);
 
   // Video state
   const playerRef = useRef(null);
@@ -102,9 +105,28 @@ export default function Probe3Page() {
     independentModeRef.current = independentMode;
   }, [independentMode]);
 
+  const unsubscribeRef = useRef({
+    data: null,
+    connected: null,
+    disconnected: null,
+  });
+
+  const clearSubscriptions = useCallback(() => {
+    unsubscribeRef.current.data?.();
+    unsubscribeRef.current.connected?.();
+    unsubscribeRef.current.disconnected?.();
+    unsubscribeRef.current = {
+      data: null,
+      connected: null,
+      disconnected: null,
+    };
+  }, []);
+
   // Set up data + disconnect handlers (once, after role is chosen)
   const setupHandlers = useCallback((currentRole) => {
-    wsRelayService.onData((msg) => {
+    clearSubscriptions();
+
+    unsubscribeRef.current.data = wsRelayService.onData((msg) => {
       switch (msg.type) {
         case 'PLAY':
           if (currentRole === 'helper' && !independentModeRef.current) {
@@ -160,12 +182,19 @@ export default function Probe3Page() {
       }
     });
 
-    wsRelayService.onDisconnected(() => {
+    unsubscribeRef.current.disconnected = wsRelayService.onDisconnected(() => {
       setConnected(false);
       logEvent(EventTypes.DEVICE_DISCONNECTED, Actors.SYSTEM, { role: currentRole });
       announce('Device disconnected');
     });
-  }, [logEvent]);
+
+    unsubscribeRef.current.connected = wsRelayService.onConnected(() => {
+      setConnected(true);
+      logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: currentRole });
+      announce('Device connected');
+      setPhase('active');
+    });
+  }, [clearSubscriptions, logEvent]);
 
   // --- Role Selection → connect immediately ---
   const handleRoleSelect = useCallback((selectedRole) => {
@@ -174,25 +203,22 @@ export default function Probe3Page() {
     logEvent(EventTypes.SESSION_START, Actors.SYSTEM, { role: selectedRole, probe: 'probe3' });
 
     setupHandlers(selectedRole);
-
-    wsRelayService.onConnected(() => {
-      setConnected(true);
-      logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: selectedRole });
-      announce('Device connected');
-      setPhase('active');
-    });
-
     wsRelayService.connect(selectedRole);
   }, [logEvent, setupHandlers]);
 
   // If role came from URL param, auto-connect on mount
   const didAutoConnect = useRef(false);
   useEffect(() => {
-    if (roleParam && !didAutoConnect.current) {
+    if (validRoleParam && !didAutoConnect.current) {
       didAutoConnect.current = true;
-      handleRoleSelect(roleParam);
+      handleRoleSelect(validRoleParam);
     }
-  }, [roleParam, handleRoleSelect]);
+  }, [validRoleParam, handleRoleSelect]);
+
+  useEffect(() => () => {
+    clearSubscriptions();
+    wsRelayService.disconnect();
+  }, [clearSubscriptions]);
 
   // Toggle independent mode for helper
   const handleToggleIndependentMode = useCallback(() => {
