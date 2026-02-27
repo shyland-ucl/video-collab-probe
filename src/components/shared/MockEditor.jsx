@@ -587,10 +587,19 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
       <div
         ref={timelineRef}
         role="listbox"
-        aria-label="Video timeline clips"
+        aria-label="Video timeline clips. Click to seek."
         tabIndex={0}
         onKeyDown={handleTimelineKeyDown}
-        className="relative flex items-stretch mx-2 my-3 rounded overflow-hidden"
+        onClick={(e) => {
+          // Click-to-seek: convert click X position to time
+          if (!timelineRef.current || !onSeek) return;
+          const rect = timelineRef.current.getBoundingClientRect();
+          const x = (e.clientX || (e.touches && e.touches[0].clientX) || 0) - rect.left;
+          const fraction = Math.max(0, Math.min(1, x / rect.width));
+          const seekTime = fraction * timelineTotalDuration;
+          onSeek(seekTime);
+        }}
+        className="relative flex items-stretch mx-2 my-3 rounded overflow-hidden cursor-pointer"
         style={{ height: '56px', backgroundColor: '#162D54' }}
       >
         {clips.map((clip, idx) => {
@@ -605,7 +614,18 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
               role="option"
               aria-selected={isSelected}
               aria-label={`${clip.name}${sourceName ? ` (${sourceName})` : ''}, ${layout.duration.toFixed(1)} seconds`}
-              onClick={() => handleSelectClip(idx)}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSelectClip(idx);
+                // Seek to the clicked position within the clip
+                if (onSeek && timelineRef.current) {
+                  const rect = timelineRef.current.getBoundingClientRect();
+                  const x = e.clientX - rect.left;
+                  const fraction = Math.max(0, Math.min(1, x / rect.width));
+                  const seekTime = fraction * timelineTotalDuration;
+                  onSeek(seekTime);
+                }
+              }}
               className="relative flex items-center justify-center cursor-pointer overflow-hidden select-none"
               style={{
                 width: `${widthPercent}%`,

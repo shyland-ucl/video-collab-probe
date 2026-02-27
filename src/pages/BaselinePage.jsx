@@ -6,9 +6,9 @@ import { buildInitialSources, buildAllSegments, getTotalDuration } from '../util
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import TransportControls from '../components/shared/TransportControls.jsx';
-import Timeline from '../components/shared/Timeline.jsx';
+
 import SegmentMarkerPanel from '../components/shared/SegmentMarkerPanel.jsx';
-import AccessibilityToolbar from '../components/shared/AccessibilityToolbar.jsx';
+
 import MockEditor from '../components/shared/MockEditor.jsx';
 
 export default function BaselinePage() {
@@ -86,37 +86,18 @@ export default function BaselinePage() {
             currentTime={currentTime}
             duration={duration || videoDuration}
           />
-          <Timeline
+          <MockEditor
             segments={segments}
+            initialSources={initialSources}
             currentTime={currentTime}
-            duration={duration || videoDuration}
             onSeek={handleSeek}
+            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
 
         {/* Right column: Tools */}
         <div className="lg:w-2/5 flex flex-col gap-4" role="region" aria-label="Editing tools">
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Accessibility
-            </h2>
-            <AccessibilityToolbar />
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Editor
-            </h2>
-            <MockEditor
-              segments={segments}
-              initialSources={initialSources}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
-            />
-          </div>
-
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
             <p className="font-medium mb-1">Baseline condition</p>
             <p>No AI descriptions available. This condition serves as a control, allowing the participant to work with the video using only the standard player controls and their own perception.</p>

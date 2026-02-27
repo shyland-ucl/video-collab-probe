@@ -75,7 +75,9 @@ export default function ExplorationMode({
     (seg, level) => {
       if (!seg) return;
       const key = `level_${level}`;
-      const text = seg.descriptions?.[key] ?? '';
+      const rawText = seg.descriptions?.[key] ?? '';
+      const timePrefix = `${formatTime(seg.start_time)} - ${formatTime(seg.end_time)}`;
+      const text = `${timePrefix}. ${rawText}`;
       announce(text);
       if (audioEnabled) {
         ttsService.speak(text, { rate: speechRate });
@@ -93,8 +95,11 @@ export default function ExplorationMode({
       return;
     }
 
-    // Pause the video
+    // Pause the video and show first segment's first frame
     playerRef?.current?.pause?.();
+    if (segments?.[0]) {
+      playerRef?.current?.seek?.(segments[0].start_time);
+    }
 
     // Reset to first segment, level 1
     setCurrentIndex(0);
@@ -123,6 +128,8 @@ export default function ExplorationMode({
       const next = (prev - 1 + total) % total;
       playTone(880);
       const seg = segments[next];
+      // Seek video to first frame of this segment
+      playerRef?.current?.seek?.(seg.start_time);
       announce(`Scene ${next + 1} of ${total}, detail level ${currentLevel}`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
@@ -132,7 +139,7 @@ export default function ExplorationMode({
       });
       return next;
     });
-  }, [total, segments, currentLevel, announceDescription, logEvent]);
+  }, [total, segments, currentLevel, announceDescription, logEvent, playerRef]);
 
   const goToNextSegment = useCallback(() => {
     if (!total) return;
@@ -140,6 +147,8 @@ export default function ExplorationMode({
       const next = (prev + 1) % total;
       playTone(880);
       const seg = segments[next];
+      // Seek video to first frame of this segment
+      playerRef?.current?.seek?.(seg.start_time);
       announce(`Scene ${next + 1} of ${total}, detail level ${currentLevel}`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
@@ -149,7 +158,7 @@ export default function ExplorationMode({
       });
       return next;
     });
-  }, [total, segments, currentLevel, announceDescription, logEvent]);
+  }, [total, segments, currentLevel, announceDescription, logEvent, playerRef]);
 
   const increaseLevel = useCallback(() => {
     setCurrentLevel((prev) => {
@@ -241,7 +250,8 @@ export default function ExplorationMode({
   if (!active || !segment) return null;
 
   const descriptionKey = `level_${currentLevel}`;
-  const descriptionText = segment.descriptions?.[descriptionKey] ?? 'No description available.';
+  const rawDescription = segment.descriptions?.[descriptionKey] ?? 'No description available.';
+  const descriptionText = `${formatTime(segment.start_time)} - ${formatTime(segment.end_time)}: ${rawDescription}`;
 
   return (
     <SwipeHandler

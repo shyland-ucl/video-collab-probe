@@ -4,7 +4,7 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
-import Timeline from '../shared/Timeline.jsx';
+
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditor from '../shared/MockEditor.jsx';
 import WorkspaceAwareness from './WorkspaceAwareness.jsx';
@@ -165,11 +165,12 @@ export default function HelperDevice({
           currentTime={currentTime}
           duration={duration || videoDuration}
         />
-        <Timeline
+        <MockEditor
           segments={segments}
+          initialSources={initialSources}
           currentTime={currentTime}
-          duration={duration || videoDuration}
           onSeek={handleSeek}
+          onEditChange={onEditChange}
         />
         <SegmentMarkerPanel segment={currentSegment} />
       </div>
@@ -239,20 +240,6 @@ export default function HelperDevice({
           >
             {showDescriptions ? 'Hide Descriptions' : 'Show Descriptions'}
           </button>
-        </div>
-
-        {/* Simplified Edit Actions */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Editor
-          </h2>
-          <MockEditor
-            segments={segments}
-            initialSources={initialSources}
-            currentTime={currentTime}
-            onSeek={onSeek}
-            onEditChange={onEditChange}
-          />
         </div>
 
         {/* Creator Activity Feed */}

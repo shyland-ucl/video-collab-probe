@@ -5,9 +5,9 @@ import { announce } from '../../utils/announcer.js';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
-import Timeline from '../shared/Timeline.jsx';
+
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
-import AccessibilityToolbar from '../shared/AccessibilityToolbar.jsx';
+
 import MockEditor from '../shared/MockEditor.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
 import VQAPanel from '../probe1/VQAPanel.jsx';
@@ -218,11 +218,12 @@ export default function CreatorMode({
                 currentTime={currentTime}
                 duration={duration || videoDuration}
               />
-              <Timeline
+              <MockEditor
                 segments={segments}
+                initialSources={initialSources}
                 currentTime={currentTime}
-                duration={duration || videoDuration}
                 onSeek={onSeek}
+                onEditChange={onEditChange}
               />
               <SegmentMarkerPanel segment={currentSegment} />
             </>
@@ -241,13 +242,6 @@ export default function CreatorMode({
 
         {/* Right column: Tools */}
         <div className="lg:w-2/5 flex flex-col gap-4">
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Accessibility
-            </h2>
-            <AccessibilityToolbar />
-          </div>
-
           {/* Marks */}
           <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
             <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-3">
@@ -262,18 +256,6 @@ export default function CreatorMode({
 
           <VQAPanel onQuestion={onQuestion} />
 
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-              Editor
-            </h2>
-            <MockEditor
-              segments={segments}
-              initialSources={initialSources}
-              currentTime={currentTime}
-              onSeek={onSeek}
-              onEditChange={onEditChange}
-            />
-          </div>
         </div>
       </div>
     </div>

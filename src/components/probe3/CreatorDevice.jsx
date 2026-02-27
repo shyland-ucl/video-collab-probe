@@ -4,9 +4,9 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
-import Timeline from '../shared/Timeline.jsx';
+
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
-import AccessibilityToolbar from '../shared/AccessibilityToolbar.jsx';
+
 import MockEditor from '../shared/MockEditor.jsx';
 import GranularityController from '../probe1/GranularityController.jsx';
 import DescriptionPanel from '../probe1/DescriptionPanel.jsx';
@@ -154,11 +154,12 @@ export default function CreatorDevice({
           currentTime={currentTime}
           duration={duration || videoDuration}
         />
-        <Timeline
+        <MockEditor
           segments={segments}
+          initialSources={initialSources}
           currentTime={currentTime}
-          duration={duration || videoDuration}
           onSeek={handleSeek}
+          onEditChange={onEditChange}
         />
         <SegmentMarkerPanel segment={currentSegment} />
 
@@ -240,13 +241,6 @@ export default function CreatorDevice({
 
         <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Accessibility
-          </h2>
-          <AccessibilityToolbar />
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
             Description Level
           </h2>
           <GranularityController level={level} onLevelChange={setLevel} />
@@ -264,19 +258,6 @@ export default function CreatorDevice({
         </div>
 
         <VQAPanel onQuestion={onQuestion} />
-
-        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Editor
-          </h2>
-          <MockEditor
-            segments={segments}
-            initialSources={initialSources}
-            currentTime={currentTime}
-            onSeek={onSeek}
-            onEditChange={onEditChange}
-          />
-        </div>
 
         <WorkspaceAwareness
           activities={helperActivities}
