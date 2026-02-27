@@ -13,8 +13,8 @@ class WsRelayService {
   constructor() {
     this.ws = null;
     this.onDataCallbacks = [];
-    this.onConnectedCallback = null;
-    this.onDisconnectedCallback = null;
+    this.onConnectedCallbacks = [];
+    this.onDisconnectedCallbacks = [];
   }
 
   connect(role) {
@@ -36,12 +36,12 @@ class WsRelayService {
       }
 
       if (msg.type === 'PAIRED') {
-        this.onConnectedCallback?.();
+        this.onConnectedCallbacks.forEach((cb) => cb());
         return;
       }
 
       if (msg.type === 'PEER_DISCONNECTED') {
-        this.onDisconnectedCallback?.();
+        this.onDisconnectedCallbacks.forEach((cb) => cb());
         return;
       }
 
@@ -49,7 +49,7 @@ class WsRelayService {
     });
 
     this.ws.addEventListener('close', () => {
-      this.onDisconnectedCallback?.();
+      this.onDisconnectedCallbacks.forEach((cb) => cb());
     });
 
     this.ws.addEventListener('error', (err) => {
@@ -65,20 +65,31 @@ class WsRelayService {
 
   onData(callback) {
     this.onDataCallbacks.push(callback);
+    return () => {
+      this.onDataCallbacks = this.onDataCallbacks.filter((cb) => cb !== callback);
+    };
   }
 
   onConnected(callback) {
-    this.onConnectedCallback = callback;
+    this.onConnectedCallbacks.push(callback);
+    return () => {
+      this.onConnectedCallbacks = this.onConnectedCallbacks.filter((cb) => cb !== callback);
+    };
   }
 
   onDisconnected(callback) {
-    this.onDisconnectedCallback = callback;
+    this.onDisconnectedCallbacks.push(callback);
+    return () => {
+      this.onDisconnectedCallbacks = this.onDisconnectedCallbacks.filter((cb) => cb !== callback);
+    };
   }
 
   disconnect() {
     this.ws?.close();
     this.ws = null;
     this.onDataCallbacks = [];
+    this.onConnectedCallbacks = [];
+    this.onDisconnectedCallbacks = [];
   }
 }
 
