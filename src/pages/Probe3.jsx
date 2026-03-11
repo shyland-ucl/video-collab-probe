@@ -7,6 +7,7 @@ import { announce } from '../utils/announcer.js';
 import { buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
+import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
@@ -29,6 +30,7 @@ export default function Probe3Page() {
   // Phase: roleSelect -> waiting -> active
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
+  const [showOnboarding, setShowOnboarding] = useState(true);
 
   // Video state
   const playerRef = useRef(null);
@@ -266,8 +268,11 @@ export default function Probe3Page() {
   if (phase === 'roleSelect') {
     return (
       <div className="min-h-screen bg-white">
+        {showOnboarding && (
+          <OnboardingBrief condition="probe3" onDismiss={() => setShowOnboarding(false)} />
+        )}
         <ConditionHeader condition="probe3" />
-        <div className="max-w-lg mx-auto mt-16 px-4">
+        <div className="max-w-lg mx-auto mt-8 px-4">
           <h2 className="text-2xl font-bold text-center mb-2" style={{ color: COLORS.navy }}>
             Select Your Role
           </h2>
@@ -343,7 +348,7 @@ export default function Probe3Page() {
     <div className="min-h-screen bg-white">
       <ConditionHeader condition="probe3" modeLabel={modeLabel} />
 
-      <div className="p-4 max-w-7xl mx-auto">
+      <div className="p-3 max-w-lg mx-auto">
         {role === 'creator' ? (
           <CreatorDevice
             videoRef={playerRef}

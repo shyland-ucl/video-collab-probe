@@ -2,7 +2,6 @@ import { Routes, Route } from 'react-router-dom'
 import { EventLoggerProvider } from './contexts/EventLoggerContext.jsx'
 import { AccessibilityProvider, useAccessibility } from './contexts/AccessibilityContext.jsx'
 import SessionSetupPage from './pages/SessionSetupPage.jsx'
-import BaselinePage from './pages/BaselinePage.jsx'
 import Probe1Page from './pages/Probe1Page.jsx'
 import Probe2Page from './pages/Probe2Page.jsx'
 import Probe3Page from './pages/Probe3.jsx'
@@ -39,7 +38,6 @@ function AppShell() {
       <main id="main-content">
         <Routes>
           <Route path="/" element={<SessionSetupPage />} />
-          <Route path="/baseline" element={<StudyLayout condition="baseline"><BaselinePage /></StudyLayout>} />
           <Route path="/probe1" element={<StudyLayout condition="probe1"><Probe1Page /></StudyLayout>} />
           <Route path="/probe2" element={<StudyLayout condition="probe2"><Probe2Page /></StudyLayout>} />
           <Route path="/probe3" element={<StudyLayout condition="probe3"><Probe3Page /></StudyLayout>} />

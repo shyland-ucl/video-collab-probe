@@ -6,6 +6,7 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
+import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import CreatorMode from '../components/probe2/CreatorMode.jsx';
 import HelperMode from '../components/probe2/HelperMode.jsx';
@@ -36,6 +37,9 @@ export default function Probe2Page() {
   const [transitionDirection, setTransitionDirection] = useState(null);
   const [pendingSuggestion, setPendingSuggestion] = useState(null);
   const [editState, setEditState] = useState(null);
+
+  // Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(true);
 
   // Marks (voice notes + segment markers)
   const [marks, setMarks] = useState([]);
@@ -163,9 +167,12 @@ export default function Probe2Page() {
 
   return (
     <div className="min-h-screen bg-white">
+      {showOnboarding && (
+        <OnboardingBrief condition="probe2" onDismiss={() => setShowOnboarding(false)} />
+      )}
       <ConditionHeader condition="probe2" modeLabel={modeLabel} />
 
-      <div className="p-4 max-w-7xl mx-auto">
+      <div className="p-3 max-w-lg mx-auto">
         {mode === 'creator' ? (
           <CreatorMode
             playerRef={playerRef}

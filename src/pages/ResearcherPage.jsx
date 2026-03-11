@@ -16,7 +16,6 @@ const COLORS = {
 };
 
 const CONDITIONS = [
-  { key: 'baseline', label: 'Baseline', color: COLORS.grey },
   { key: 'probe1', label: 'Probe 1', color: COLORS.blue },
   { key: 'probe2', label: 'Probe 2', color: COLORS.green },
   { key: 'probe3', label: 'Probe 3', color: COLORS.purple },
@@ -56,7 +55,7 @@ export default function ResearcherPage() {
   const [sessionActive, setSessionActive] = useState(false);
 
   // Selected tab for condition controls
-  const [selectedTab, setSelectedTab] = useState('baseline');
+  const [selectedTab, setSelectedTab] = useState('probe1');
 
   // Probe 1 state
   const [data, setData] = useState(null);
@@ -324,18 +323,6 @@ export default function ResearcherPage() {
                   )}
                 </div>
 
-                {/* Baseline tab */}
-                {selectedTab === 'baseline' && (
-                  <div className="text-sm text-gray-500 bg-gray-50 rounded p-4">
-                    <p className="font-medium text-gray-700 mb-1">Baseline Condition</p>
-                    <p>
-                      No AI support controls. This condition serves as a control.
-                      Use the session controls to start/end the condition and monitor
-                      events in the log viewer below.
-                    </p>
-                  </div>
-                )}
-
                 {/* Probe 1 tab */}
                 {selectedTab === 'probe1' && (
                   <div className="space-y-4">
@@ -507,7 +494,6 @@ export default function ResearcherPage() {
                     aria-label="Filter by condition"
                   >
                     <option value="all">All conditions</option>
-                    <option value="baseline">Baseline</option>
                     <option value="probe1">Probe 1</option>
                     <option value="probe2">Probe 2</option>
                     <option value="probe3">Probe 3</option>
@@ -726,13 +712,6 @@ export default function ResearcherPage() {
                   aria-label="Session setup page"
                 >
                   Session Setup
-                </a>
-                <a
-                  href="/baseline"
-                  className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500"
-                  aria-label="Baseline page"
-                >
-                  Baseline
                 </a>
                 <a
                   href="/probe1?mode=researcher"

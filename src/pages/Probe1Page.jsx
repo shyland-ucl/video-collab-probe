@@ -6,14 +6,10 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
+import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
-import TransportControls from '../components/shared/TransportControls.jsx';
-
-import SegmentMarkerPanel from '../components/shared/SegmentMarkerPanel.jsx';
-
-import MockEditor from '../components/shared/MockEditor.jsx';
+import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ExplorationMode from '../components/probe1/ExplorationMode.jsx';
-import VQAPanel from '../components/probe1/VQAPanel.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 
 export default function Probe1Page() {
@@ -29,14 +25,12 @@ export default function Probe1Page() {
   const [currentSegment, setCurrentSegment] = useState(null);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(true);
 
-  // Exploration mode state
-  const [explorationActive, setExplorationActive] = useState(false);
+  // Phase: 'library' → 'exploring'
+  const [phase, setPhase] = useState('library');
+  const [selectedVideos, setSelectedVideos] = useState(null);
   const [marks, setMarks] = useState([]);
-
-  // VQA panel visibility (triggered from exploration mode)
-  const [showVQA, setShowVQA] = useState(false);
-  const [vqaSegmentId, setVqaSegmentId] = useState(null);
 
   useEffect(() => {
     setCondition('probe1');
@@ -44,17 +38,37 @@ export default function Probe1Page() {
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 
-  const segments = useMemo(() => buildAllSegments(data), [data]);
-  const videoDuration = useMemo(() => getTotalDuration(data), [data]);
-  const initialSources = useMemo(() => buildInitialSources(data), [data]);
-
-  // Build a project title from all video titles
-  const projectTitle = useMemo(() => {
-    if (!data) return 'Untitled Video';
-    if (data.videos && data.videos.length > 0) {
-      return data.videos.map((v) => v.title).join(' + ');
+  // Build segments/sources from selected videos or full data
+  const projectData = useMemo(() => {
+    if (selectedVideos && data) {
+      // Build a filtered data object with only selected videos
+      return {
+        videos: data.videos
+          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
+          : [data.video],
+      };
     }
-    return data.video?.title || 'Untitled Video';
+    return data;
+  }, [data, selectedVideos]);
+
+  const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
+  const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
+  const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
+
+  const projectTitle = useMemo(() => {
+    if (!projectData) return 'Untitled Video';
+    if (projectData.videos && projectData.videos.length > 0) {
+      return projectData.videos.map((v) => v.title).join(' + ');
+    }
+    return projectData.video?.title || 'Untitled Video';
+  }, [projectData]);
+
+  // All videos for the library
+  const allVideos = useMemo(() => {
+    if (!data) return [];
+    if (data.videos) return data.videos;
+    if (data.video) return [data.video];
+    return [];
   }, [data]);
 
   const handleTimeUpdate = useCallback((time) => {
@@ -69,25 +83,55 @@ export default function Probe1Page() {
     playerRef.current?.seek(time);
   }, []);
 
-  const handleQuestion = useCallback((question) => {
-    setPendingQuestion(question);
-  }, []);
-
-  // Exploration mode handlers
-  const handleToggleExploration = useCallback(() => {
-    if (explorationActive) {
-      setExplorationActive(false);
-      announce('Exploration mode ended. Resuming playback.');
-    } else {
-      setExplorationActive(true);
-    }
-  }, [explorationActive]);
-
-  const handleExplorationExit = useCallback(() => {
-    setExplorationActive(false);
-    playerRef.current?.play();
-    announce('Resuming playback.');
-  }, []);
+  const handleImport = useCallback((videos) => {
+    setSelectedVideos(videos);
+    // Seed editState with sources and clips so VideoPlayer loads all videos immediately
+    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    const sources = [];
+    const clips = [];
+    videos.forEach((v, srcIdx) => {
+      const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
+      sources.push({
+        id: v.id,
+        name: v.title || v.src?.split('/').pop() || 'Untitled',
+        src: v.src,
+        duration: v.duration,
+      });
+      const segs = v.segments || [];
+      if (segs.length > 0) {
+        segs.forEach((seg) => {
+          clips.push({
+            id: seg.id,
+            sourceId: v.id,
+            name: seg.name,
+            startTime: seg.start_time,
+            endTime: seg.end_time,
+            color: seg.color || color,
+            trimStart: 0,
+            trimEnd: 0,
+          });
+        });
+      } else {
+        clips.push({
+          id: `clip-${v.id}`,
+          sourceId: v.id,
+          name: v.title || 'Untitled',
+          startTime: 0,
+          endTime: v.duration || 0,
+          color,
+          trimStart: 0,
+          trimEnd: 0,
+        });
+      }
+    });
+    setEditState({ clips, captions: [], sources });
+    setPhase('exploring');
+    logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, {
+      videoIds: videos.map((v) => v.id),
+      count: videos.length,
+    });
+    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Entering exploration mode.`);
+  }, [logEvent]);
 
   const handleMark = useCallback((segmentId, segmentName) => {
     setMarks((prev) => {
@@ -100,28 +144,9 @@ export default function Probe1Page() {
     });
   }, []);
 
-  const handleAskFromExploration = useCallback((segmentId) => {
-    setVqaSegmentId(segmentId);
-    setShowVQA(true);
-    announce('Ask a question about this scene.');
-  }, []);
-
-  // E key to toggle exploration mode
-  useEffect(() => {
-    function handleKeyDown(e) {
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (e.key === 'e' || e.key === 'E') {
-        e.preventDefault();
-        handleToggleExploration();
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleToggleExploration]);
-
   // Track play/pause state and duration from video element
   useEffect(() => {
+    if (phase !== 'exploring') return;
     const interval = setInterval(() => {
       const player = playerRef.current;
       if (!player) return;
@@ -139,20 +164,26 @@ export default function Probe1Page() {
       }
     }, 250);
     return () => clearInterval(interval);
-  }, [videoDuration]);
+  }, [phase, videoDuration]);
 
   return (
     <div className="min-h-screen bg-white">
+      {showOnboarding && (
+        <OnboardingBrief condition="probe1" onDismiss={() => setShowOnboarding(false)} />
+      )}
       <ConditionHeader condition="probe1" />
 
-      <div className="flex flex-col lg:flex-row gap-4 p-4 max-w-7xl mx-auto">
-        {/* Left column: Video + Exploration */}
-        <div className="lg:w-3/5 flex flex-col gap-2" role="region" aria-label="Video player area">
-          {/* Video with exploration mode border glow */}
-          <div className={explorationActive ? 'ring-2 ring-blue-500 rounded-lg' : ''}>
+      {phase === 'library' && (
+        <VideoLibrary videos={allVideos} onImport={handleImport} />
+      )}
+
+      {phase === 'exploring' && (
+        <div className="flex flex-col gap-3 p-3 max-w-lg mx-auto">
+          {/* Video player — visual reference only, not navigable */}
+          <div aria-hidden="true">
             <VideoPlayer
               ref={playerRef}
-              src={data?.video?.src || null}
+              src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
               segments={segments}
               onTimeUpdate={handleTimeUpdate}
               onSegmentChange={handleSegmentChange}
@@ -160,51 +191,24 @@ export default function Probe1Page() {
             />
           </div>
 
-          {!explorationActive && (
-            <>
-              <TransportControls
-                playerRef={playerRef}
-                isPlaying={isPlaying}
-                currentTime={currentTime}
-                duration={duration || videoDuration}
-              />
-              <MockEditor
-                segments={segments}
-                initialSources={initialSources}
-                currentTime={currentTime}
-                onSeek={handleSeek}
-                onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
-              />
-              <SegmentMarkerPanel segment={currentSegment} />
-            </>
-          )}
-
-          {/* Exploration Mode Panel */}
+          {/* Exploration Mode — always active */}
           <ExplorationMode
-            active={explorationActive}
+            active={true}
             segments={segments}
             videoTitle={projectTitle}
-            onExit={handleExplorationExit}
+            onExit={() => {}} // No exit in new flow
             onMark={handleMark}
-            onAskQuestion={handleAskFromExploration}
+            onEdit={() => {
+              logEvent(EventTypes.OPEN_EDITOR, Actors.CREATOR);
+            }}
+            isPlaying={isPlaying}
             playerRef={playerRef}
+            editState={editState}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
           />
 
-          {/* Explore button (when not in exploration mode) */}
-          {!explorationActive && (
-            <button
-              onClick={handleToggleExploration}
-              className="w-full py-3 rounded-lg font-bold text-sm text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600"
-              style={{ backgroundColor: '#2B579A', minHeight: '44px' }}
-              aria-label="Enter visual exploration mode (press E)"
-            >
-              Explore Scenes (E)
-            </button>
-          )}
-        </div>
-
-        {/* Right column: Tools */}
-        <div className="lg:w-2/5 flex flex-col gap-4" role="region" aria-label="Editing tools">
           {/* Marks list */}
           {marks.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-sm">
@@ -229,12 +233,8 @@ export default function Probe1Page() {
               </ul>
             </div>
           )}
-
-          {/* VQA Panel */}
-          <VQAPanel onQuestion={handleQuestion} />
-
         </div>
-      </div>
+      )}
 
       {/* Researcher WoZ panel */}
       {isResearcher && (

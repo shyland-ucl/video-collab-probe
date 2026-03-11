@@ -1,9 +1,4 @@
 const conditionConfig = {
-  baseline: {
-    color: '#6B7280',
-    label: 'Baseline',
-    description: 'No AI support',
-  },
   probe1: {
     color: '#2B579A',
     label: 'Probe 1: AI Description',

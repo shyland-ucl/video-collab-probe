@@ -5,11 +5,9 @@ import { announce } from '../../utils/announcer.js';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
-
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
-import MockEditor from '../shared/MockEditor.jsx';
+import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import TaskQueue from './TaskQueue.jsx';
-import DescriptionPanel from '../probe1/DescriptionPanel.jsx';
 
 function playNotifyChime() {
   try {
@@ -53,7 +51,6 @@ export default function HelperMode({
   const { logEvent } = useEventLogger();
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnSummary, setReturnSummary] = useState('');
-  const [descExpanded, setDescExpanded] = useState(false);
   const returnModalTriggerRef = useRef(null);
   const returnModalFirstFocusRef = useRef(null);
   const audioRef = useRef(null);
@@ -166,10 +163,9 @@ export default function HelperMode({
         </div>
       )}
 
-      {/* Video + Tools */}
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left column: Video */}
-        <div className="lg:w-3/5 flex flex-col gap-2">
+      {/* Video + Tools — mobile stacked layout */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <VideoPlayer
             ref={playerRef}
             src={videoData?.video?.src || null}
@@ -184,7 +180,7 @@ export default function HelperMode({
             currentTime={currentTime}
             duration={duration || videoDuration}
           />
-          <MockEditor
+          <MockEditorVisual
             segments={segments}
             initialSources={initialSources}
             currentTime={currentTime}
@@ -192,38 +188,6 @@ export default function HelperMode({
             onEditChange={onEditChange}
           />
           <SegmentMarkerPanel segment={currentSegment} />
-        </div>
-
-        {/* Right column: Tools */}
-        <div className="lg:w-2/5 flex flex-col gap-4">
-          {/* Collapsible Level 1 descriptions */}
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-            <button
-              onClick={() => setDescExpanded(!descExpanded)}
-              className="w-full px-4 py-3 flex items-center justify-between text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-              aria-expanded={descExpanded}
-              aria-controls="helper-descriptions"
-            >
-              <span>Video Descriptions (Overview)</span>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 16 16"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className={`transform transition-transform ${descExpanded ? 'rotate-180' : ''}`}
-                aria-hidden="true"
-              >
-                <path d="M4 6l4 4 4-4" />
-              </svg>
-            </button>
-            {descExpanded && (
-              <div id="helper-descriptions" className="px-4 pb-4">
-                <DescriptionPanel segment={currentSegment} level={1} />
-              </div>
-            )}
-          </div>
         </div>
       </div>
 

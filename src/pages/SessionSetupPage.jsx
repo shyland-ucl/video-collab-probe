@@ -5,7 +5,6 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 
 const CONDITIONS = [
-  { key: 'baseline', label: 'Baseline', path: '/baseline' },
   { key: 'probe1', label: 'Probe 1: AI Description', path: '/probe1' },
   { key: 'probe2', label: 'Probe 2: Smart Handover', path: '/probe2' },
   { key: 'probe3', label: 'Probe 3: Local Mirroring', path: '/probe3' },
@@ -32,7 +31,6 @@ export default function SessionSetupPage() {
 
   const [sessionId, setSessionId] = useState(() => generateUUID());
   const [dyadId, setDyadId] = useState('');
-  const [conditionOrder, setConditionOrder] = useState([0, 1, 2, 3]);
 
   // Restore from localStorage if exists
   useEffect(() => {
@@ -42,32 +40,10 @@ export default function SessionSetupPage() {
         const config = JSON.parse(stored);
         if (config.sessionId) setSessionId(config.sessionId);
         if (config.dyadId) setDyadId(config.dyadId);
-        if (config.conditionOrder) {
-          // conditionOrder may be stored as string keys — convert back to indices
-          const restored = config.conditionOrder.map((entry) => {
-            if (typeof entry === 'number') return entry;
-            const idx = CONDITIONS.findIndex((c) => c.key === entry);
-            return idx >= 0 ? idx : null;
-          }).filter((i) => i !== null);
-          if (restored.length === CONDITIONS.length) setConditionOrder(restored);
-        }
       }
     } catch {
       // ignore parse errors
     }
-  }, []);
-
-  const handleOrderChange = useCallback((posIndex, newCondIndex) => {
-    setConditionOrder((prev) => {
-      const next = [...prev];
-      // Find which position currently has this condition and swap
-      const existingPos = next.indexOf(newCondIndex);
-      if (existingPos >= 0) {
-        next[existingPos] = next[posIndex];
-      }
-      next[posIndex] = newCondIndex;
-      return next;
-    });
   }, []);
 
   const handleStart = useCallback(() => {
@@ -76,7 +52,7 @@ export default function SessionSetupPage() {
     const config = {
       sessionId,
       dyadId: dyadId.trim(),
-      conditionOrder: conditionOrder.map((i) => CONDITIONS[i].key),
+      conditionOrder: ['probe1', 'probe2', 'probe3'],
       completedConditions: [],
       startedAt: new Date().toISOString(),
     };
@@ -92,9 +68,8 @@ export default function SessionSetupPage() {
     });
 
     // Navigate to first condition
-    const firstCondition = CONDITIONS[conditionOrder[0]];
-    navigate(firstCondition.path);
-  }, [sessionId, dyadId, conditionOrder, logEvent, setCondition, navigate]);
+    navigate('/probe1');
+  }, [sessionId, dyadId, logEvent, setCondition, navigate]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -157,41 +132,6 @@ export default function SessionSetupPage() {
               aria-required="true"
               required
             />
-          </div>
-
-          {/* Condition Order */}
-          <div className="mb-6">
-            <p className="text-sm font-medium text-gray-700 mb-2">Condition Order</p>
-            <p className="text-xs text-gray-400 mb-3">
-              Set the order in which conditions will be presented. Use the dropdowns to reorder.
-            </p>
-            <div className="space-y-2">
-              {conditionOrder.map((condIndex, posIndex) => (
-                <div key={posIndex} className="flex items-center gap-3">
-                  <span
-                    className="w-7 h-7 flex items-center justify-center rounded-full text-white text-sm font-bold"
-                    style={{ backgroundColor: '#1F3864' }}
-                    aria-hidden="true"
-                  >
-                    {posIndex + 1}
-                  </span>
-                  <select
-                    value={condIndex}
-                    onChange={(e) =>
-                      handleOrderChange(posIndex, parseInt(e.target.value, 10))
-                    }
-                    className="flex-1 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-2 focus:outline-blue-500"
-                    aria-label={`Condition for position ${posIndex + 1}`}
-                  >
-                    {CONDITIONS.map((cond, i) => (
-                      <option key={cond.key} value={i}>
-                        {cond.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ))}
-            </div>
           </div>
 
           {/* Accessibility Preferences */}

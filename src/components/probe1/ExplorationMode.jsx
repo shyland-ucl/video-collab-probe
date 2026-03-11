@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import SwipeHandler from '../shared/SwipeHandler.jsx';
+import { createPortal } from 'react-dom';
 import { announce } from '../../utils/announcer.js';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import ttsService from '../../services/ttsService.js';
+import VQAPanel from './VQAPanel.jsx';
 
 /**
  * Format seconds into m:ss display.
@@ -17,8 +18,6 @@ function formatTime(seconds) {
 
 /**
  * Play a short audio cue using the Web Audio API.
- * @param {number} frequency - Hz value for the tone
- * @param {number} duration - milliseconds
  */
 function playTone(frequency, duration = 50) {
   try {
@@ -32,10 +31,9 @@ function playTone(frequency, duration = 50) {
     gain.connect(ctx.destination);
     osc.start();
     osc.stop(ctx.currentTime + duration / 1000);
-    // Clean up after tone finishes
     osc.onended = () => ctx.close();
   } catch {
-    // Web Audio not available — silently ignore
+    // Web Audio not available
   }
 }
 
@@ -46,9 +44,9 @@ const textSizeClasses = {
 };
 
 /**
- * Visual Exploration Mode overlay for Probe 1.
- * When active the video is paused and users navigate scene descriptions
- * via keyboard arrows, swipe gestures, or on-screen buttons.
+ * Exploration Mode — primary interface for Probe 1.
+ * Users navigate scene descriptions via buttons and keyboard.
+ * Includes Ask (VQA popup), Edit (slide-up editor), and Play/Pause controls.
  */
 export default function ExplorationMode({
   active,
@@ -56,17 +54,61 @@ export default function ExplorationMode({
   videoTitle,
   onExit,
   onMark,
-  onAskQuestion,
+  onEdit,
+  isPlaying,
   playerRef,
+  // For clip editing
+  editState,
+  currentTime,
+  onSeek,
+  onEditChange,
 }) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentLevel, setCurrentLevel] = useState(1);
+  const [showVQA, setShowVQA] = useState(false);
+  const [showEditPanel, setShowEditPanel] = useState(false);
+  const [showCaptionInput, setShowCaptionInput] = useState(false);
+  const [captionText, setCaptionText] = useState('');
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
   const hasAnnouncedSummary = useRef(false);
+  const modalRef = useRef(null);
+  const descriptionRef = useRef(null);
   const { logEvent } = useEventLogger();
   const { textSize, audioEnabled, speechRate } = useAccessibility();
 
+  // When a modal is open, mark the app root as inert for VoiceOver focus trap
+  // Modals are portalled to document.body, so we inert the #root element
+  const isModalOpen = showVQA || showEditPanel;
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const root = document.getElementById('root');
+    if (root) root.setAttribute('inert', '');
+    // Focus the first focusable element in the modal
+    setTimeout(() => {
+      const focusable = modalRef.current?.querySelector('button, input, textarea, [tabindex]');
+      focusable?.focus();
+    }, 100);
+    return () => {
+      if (root) root.removeAttribute('inert');
+    };
+  }, [isModalOpen]);
+
   const total = segments?.length ?? 0;
   const segment = segments?.[currentIndex];
+  const isFirst = currentIndex === 0;
+  const isLast = currentIndex >= total - 1;
+
+  // Sync currentIndex with video playback time
+  useEffect(() => {
+    if (!isPlaying || !segments?.length) return;
+    const matchIdx = segments.findIndex(
+      (seg) => currentTime >= seg.start_time && currentTime < seg.end_time,
+    );
+    if (matchIdx !== -1 && matchIdx !== currentIndex) {
+      setCurrentIndex(matchIdx);
+    }
+  }, [currentTime, isPlaying, segments, currentIndex]);
 
   // ---------------------------------------------------------------------------
   // Announce description helper
@@ -77,7 +119,7 @@ export default function ExplorationMode({
       const key = `level_${level}`;
       const rawText = seg.descriptions?.[key] ?? '';
       const timePrefix = `${formatTime(seg.start_time)} - ${formatTime(seg.end_time)}`;
-      const text = `${timePrefix}. ${rawText}`;
+      const text = `Detail level ${level}. ${timePrefix}. ${rawText}`;
       announce(text);
       if (audioEnabled) {
         ttsService.speak(text, { rate: speechRate });
@@ -95,108 +137,222 @@ export default function ExplorationMode({
       return;
     }
 
-    // Pause the video and show first segment's first frame
     playerRef?.current?.pause?.();
     if (segments?.[0]) {
       playerRef?.current?.seek?.(segments[0].start_time);
     }
 
-    // Reset to first segment, level 1
     setCurrentIndex(0);
     setCurrentLevel(1);
 
-    // Announce summary once
     if (!hasAnnouncedSummary.current && segments?.length) {
       hasAnnouncedSummary.current = true;
-      const summary = `Video: ${videoTitle}. ${segments.length} scenes detected. Swipe left and right to browse scenes, swipe up and down to change detail level.`;
-      announce(summary);
-      if (audioEnabled) {
-        ttsService.speak(summary, { rate: speechRate });
-      }
       logEvent(EventTypes.PLAY_SUMMARY, Actors.SYSTEM, { videoTitle, sceneCount: segments.length });
     }
 
     logEvent(EventTypes.ENTER_EXPLORATION, Actors.CREATOR);
+
+    // Focus the description and read it aloud via TTS
+    setTimeout(() => {
+      descriptionRef.current?.focus();
+      if (segments?.[0]) {
+        announceDescription(segments[0], 1);
+      }
+    }, 300);
   }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
-  // Navigation callbacks
+  // Navigation callbacks (no wrapping — clamp at boundaries)
   // ---------------------------------------------------------------------------
   const goToPrevSegment = useCallback(() => {
-    if (!total) return;
-    setCurrentIndex((prev) => {
-      const next = (prev - 1 + total) % total;
+    if (!total || currentIndex <= 0) return;
+    const nextIdx = currentIndex - 1;
+    setCurrentIndex(nextIdx);
+    const seg = segments[nextIdx];
+    if (seg) {
       playTone(880);
-      const seg = segments[next];
-      // Seek video to first frame of this segment
       playerRef?.current?.seek?.(seg.start_time);
-      announce(`Scene ${next + 1} of ${total}, detail level ${currentLevel}`);
+      announce(`Scene ${nextIdx + 1} of ${total}. ${seg.name}.`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
         segmentId: seg.id,
-        segmentIndex: next,
+        segmentIndex: nextIdx,
         direction: 'previous',
       });
-      return next;
-    });
-  }, [total, segments, currentLevel, announceDescription, logEvent, playerRef]);
+    }
+  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef]);
 
   const goToNextSegment = useCallback(() => {
-    if (!total) return;
-    setCurrentIndex((prev) => {
-      const next = (prev + 1) % total;
+    if (!total || currentIndex >= total - 1) return;
+    const nextIdx = currentIndex + 1;
+    setCurrentIndex(nextIdx);
+    const seg = segments[nextIdx];
+    if (seg) {
       playTone(880);
-      const seg = segments[next];
-      // Seek video to first frame of this segment
       playerRef?.current?.seek?.(seg.start_time);
-      announce(`Scene ${next + 1} of ${total}, detail level ${currentLevel}`);
+      announce(`Scene ${nextIdx + 1} of ${total}. ${seg.name}.`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
         segmentId: seg.id,
-        segmentIndex: next,
+        segmentIndex: nextIdx,
         direction: 'next',
       });
-      return next;
-    });
-  }, [total, segments, currentLevel, announceDescription, logEvent, playerRef]);
+    }
+  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef]);
 
   const increaseLevel = useCallback(() => {
-    setCurrentLevel((prev) => {
-      if (prev >= 3) return prev;
-      const next = prev + 1;
-      playTone(440);
-      announce(`Scene ${currentIndex + 1} of ${total}, detail level ${next}`);
-      announceDescription(segment, next);
-      logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: prev, to: next });
-      return next;
-    });
-  }, [currentIndex, total, segment, announceDescription, logEvent]);
+    if (currentLevel >= 3) return;
+    const next = currentLevel + 1;
+    setCurrentLevel(next);
+    playTone(440);
+    announceDescription(segment, next);
+    logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: currentLevel, to: next });
+  }, [currentLevel, segment, announceDescription, logEvent]);
 
   const decreaseLevel = useCallback(() => {
-    setCurrentLevel((prev) => {
-      if (prev <= 1) return prev;
-      const next = prev - 1;
-      playTone(440);
-      announce(`Scene ${currentIndex + 1} of ${total}, detail level ${next}`);
-      announceDescription(segment, next);
-      logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: prev, to: next });
-      return next;
-    });
-  }, [currentIndex, total, segment, announceDescription, logEvent]);
+    if (currentLevel <= 1) return;
+    const next = currentLevel - 1;
+    setCurrentLevel(next);
+    playTone(440);
+    announceDescription(segment, next);
+    logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: currentLevel, to: next });
+  }, [currentLevel, segment, announceDescription, logEvent]);
 
   const handleAskQuestion = useCallback(() => {
-    if (segment) onAskQuestion?.(segment.id);
-  }, [segment, onAskQuestion]);
+    setShowVQA(true);
+    announce('Ask a question about this scene.');
+  }, []);
 
   const handleMark = useCallback(() => {
     if (segment) onMark?.(segment.id, segment.name);
   }, [segment, onMark]);
 
-  const handleExit = useCallback(() => {
-    logEvent(EventTypes.EXIT_EXPLORATION, Actors.CREATOR);
-    ttsService.stop();
-    onExit?.();
-  }, [logEvent, onExit]);
+  const handleEditOpen = useCallback(() => {
+    setShowEditPanel(true);
+    announce('Edit panel opened.');
+    onEdit?.();
+  }, [onEdit]);
+
+  const handleEditClose = useCallback(() => {
+    setShowEditPanel(false);
+    announce('Edit panel closed.');
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Clip editing helpers
+  // ---------------------------------------------------------------------------
+  const clips = editState?.clips || [];
+  const captions = editState?.captions || [];
+  const sources = editState?.sources || [];
+  const currentClipIndex = clips.findIndex((c) => c.id === segment?.id);
+  const currentClip = currentClipIndex >= 0 ? clips[currentClipIndex] : null;
+  const canMoveEarlier = currentClipIndex > 0;
+  const canMoveLater = currentClipIndex >= 0 && currentClipIndex < clips.length - 1;
+  const canSplit = currentClip && currentTime > currentClip.startTime + currentClip.trimStart && currentTime < currentClip.endTime - currentClip.trimEnd;
+
+  const saveSnapshot = useCallback(() => {
+    setUndoStack((prev) => [...prev, { clips: clips.map((c) => ({ ...c })), captions: captions.map((c) => ({ ...c })), sources: sources.map((s) => ({ ...s })) }]);
+    setRedoStack([]);
+  }, [clips, captions, sources]);
+
+  const handleSplitClip = useCallback(() => {
+    if (!canSplit || !editState) return;
+    saveSnapshot();
+    const clip = currentClip;
+    const clipA = { ...clip, endTime: currentTime, trimEnd: 0, id: clip.id + '-a' };
+    const clipB = { ...clip, startTime: currentTime, trimStart: 0, id: clip.id + '-b' };
+    const newClips = [...clips];
+    newClips.splice(currentClipIndex, 1, clipA, clipB);
+    onEditChange?.(newClips, captions, sources);
+    logEvent(EventTypes.SPLIT, Actors.CREATOR, { clipId: clip.id, clipName: clip.name, splitTime: currentTime });
+    announce(`Split ${clip.name} at ${currentTime.toFixed(1)} seconds`);
+  }, [canSplit, currentClip, currentClipIndex, clips, captions, sources, currentTime, editState, saveSnapshot, onEditChange, logEvent]);
+
+  const handleDeleteClip = useCallback(() => {
+    if (currentClipIndex < 0 || !editState) return;
+    saveSnapshot();
+    const newClips = clips.filter((_, i) => i !== currentClipIndex);
+    onEditChange?.(newClips, captions, sources);
+    logEvent(EventTypes.DELETE_CLIP, Actors.CREATOR, { clipId: currentClip.id, clipName: currentClip.name });
+    announce(`Deleted clip: ${currentClip.name}`);
+    setShowEditPanel(false);
+  }, [currentClipIndex, clips, captions, sources, editState, saveSnapshot, onEditChange, logEvent, currentClip]);
+
+  const handleMoveEarlier = useCallback(() => {
+    if (!canMoveEarlier || !editState) return;
+    saveSnapshot();
+    const newClips = [...clips];
+    [newClips[currentClipIndex - 1], newClips[currentClipIndex]] = [newClips[currentClipIndex], newClips[currentClipIndex - 1]];
+    onEditChange?.(newClips, captions, sources);
+    logEvent(EventTypes.REORDER, Actors.CREATOR, { clipId: currentClip.id, clipName: currentClip.name, direction: 'earlier' });
+    announce(`Moved ${currentClip.name} earlier`);
+  }, [canMoveEarlier, clips, captions, sources, currentClipIndex, editState, saveSnapshot, onEditChange, logEvent, currentClip]);
+
+  const handleMoveLater = useCallback(() => {
+    if (!canMoveLater || !editState) return;
+    saveSnapshot();
+    const newClips = [...clips];
+    [newClips[currentClipIndex], newClips[currentClipIndex + 1]] = [newClips[currentClipIndex + 1], newClips[currentClipIndex]];
+    onEditChange?.(newClips, captions, sources);
+    logEvent(EventTypes.REORDER, Actors.CREATOR, { clipId: currentClip.id, clipName: currentClip.name, direction: 'later' });
+    announce(`Moved ${currentClip.name} later`);
+  }, [canMoveLater, clips, captions, sources, currentClipIndex, editState, saveSnapshot, onEditChange, logEvent, currentClip]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [...r, { clips: clips.map((c) => ({ ...c })), captions: captions.map((c) => ({ ...c })), sources: sources.map((s) => ({ ...s })) }]);
+    setUndoStack((u) => u.slice(0, -1));
+    onEditChange?.(prev.clips, prev.captions, prev.sources);
+    logEvent(EventTypes.UNDO, Actors.CREATOR, {});
+    announce('Undo');
+  }, [undoStack, clips, captions, sources, onEditChange, logEvent]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((u) => [...u, { clips: clips.map((c) => ({ ...c })), captions: captions.map((c) => ({ ...c })), sources: sources.map((s) => ({ ...s })) }]);
+    setRedoStack((r) => r.slice(0, -1));
+    onEditChange?.(next.clips, next.captions, next.sources);
+    logEvent(EventTypes.REDO, Actors.CREATOR, {});
+    announce('Redo');
+  }, [redoStack, clips, captions, sources, onEditChange, logEvent]);
+
+  const handleAddCaption = useCallback(() => {
+    const text = captionText.trim();
+    if (!text || !segment || !editState) return;
+    saveSnapshot();
+    const newCaption = {
+      id: `cap-${Date.now()}`,
+      text,
+      startTime: segment.start_time,
+      endTime: segment.end_time,
+    };
+    const newCaptions = [...captions, newCaption];
+    onEditChange?.(clips, newCaptions, sources);
+    logEvent(EventTypes.ADD_CAPTION, Actors.CREATOR, { captionId: newCaption.id, text, startTime: segment.start_time, endTime: segment.end_time });
+    announce(`Added caption: "${text}"`);
+    setCaptionText('');
+    setShowCaptionInput(false);
+  }, [captionText, segment, editState, clips, captions, sources, saveSnapshot, onEditChange, logEvent]);
+
+  const handlePlayPause = useCallback(() => {
+    if (!playerRef?.current) return;
+    if (isPlaying) {
+      playerRef.current.pause();
+      // Return focus to the description and read it aloud
+      setTimeout(() => {
+        descriptionRef.current?.focus();
+        announceDescription(segment, currentLevel);
+      }, 150);
+    } else {
+      if (segment) {
+        playerRef.current.seek(segment.start_time);
+      }
+      playerRef.current.play();
+      announce('Playing.');
+    }
+  }, [playerRef, isPlaying, segment, currentLevel, announceDescription]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handling
@@ -205,6 +361,9 @@ export default function ExplorationMode({
     if (!active) return;
 
     function onKeyDown(e) {
+      const tag = e.target.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault();
@@ -231,9 +390,14 @@ export default function ExplorationMode({
           e.preventDefault();
           handleMark();
           break;
+        case ' ':
+          e.preventDefault();
+          handlePlayPause();
+          break;
         case 'Escape':
           e.preventDefault();
-          handleExit();
+          if (showVQA) setShowVQA(false);
+          else if (showEditPanel) setShowEditPanel(false);
           break;
         default:
           break;
@@ -242,7 +406,7 @@ export default function ExplorationMode({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, goToPrevSegment, goToNextSegment, increaseLevel, decreaseLevel, handleAskQuestion, handleMark, handleExit]);
+  }, [active, goToPrevSegment, goToNextSegment, increaseLevel, decreaseLevel, handleAskQuestion, handleMark, handlePlayPause, showVQA, showEditPanel]);
 
   // ---------------------------------------------------------------------------
   // Don't render when inactive
@@ -251,101 +415,298 @@ export default function ExplorationMode({
 
   const descriptionKey = `level_${currentLevel}`;
   const rawDescription = segment.descriptions?.[descriptionKey] ?? 'No description available.';
-  const descriptionText = `${formatTime(segment.start_time)} - ${formatTime(segment.end_time)}: ${rawDescription}`;
 
   return (
-    <SwipeHandler
-      onSwipeLeft={goToNextSegment}
-      onSwipeRight={goToPrevSegment}
-      onSwipeUp={increaseLevel}
-      onSwipeDown={decreaseLevel}
-      onDoubleTap={handleAskQuestion}
-      onLongPress={handleMark}
-      className="w-full"
-    >
+    <div className="w-full">
       <div
         role="region"
-        aria-label="Visual Exploration Mode"
-        aria-live="polite"
+        aria-label="Exploration Mode"
         className="w-full border-t-2 border-[#2B579A] bg-slate-50 shadow-[0_-2px_12px_rgba(43,87,154,0.15)]"
       >
-        {/* Top banner */}
-        <div className="flex items-center justify-between bg-[#2B579A] px-4 py-2 text-white">
-          <span className="font-semibold" aria-label={`Exploring scene ${currentIndex + 1} of ${total}`}>
-            Exploring scene {currentIndex + 1}/{total}
-          </span>
-          <span className="text-sm opacity-80">
-            {formatTime(segment.start_time)} &ndash; {formatTime(segment.end_time)}
-          </span>
-        </div>
-
-        {/* Description area */}
+        {/* Scene info — single accessible text block for VoiceOver */}
         <div className="px-4 py-5">
-          {/* Segment name */}
-          <h3 className="mb-1 text-sm font-medium text-[#2B579A]">
-            {segment.name}
-          </h3>
-
-          {/* Description text */}
-          <p className={`${textSizeClasses[textSize] ?? 'text-lg'} leading-relaxed text-gray-800`}>
-            {descriptionText}
+          <p
+            ref={descriptionRef}
+            tabIndex={-1}
+            className={`${textSizeClasses[textSize] ?? 'text-lg'} leading-relaxed text-gray-800 focus:outline-none`}
+            aria-label={`Scene ${currentIndex + 1} of ${total}. ${segment.name}. ${formatTime(segment.start_time)} to ${formatTime(segment.end_time)}. Detail level ${currentLevel} of 3. ${rawDescription}`}
+          >
+            <span className="block text-sm font-semibold text-[#2B579A] mb-1" aria-hidden="true">
+              Scene {currentIndex + 1}/{total} — {segment.name}
+            </span>
+            <span className="block text-xs text-gray-500 mb-2" aria-hidden="true">
+              {formatTime(segment.start_time)} – {formatTime(segment.end_time)} · Detail {currentLevel}/3
+            </span>
+            <span aria-hidden="true">{rawDescription}</span>
           </p>
-
-          {/* Level indicator pills */}
-          <div className="mt-4 flex items-center gap-2" role="group" aria-label={`Detail level ${currentLevel} of 3`}>
-            <span className="mr-1 text-xs font-medium text-gray-500 uppercase">Detail</span>
-            {[1, 2, 3].map((lvl) => (
-              <span
-                key={lvl}
-                className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                  lvl === currentLevel
-                    ? 'bg-[#2B579A] text-white ring-2 ring-offset-1 ring-[#2B579A]'
-                    : 'bg-gray-200 text-gray-500'
-                }`}
-                aria-current={lvl === currentLevel ? 'true' : undefined}
-                aria-label={`Level ${lvl}${lvl === currentLevel ? ' (current)' : ''}`}
-              >
-                {lvl}
-              </span>
-            ))}
-          </div>
         </div>
 
-        {/* Bottom action bar */}
-        <div className="flex items-center gap-3 border-t border-gray-200 px-4 py-3">
+        {/* Row 1: Previous Scene / Next Scene */}
+        <div className="flex items-center border-t border-gray-200 px-3 py-2">
           <button
             type="button"
-            onClick={handleMark}
-            aria-label="Mark this segment"
-            className="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-            style={{ minHeight: '44px', minWidth: '44px' }}
+            onClick={goToPrevSegment}
+            disabled={isFirst}
+            aria-label={isFirst ? 'Previous scene, at first scene' : `Previous scene: ${segments[currentIndex - 1]?.name}`}
+            className="flex-1 py-3 rounded-l-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+            style={{ minHeight: '48px' }}
           >
-            Mark
+            &#9664; Previous
           </button>
+          <button
+            type="button"
+            onClick={goToNextSegment}
+            disabled={isLast}
+            aria-label={isLast ? 'Next scene, at last scene' : `Next scene: ${segments[currentIndex + 1]?.name}`}
+            className="flex-1 py-3 rounded-r-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1 border-l border-gray-300"
+            style={{ minHeight: '48px' }}
+          >
+            Next &#9654;
+          </button>
+        </div>
 
+        {/* Row 2: Less Detail / Ask / More Detail */}
+        <div className="flex items-center border-t border-gray-200 px-3 py-2">
+          <button
+            type="button"
+            onClick={decreaseLevel}
+            disabled={currentLevel <= 1}
+            aria-label={`Less detail, currently level ${currentLevel} of 3`}
+            className="flex-1 py-3 rounded-l-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+            style={{ minHeight: '48px' }}
+          >
+            Less Detail
+          </button>
           <button
             type="button"
             onClick={handleAskQuestion}
-            aria-label="Ask a question about this segment"
-            className="rounded-md bg-[#2B579A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1e3f6f] focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-2"
-            style={{ minHeight: '44px', minWidth: '44px' }}
+            aria-label="Ask a question about this scene"
+            className="flex-1 py-3 bg-[#2B579A] text-sm font-bold text-white hover:bg-[#1e3f6f] focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+            style={{ minHeight: '48px' }}
           >
             Ask
           </button>
-
-          <div className="flex-1" />
-
           <button
             type="button"
-            onClick={handleExit}
-            aria-label="Resume video playback (Escape)"
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-2"
-            style={{ minHeight: '44px' }}
+            onClick={increaseLevel}
+            disabled={currentLevel >= 3}
+            aria-label={`More detail, currently level ${currentLevel} of 3`}
+            className="flex-1 py-3 rounded-r-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+            style={{ minHeight: '48px' }}
           >
-            Resume Playback
+            More Detail
+          </button>
+        </div>
+
+        {/* Row 3: Mark / Edit / Play-Pause */}
+        <div className="flex items-center gap-2 border-t border-gray-200 px-3 py-2">
+          <button
+            type="button"
+            onClick={handleMark}
+            aria-label="Mark this scene for review"
+            className="flex-1 py-3 rounded-lg bg-amber-500 text-sm font-bold text-white hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+            style={{ minHeight: '48px' }}
+          >
+            Mark
+          </button>
+          <button
+            type="button"
+            onClick={handleEditOpen}
+            aria-label="Edit video timeline"
+            className="flex-1 py-3 rounded-lg bg-gray-700 text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+            style={{ minHeight: '48px' }}
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={handlePlayPause}
+            aria-label={isPlaying ? 'Pause playback' : 'Play from scene start'}
+            className="flex-1 py-3 rounded-lg border-2 border-[#2B579A] bg-white text-sm font-bold text-[#2B579A] hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-2"
+            style={{ minHeight: '48px' }}
+          >
+            {isPlaying ? 'Pause' : 'Play'}
           </button>
         </div>
       </div>
-    </SwipeHandler>
+
+      {/* VQA Modal — portalled to document.body for VoiceOver focus trap */}
+      {showVQA && createPortal(
+        <div
+          ref={modalRef}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Ask about this scene"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowVQA(false);
+          }}
+        >
+          <div className="w-full max-w-lg bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h3 className="font-bold text-sm text-gray-900" aria-hidden="true">Ask About This Scene</h3>
+              <button
+                onClick={() => setShowVQA(false)}
+                className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 focus:outline-2 focus:outline-blue-500"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+                aria-label="Close ask panel"
+              >
+                Done
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <VQAPanel playerRef={playerRef} currentSegment={segment} />
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {/* Edit Actions — portalled to document.body for VoiceOver focus trap */}
+      {showEditPanel && createPortal(
+        <div
+          ref={modalRef}
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Edit clip: ${currentClip?.name || 'current scene'}`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) handleEditClose();
+          }}
+        >
+          <div className="w-full max-w-lg bg-white rounded-t-2xl shadow-2xl">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h3 className="font-bold text-sm text-gray-900" aria-hidden="true">
+                Edit: {currentClip?.name || 'Current Scene'}
+              </h3>
+              <button
+                onClick={handleEditClose}
+                className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 focus:outline-2 focus:outline-blue-500"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+                aria-label="Close edit actions"
+              >
+                Done
+              </button>
+            </div>
+            <div className="flex flex-col gap-2 p-4">
+              {/* Split */}
+              <button
+                type="button"
+                onClick={handleSplitClip}
+                disabled={!canSplit}
+                aria-label="Split this clip at the current playback position"
+                className="w-full py-3 rounded-lg bg-[#2B579A] text-sm font-bold text-white hover:bg-[#1e3f6f] disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+                style={{ minHeight: '48px' }}
+              >
+                Split
+              </button>
+              {/* Move Earlier / Move Later */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleMoveEarlier}
+                  disabled={!canMoveEarlier}
+                  aria-label="Move this clip earlier in the timeline"
+                  className="flex-1 py-3 rounded-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+                  style={{ minHeight: '48px' }}
+                >
+                  Move Earlier
+                </button>
+                <button
+                  type="button"
+                  onClick={handleMoveLater}
+                  disabled={!canMoveLater}
+                  aria-label="Move this clip later in the timeline"
+                  className="flex-1 py-3 rounded-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+                  style={{ minHeight: '48px' }}
+                >
+                  Move Later
+                </button>
+              </div>
+              {/* Delete */}
+              <button
+                type="button"
+                onClick={handleDeleteClip}
+                disabled={!currentClip}
+                aria-label="Delete this clip from the timeline"
+                className="w-full py-3 rounded-lg bg-red-500 text-sm font-bold text-white hover:bg-red-600 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2"
+                style={{ minHeight: '48px' }}
+              >
+                Delete
+              </button>
+              {/* Undo / Redo */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={undoStack.length === 0}
+                  aria-label="Undo last edit"
+                  className="flex-1 py-3 rounded-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+                  style={{ minHeight: '48px' }}
+                >
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  aria-label="Redo last undone edit"
+                  className="flex-1 py-3 rounded-lg bg-gray-100 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
+                  style={{ minHeight: '48px' }}
+                >
+                  Redo
+                </button>
+              </div>
+              {/* Add Caption */}
+              {!showCaptionInput ? (
+                <button
+                  type="button"
+                  onClick={() => setShowCaptionInput(true)}
+                  aria-label="Add a caption to this scene"
+                  className="w-full py-3 rounded-lg bg-amber-500 text-sm font-bold text-white hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                  style={{ minHeight: '48px' }}
+                >
+                  Add Caption
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={captionText}
+                    onChange={(e) => setCaptionText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddCaption(); }}
+                    placeholder="Enter caption text..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-2 focus:outline-[#2B579A]"
+                    style={{ minHeight: '48px' }}
+                    aria-label="Caption text"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCaption}
+                    disabled={!captionText.trim()}
+                    aria-label="Save caption"
+                    className="px-4 py-2 rounded-lg bg-amber-500 text-sm font-bold text-white hover:bg-amber-600 disabled:opacity-40 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
+                    style={{ minHeight: '48px', minWidth: '48px' }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCaptionInput(false); setCaptionText(''); }}
+                    aria-label="Cancel adding caption"
+                    className="px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-1"
+                    style={{ minHeight: '48px', minWidth: '48px' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
   );
 }

@@ -2,7 +2,6 @@ import { useMemo, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 
 const ALL_CONDITIONS = {
-  baseline: { label: 'Baseline', path: '/baseline' },
   probe1: { label: 'Probe 1', path: '/probe1' },
   probe2: { label: 'Probe 2', path: '/probe2' },
   probe3: { label: 'Probe 3', path: '/probe3' },
@@ -16,13 +15,13 @@ export default function ConditionNav({ currentCondition }) {
   const navigate = useNavigate();
 
   const { order, completedSet } = useMemo(() => {
-    let conditionOrder = ['baseline', 'probe1', 'probe2', 'probe3'];
+    let conditionOrder = ['probe1', 'probe2', 'probe3'];
     let completed = [];
     try {
       const stored = localStorage.getItem('sessionConfig');
       if (stored) {
         const config = JSON.parse(stored);
-        if (config.conditionOrder && config.conditionOrder.length === 4) {
+        if (config.conditionOrder && config.conditionOrder.length === 3) {
           conditionOrder = config.conditionOrder;
         }
         if (config.completedConditions) {
@@ -68,17 +67,17 @@ export default function ConditionNav({ currentCondition }) {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40"
-      role="navigation"
-      aria-label="Condition navigation"
+      aria-hidden="true"
+      tabIndex={-1}
     >
       <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">
         {/* Previous button */}
         <button
           onClick={handlePrev}
           disabled={!hasPrev}
+          tabIndex={-1}
           className="px-4 py-2 rounded text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ color: '#1F3864' }}
-          aria-label="Go to previous condition"
         >
           &larr; Previous
         </button>
@@ -95,6 +94,7 @@ export default function ConditionNav({ currentCondition }) {
               <Link
                 key={condKey}
                 to={info.path}
+                tabIndex={-1}
                 className={[
                   'flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium transition-colors',
                   'focus:outline-2 focus:outline-offset-1 focus:outline-blue-500',
@@ -102,8 +102,6 @@ export default function ConditionNav({ currentCondition }) {
                     ? 'bg-blue-900 text-white'
                     : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100',
                 ].join(' ')}
-                aria-label={`${info.label}${isCurrent ? ' (current)' : ''}${isCompleted ? ' (completed)' : ''}`}
-                aria-current={isCurrent ? 'step' : undefined}
               >
                 {isCompleted && (
                   <svg
@@ -128,9 +126,9 @@ export default function ConditionNav({ currentCondition }) {
         <button
           onClick={handleNext}
           disabled={!hasNext}
+          tabIndex={-1}
           className="px-4 py-2 rounded text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ color: '#1F3864' }}
-          aria-label="Go to next condition"
         >
           Next &rarr;
         </button>

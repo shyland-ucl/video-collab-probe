@@ -2,15 +2,9 @@ import { useEffect, useCallback, useState, useRef, useMemo } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
-import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
+import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
-import TransportControls from '../shared/TransportControls.jsx';
-
-import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
-
-import MockEditor from '../shared/MockEditor.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
-import VQAPanel from '../probe1/VQAPanel.jsx';
 import VoiceNoteRecorder from './VoiceNoteRecorder.jsx';
 import MarkList from './MarkList.jsx';
 
@@ -36,10 +30,9 @@ export default function CreatorMode({
   const { logEvent } = useEventLogger();
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
+  const computedSources = useMemo(() => buildInitialSources(videoData), [videoData]);
   const audioPlayerRef = useRef(null);
 
-  // Exploration mode
-  const [explorationActive, setExplorationActive] = useState(false);
   // Track which segment we're marking a voice note for
   const [recordingForSegment, setRecordingForSegment] = useState(null);
 
@@ -52,23 +45,12 @@ export default function CreatorMode({
         e.preventDefault();
         onInitiateHandover();
       }
-      if (e.key === 'e' || e.key === 'E') {
-        e.preventDefault();
-        setExplorationActive((prev) => !prev);
-      }
     }
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onInitiateHandover]);
 
-  const handleExplorationExit = useCallback(() => {
-    setExplorationActive(false);
-    playerRef.current?.play();
-    announce('Resuming playback.');
-  }, [playerRef]);
-
   const handleMarkFromExploration = useCallback((segmentId, segmentName) => {
-    // When marking from exploration, open voice note recorder
     setRecordingForSegment({ segmentId, segmentName });
     announce(`Recording voice note for ${segmentName}. Press the record button.`);
   }, []);
@@ -125,46 +107,25 @@ export default function CreatorMode({
     onDeleteMark(markId);
   }, [logEvent, onDeleteMark]);
 
-  const handleAskFromExploration = useCallback((segmentId) => {
-    announce('Ask a question about this scene.');
-  }, []);
-
   return (
     <div>
       {/* Hidden audio player for voice note playback */}
       <audio ref={audioPlayerRef} className="hidden" />
 
-      {/* Mode indicator */}
+      {/* Handover button bar */}
       <div
         className="flex items-center gap-2 px-4 py-2 mb-4 rounded-lg"
         style={{ backgroundColor: '#2B579A' }}
-        role="status"
-        aria-label="Creator mode active"
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" aria-hidden="true">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-          <circle cx="12" cy="7" r="4" />
-        </svg>
-        <span className="text-white font-semibold text-sm">Creator Mode</span>
-        <span className="ml-auto flex gap-2">
-          <button
-            onClick={() => setExplorationActive((prev) => !prev)}
-            className="px-3 py-1.5 rounded font-medium text-sm text-white border border-white/50 hover:bg-white/20 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-white"
-            style={{ minHeight: '44px' }}
-            aria-label={explorationActive ? 'Exit exploration mode (E)' : 'Explore scenes (E)'}
-          >
-            {explorationActive ? 'Exit Explore' : 'Explore (E)'}
-          </button>
-          <button
-            onClick={onInitiateHandover}
-            className="px-4 py-1.5 rounded font-bold text-sm text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-orange-400"
-            style={{ backgroundColor: '#E67E22', minHeight: '44px' }}
-            aria-label="Initiate handover to helper (press H)"
-            title="Hand over to helper (H)"
-          >
-            Handover (H)
-          </button>
-        </span>
+        <span className="text-white font-semibold text-sm" aria-hidden="true">Creator Mode</span>
+        <button
+          onClick={onInitiateHandover}
+          className="ml-auto px-4 py-1.5 rounded font-bold text-sm text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-orange-400"
+          style={{ backgroundColor: '#E67E22', minHeight: '44px' }}
+          aria-label="Hand over to helper"
+        >
+          Handover
+        </button>
       </div>
 
       {/* Voice Note Recording overlay (when marking a segment) */}
@@ -181,6 +142,7 @@ export default function CreatorMode({
             <button
               onClick={handleMarkWithoutVoice}
               className="px-3 py-2 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-gray-400"
+              style={{ minHeight: '44px', minWidth: '44px' }}
               aria-label="Mark without voice note"
             >
               Skip
@@ -188,6 +150,7 @@ export default function CreatorMode({
             <button
               onClick={() => setRecordingForSegment(null)}
               className="px-3 py-2 text-xs font-medium rounded text-red-600 hover:bg-red-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-red-400"
+              style={{ minHeight: '44px', minWidth: '44px' }}
               aria-label="Cancel marking"
             >
               Cancel
@@ -196,68 +159,49 @@ export default function CreatorMode({
         </div>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left column: Video */}
-        <div className="lg:w-3/5 flex flex-col gap-2">
-          <div className={explorationActive ? 'ring-2 ring-blue-500 rounded-lg' : ''}>
-            <VideoPlayer
-              ref={playerRef}
-              src={videoData?.video?.src || null}
-              segments={segments}
-              onTimeUpdate={onTimeUpdate}
-              onSegmentChange={onSegmentChange}
-              editState={editState}
-            />
-          </div>
+      {/* Video player — visual only, not navigable */}
+      <div aria-hidden="true">
+        <VideoPlayer
+          ref={playerRef}
+          src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
+          segments={segments}
+          onTimeUpdate={onTimeUpdate}
+          onSegmentChange={onSegmentChange}
+          editState={editState}
+        />
+      </div>
 
-          {!explorationActive && (
-            <>
-              <TransportControls
-                playerRef={playerRef}
-                isPlaying={isPlaying}
-                currentTime={currentTime}
-                duration={duration || videoDuration}
-              />
-              <MockEditor
-                segments={segments}
-                initialSources={initialSources}
-                currentTime={currentTime}
-                onSeek={onSeek}
-                onEditChange={onEditChange}
-              />
-              <SegmentMarkerPanel segment={currentSegment} />
-            </>
-          )}
+      {/* Exploration Mode — always active */}
+      <ExplorationMode
+        active={true}
+        segments={segments}
+        videoTitle={videoData?.video?.title || videoData?.videos?.[0]?.title || 'Untitled Video'}
+        onExit={() => {}}
+        onMark={handleMarkFromExploration}
+        onEdit={() => {
+          logEvent(EventTypes.OPEN_EDITOR, Actors.CREATOR);
+        }}
+        isPlaying={isPlaying}
+        playerRef={playerRef}
+        editState={editState}
+        currentTime={currentTime}
+        onSeek={onSeek}
+        onEditChange={onEditChange}
+      />
 
-          <ExplorationMode
-            active={explorationActive}
-            segments={segments}
-            videoTitle={videoData?.video?.title || 'Untitled Video'}
-            onExit={handleExplorationExit}
-            onMark={handleMarkFromExploration}
-            onAskQuestion={handleAskFromExploration}
-            playerRef={playerRef}
+      {/* Marks with voice notes */}
+      {marks && marks.length > 0 && (
+        <div className="mt-4 bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-3">
+            Marked Segments ({marks.length})
+          </h2>
+          <MarkList
+            marks={marks}
+            onDelete={handleDeleteMark}
+            onPlayVoiceNote={handlePlayVoiceNote}
           />
         </div>
-
-        {/* Right column: Tools */}
-        <div className="lg:w-2/5 flex flex-col gap-4">
-          {/* Marks */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-3">
-              Marked Segments ({marks?.length || 0})
-            </h2>
-            <MarkList
-              marks={marks || []}
-              onDelete={handleDeleteMark}
-              onPlayVoiceNote={handlePlayVoiceNote}
-            />
-          </div>
-
-          <VQAPanel onQuestion={onQuestion} />
-
-        </div>
-      </div>
+      )}
     </div>
   );
 }

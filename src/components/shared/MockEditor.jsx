@@ -3,14 +3,10 @@ import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
 
-// Color palette for sources
-const SOURCE_COLORS = [
-  '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16',
-];
-
 /**
- * Mock iMovie/CapCut-style video editor for the research probe.
- * Supports multiple video sources — clips from different files on one timeline.
+ * Accessible text/list-based video editor for BLV users.
+ * Replaces the visual timeline with a navigable clip list.
+ * Based on AVscript (Huh et al., CHI 2023) design patterns.
  */
 export default function MockEditor({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [] }) {
   const { logEvent } = useEventLogger();
@@ -21,15 +17,11 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [selectedClipIndex, setSelectedClipIndex] = useState(null);
-  const [showCaptionEditor, setShowCaptionEditor] = useState(false);
+  const [showCaptionForm, setShowCaptionForm] = useState(false);
   const [captionText, setCaptionText] = useState('');
-  const [captionStart, setCaptionStart] = useState(0);
-  const [captionEnd, setCaptionEnd] = useState(5);
   const [importing, setImporting] = useState(false);
+  const [expandedPanel, setExpandedPanel] = useState(null); // 'clips' | 'captions' | null
 
-  const timelineRef = useRef(null);
-  const toolbarRef = useRef(null);
-  const dragRef = useRef(null);
   const fileInputRef = useRef(null);
   const onEditChangeRef = useRef(onEditChange);
   const sourcesRef = useRef(sources);
@@ -43,49 +35,34 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
     }
   }, [clips, captions, sources]);
 
-  // Initialize clips + sources when initialSources arrives (async data load)
+  // Initialize clips + sources when initialSources arrives
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) return;
     if (initialSources.length === 0 && segments.length === 0) return;
 
-    // Multi-source init: initialSources carry segments per video
     if (initialSources.length > 0) {
-      // Strip segments from sources for the sources state (VideoPlayer only needs id/name/src/duration)
-      const sourcesWithoutSegments = initialSources.map((src) => ({
-        id: src.id,
-        name: src.name,
-        src: src.src,
-        duration: src.duration,
+      const sourcesOnly = initialSources.map((src) => ({
+        id: src.id, name: src.name, src: src.src, duration: src.duration,
       }));
-      setSources(sourcesWithoutSegments);
+      setSources(sourcesOnly);
 
       const allClips = [];
-      initialSources.forEach((src, srcIdx) => {
-        const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
+      initialSources.forEach((src) => {
         if (src.segments && src.segments.length > 0) {
           src.segments.forEach((seg) => {
             allClips.push({
-              id: seg.id,
-              sourceId: src.id,
-              name: seg.name,
-              startTime: seg.start_time,
-              endTime: seg.end_time,
-              color: seg.color || color,
-              trimStart: 0,
-              trimEnd: 0,
+              id: seg.id, sourceId: src.id, name: seg.name,
+              startTime: seg.start_time, endTime: seg.end_time,
+              color: seg.color || '#3B82F6', trimStart: 0, trimEnd: 0,
             });
           });
         } else {
           allClips.push({
-            id: `clip-${src.id}`,
-            sourceId: src.id,
+            id: `clip-${src.id}`, sourceId: src.id,
             name: src.name || src.title || 'Untitled',
-            startTime: 0,
-            endTime: src.duration || 0,
-            color,
-            trimStart: 0,
-            trimEnd: 0,
+            startTime: 0, endTime: src.duration || 0,
+            color: '#3B82F6', trimStart: 0, trimEnd: 0,
           });
         }
       });
@@ -96,119 +73,102 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
       }
     }
 
-    // Legacy fallback: single source from segments prop
     if (segments.length > 0) {
       setClips(
         segments.map((seg) => ({
-          id: seg.id,
-          sourceId: 'default',
-          name: seg.name,
-          startTime: seg.start_time,
-          endTime: seg.end_time,
-          color: seg.color || SOURCE_COLORS[0],
-          trimStart: 0,
-          trimEnd: 0,
+          id: seg.id, sourceId: 'default', name: seg.name,
+          startTime: seg.start_time, endTime: seg.end_time,
+          color: seg.color || '#3B82F6', trimStart: 0, trimEnd: 0,
         }))
       );
       didInit.current = true;
     }
-  }, [segments, initialSources]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [segments, initialSources]);
 
-  // Save current state snapshot for undo
+  // --- Undo/Redo ---
   const saveSnapshot = useCallback(() => {
-    setUndoStack((prev) => [
-      ...prev,
-      {
-        clips: clips.map((c) => ({ ...c })),
-        captions: captions.map((c) => ({ ...c })),
-        sources: sources.map((s) => ({ ...s })),
-      },
-    ]);
+    setUndoStack((prev) => [...prev, {
+      clips: clips.map((c) => ({ ...c })),
+      captions: captions.map((c) => ({ ...c })),
+      sources: sources.map((s) => ({ ...s })),
+    }]);
     setRedoStack([]);
   }, [clips, captions, sources]);
 
-  // Restore a snapshot
   const restoreSnapshot = useCallback((snapshot) => {
     setClips(snapshot.clips.map((c) => ({ ...c })));
     setCaptions(snapshot.captions.map((c) => ({ ...c })));
-    if (snapshot.sources) {
-      setSources(snapshot.sources.map((s) => ({ ...s })));
-    }
+    if (snapshot.sources) setSources(snapshot.sources.map((s) => ({ ...s })));
   }, []);
 
-  // Compute total timeline duration from clips
-  const totalDuration = clips.reduce((max, c) => Math.max(max, c.endTime - c.trimEnd), 0);
-
-  // ---- Import Video ----
-
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setRedoStack((r) => [...r, { clips: clips.map((c) => ({ ...c })), captions: captions.map((c) => ({ ...c })), sources: sources.map((s) => ({ ...s })) }]);
+    setUndoStack((u) => u.slice(0, -1));
+    restoreSnapshot(prev);
+    setSelectedClipIndex(null);
+    logEvent(EventTypes.UNDO, Actors.CREATOR, {});
+    announce('Undo');
   };
 
+  const handleRedo = () => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((u) => [...u, { clips: clips.map((c) => ({ ...c })), captions: captions.map((c) => ({ ...c })), sources: sources.map((s) => ({ ...s })) }]);
+    setRedoStack((r) => r.slice(0, -1));
+    restoreSnapshot(next);
+    setSelectedClipIndex(null);
+    logEvent(EventTypes.REDO, Actors.CREATOR, {});
+    announce('Redo');
+  };
+
+  // --- Import ---
   const handleFileSelect = useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImporting(true);
-
     const objectUrl = URL.createObjectURL(file);
     const tempVideo = document.createElement('video');
     tempVideo.preload = 'metadata';
     tempVideo.onloadedmetadata = () => {
       const duration = tempVideo.duration;
       const sourceId = `src-${Date.now()}`;
-      const colorIndex = sources.length % SOURCE_COLORS.length;
-      const color = SOURCE_COLORS[colorIndex];
-
-      const newSource = {
-        id: sourceId,
-        name: file.name,
-        src: objectUrl,
-        duration,
-      };
-
+      const newSource = { id: sourceId, name: file.name, src: objectUrl, duration };
       const newClip = {
-        id: `clip-${sourceId}`,
-        sourceId,
-        name: file.name.replace(/\.[^.]+$/, ''),
-        startTime: 0,
-        endTime: duration,
-        color,
-        trimStart: 0,
-        trimEnd: 0,
+        id: `clip-${sourceId}`, sourceId, name: file.name.replace(/\.[^.]+$/, ''),
+        startTime: 0, endTime: duration, color: '#3B82F6', trimStart: 0, trimEnd: 0,
       };
-
       saveSnapshot();
       setSources((prev) => [...prev, newSource]);
       setClips((prev) => [...prev, newClip]);
       setImporting(false);
-
-      logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, {
-        sourceId,
-        fileName: file.name,
-        duration,
-      });
+      logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, { sourceId, fileName: file.name, duration });
       announce(`Imported video: ${file.name}, ${duration.toFixed(1)} seconds`);
-
-      // Clean up temp video
       tempVideo.src = '';
     };
-    tempVideo.onerror = () => {
-      setImporting(false);
-      URL.revokeObjectURL(objectUrl);
-      announce('Failed to import video file.');
-    };
+    tempVideo.onerror = () => { setImporting(false); URL.revokeObjectURL(objectUrl); announce('Failed to import video file.'); };
     tempVideo.src = objectUrl;
-
-    // Reset input so the same file can be imported again
     e.target.value = '';
-  }, [sources.length, saveSnapshot, logEvent]);
+  }, [saveSnapshot, logEvent]);
 
-  // ---- Edit operations ----
+  // --- Clip operations ---
+  const formatTime = (s) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const getEffectiveDuration = (clip) => {
+    return Math.max(0.5, (clip.endTime - clip.trimEnd) - (clip.startTime + clip.trimStart));
+  };
 
   const handleSelectClip = (index) => {
     setSelectedClipIndex(index);
-    if (clips[index]) {
-      announce(`Selected clip: ${clips[index].name}`);
+    const clip = clips[index];
+    if (clip) {
+      announce(`Selected: ${clip.name}, ${getEffectiveDuration(clip).toFixed(1)} seconds`);
+      if (onSeek) onSeek(clip.startTime + clip.trimStart);
     }
   };
 
@@ -227,30 +187,21 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
     const newClips = [...clips];
     newClips.splice(selectedClipIndex, 1, clipA, clipB);
     setClips(newClips);
-    setSelectedClipIndex(selectedClipIndex);
-    logEvent(EventTypes.SPLIT, Actors.CREATOR, {
-      clipId: clip.id,
-      clipName: clip.name,
-      splitTime: currentTime,
-    });
-    announce(`Split ${clip.name} at ${currentTime.toFixed(1)} seconds`);
+    logEvent(EventTypes.SPLIT, Actors.CREATOR, { clipId: clip.id, clipName: clip.name, splitTime: currentTime });
+    announce(`Split ${clip.name} at ${formatTime(currentTime)}`);
   };
 
   const handleDelete = () => {
     if (selectedClipIndex === null) return;
     const clip = clips[selectedClipIndex];
     saveSnapshot();
-    const newClips = clips.filter((_, i) => i !== selectedClipIndex);
-    setClips(newClips);
+    setClips(clips.filter((_, i) => i !== selectedClipIndex));
     setSelectedClipIndex(null);
-    logEvent(EventTypes.DELETE_CLIP, Actors.CREATOR, {
-      clipId: clip.id,
-      clipName: clip.name,
-    });
-    announce(`Deleted clip: ${clip.name}`);
+    logEvent(EventTypes.DELETE_CLIP, Actors.CREATOR, { clipId: clip.id, clipName: clip.name });
+    announce(`Deleted: ${clip.name}`);
   };
 
-  const handleMoveLeft = () => {
+  const handleMoveUp = () => {
     if (selectedClipIndex === null || selectedClipIndex === 0) return;
     saveSnapshot();
     const newClips = [...clips];
@@ -258,15 +209,11 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
     [newClips[idx - 1], newClips[idx]] = [newClips[idx], newClips[idx - 1]];
     setClips(newClips);
     setSelectedClipIndex(idx - 1);
-    logEvent(EventTypes.REORDER, Actors.CREATOR, {
-      clipId: clips[selectedClipIndex].id,
-      clipName: clips[selectedClipIndex].name,
-      direction: 'left',
-    });
-    announce(`Moved ${clips[selectedClipIndex].name} left`);
+    logEvent(EventTypes.REORDER, Actors.CREATOR, { clipId: clips[idx].id, clipName: clips[idx].name, direction: 'up' });
+    announce(`Moved ${clips[idx].name} up`);
   };
 
-  const handleMoveRight = () => {
+  const handleMoveDown = () => {
     if (selectedClipIndex === null || selectedClipIndex >= clips.length - 1) return;
     saveSnapshot();
     const newClips = [...clips];
@@ -274,69 +221,40 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
     [newClips[idx], newClips[idx + 1]] = [newClips[idx + 1], newClips[idx]];
     setClips(newClips);
     setSelectedClipIndex(idx + 1);
-    logEvent(EventTypes.REORDER, Actors.CREATOR, {
-      clipId: clips[selectedClipIndex].id,
-      clipName: clips[selectedClipIndex].name,
-      direction: 'right',
-    });
-    announce(`Moved ${clips[selectedClipIndex].name} right`);
+    logEvent(EventTypes.REORDER, Actors.CREATOR, { clipId: clips[idx].id, clipName: clips[idx].name, direction: 'down' });
+    announce(`Moved ${clips[idx].name} down`);
   };
 
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const prev = undoStack[undoStack.length - 1];
-    setRedoStack((r) => [
-      ...r,
-      {
-        clips: clips.map((c) => ({ ...c })),
-        captions: captions.map((c) => ({ ...c })),
-        sources: sources.map((s) => ({ ...s })),
-      },
-    ]);
-    setUndoStack((u) => u.slice(0, -1));
-    restoreSnapshot(prev);
-    setSelectedClipIndex(null);
-    logEvent(EventTypes.UNDO, Actors.CREATOR, {});
-    announce('Undo');
+  const handleTrimStart = () => {
+    if (selectedClipIndex === null) return;
+    const clip = clips[selectedClipIndex];
+    const dur = clip.endTime - clip.startTime;
+    const newVal = Math.min(clip.trimStart + 0.5, dur - clip.trimEnd - 0.5);
+    saveSnapshot();
+    setClips((prev) => prev.map((c, i) => (i === selectedClipIndex ? { ...c, trimStart: newVal } : c)));
+    logEvent(EventTypes.TRIM, Actors.CREATOR, { clipId: clip.id, side: 'start', trimStart: newVal });
+    announce(`Trim start: ${newVal.toFixed(1)} seconds`);
   };
 
-  const handleRedo = () => {
-    if (redoStack.length === 0) return;
-    const next = redoStack[redoStack.length - 1];
-    setUndoStack((u) => [
-      ...u,
-      {
-        clips: clips.map((c) => ({ ...c })),
-        captions: captions.map((c) => ({ ...c })),
-        sources: sources.map((s) => ({ ...s })),
-      },
-    ]);
-    setRedoStack((r) => r.slice(0, -1));
-    restoreSnapshot(next);
-    setSelectedClipIndex(null);
-    logEvent(EventTypes.REDO, Actors.CREATOR, {});
-    announce('Redo');
+  const handleTrimEnd = () => {
+    if (selectedClipIndex === null) return;
+    const clip = clips[selectedClipIndex];
+    const dur = clip.endTime - clip.startTime;
+    const newVal = Math.min(clip.trimEnd + 0.5, dur - clip.trimStart - 0.5);
+    saveSnapshot();
+    setClips((prev) => prev.map((c, i) => (i === selectedClipIndex ? { ...c, trimEnd: newVal } : c)));
+    logEvent(EventTypes.TRIM, Actors.CREATOR, { clipId: clip.id, side: 'end', trimEnd: newVal });
+    announce(`Trim end: ${newVal.toFixed(1)} seconds`);
   };
 
-  // ---- Caption operations ----
-
+  // --- Caption operations ---
   const handleAddCaption = () => {
     if (!captionText.trim()) return;
     saveSnapshot();
-    const newCaption = {
-      id: `cap-${Date.now()}`,
-      text: captionText.trim(),
-      startTime: captionStart,
-      endTime: captionEnd,
-    };
+    const newCaption = { id: `cap-${Date.now()}`, text: captionText.trim(), startTime: currentTime, endTime: currentTime + 3 };
     setCaptions((prev) => [...prev, newCaption]);
-    logEvent(EventTypes.ADD_CAPTION, Actors.CREATOR, {
-      captionId: newCaption.id,
-      text: newCaption.text,
-      startTime: captionStart,
-      endTime: captionEnd,
-    });
-    announce(`Added caption: "${newCaption.text}"`);
+    logEvent(EventTypes.ADD_CAPTION, Actors.CREATOR, { captionId: newCaption.id, text: newCaption.text, startTime: currentTime });
+    announce(`Added caption: "${newCaption.text}" at ${formatTime(currentTime)}`);
     setCaptionText('');
   };
 
@@ -344,500 +262,209 @@ export default function MockEditor({ segments = [], currentTime = 0, onSeek, onE
     const cap = captions.find((c) => c.id === capId);
     saveSnapshot();
     setCaptions((prev) => prev.filter((c) => c.id !== capId));
-    logEvent(EventTypes.REMOVE_CAPTION, Actors.CREATOR, {
-      captionId: capId,
-      text: cap?.text,
-    });
+    logEvent(EventTypes.REMOVE_CAPTION, Actors.CREATOR, { captionId: capId, text: cap?.text });
     announce(`Removed caption: "${cap?.text}"`);
   };
 
-  // ---- Trim drag handling ----
-
-  const startTrimDrag = (e, clipIndex, side) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
-    dragRef.current = { clipIndex, side, startX: clientX, originalClip: { ...clips[clipIndex] } };
-
-    const onMove = (ev) => {
-      if (!dragRef.current) return;
-      const cx = ev.type.startsWith('touch') ? ev.touches[0].clientX : ev.clientX;
-      const dx = cx - dragRef.current.startX;
-      const timelineEl = timelineRef.current;
-      if (!timelineEl) return;
-      const pxPerSec = timelineEl.clientWidth / Math.max(totalDuration, 1);
-      const dt = dx / pxPerSec;
-      const orig = dragRef.current.originalClip;
-      const duration = orig.endTime - orig.startTime;
-
-      if (dragRef.current.side === 'left') {
-        const newTrimStart = Math.max(0, Math.min(orig.trimStart + dt, duration - orig.trimEnd - 0.5));
-        setClips((prev) =>
-          prev.map((c, i) => (i === dragRef.current.clipIndex ? { ...c, trimStart: newTrimStart } : c))
-        );
-      } else {
-        const newTrimEnd = Math.max(0, Math.min(orig.trimEnd - dt, duration - orig.trimStart - 0.5));
-        setClips((prev) =>
-          prev.map((c, i) => (i === dragRef.current.clipIndex ? { ...c, trimEnd: newTrimEnd } : c))
-        );
-      }
-    };
-
-    const onEnd = () => {
-      if (dragRef.current) {
-        const idx = dragRef.current.clipIndex;
-        const originalClip = { ...dragRef.current.originalClip };
-        const side = dragRef.current.side;
-        const updatedClip = clips[idx];
-        if (updatedClip) {
-          const effectiveDuration =
-            updatedClip.endTime - updatedClip.trimEnd - (updatedClip.startTime + updatedClip.trimStart);
-          setUndoStack((prev) => [
-            ...prev,
-            {
-              clips: clips.map((c, i) =>
-                i === idx ? originalClip : { ...c }
-              ),
-              captions: captions.map((c) => ({ ...c })),
-              sources: sources.map((s) => ({ ...s })),
-            },
-          ]);
-          setRedoStack([]);
-          logEvent(EventTypes.TRIM, Actors.CREATOR, {
-            clipId: updatedClip.id,
-            clipName: updatedClip.name,
-            side,
-            trimStart: updatedClip.trimStart,
-            trimEnd: updatedClip.trimEnd,
-          });
-          announce(
-            `Trimmed ${updatedClip.name} to ${Math.max(0.5, effectiveDuration).toFixed(1)} seconds`
-          );
-        }
-        dragRef.current = null;
-      }
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onEnd);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onEnd);
-    };
-
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onEnd);
-  };
-
-  // ---- Keyboard navigation ----
-
-  const handleTimelineKeyDown = (e) => {
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      const next = selectedClipIndex === null ? 0 : Math.min(selectedClipIndex + 1, clips.length - 1);
-      handleSelectClip(next);
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      const prev = selectedClipIndex === null ? 0 : Math.max(selectedClipIndex - 1, 0);
-      handleSelectClip(prev);
-    }
-  };
-
-  const handleToolbarKeyDown = (e) => {
-    const toolbar = toolbarRef.current;
-    if (!toolbar) return;
-    const buttons = Array.from(toolbar.querySelectorAll('button:not([disabled])'));
-    const current = buttons.indexOf(document.activeElement);
-    if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      const next = current < buttons.length - 1 ? current + 1 : 0;
-      buttons[next]?.focus();
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      const prev = current > 0 ? current - 1 : buttons.length - 1;
-      buttons[prev]?.focus();
-    }
-  };
-
-  // ---- Compute layout ----
-
-  const clipLayouts = [];
-  let runningTime = 0;
-  for (const clip of clips) {
-    const effectiveStart = clip.startTime + clip.trimStart;
-    const effectiveEnd = clip.endTime - clip.trimEnd;
-    const dur = Math.max(0.5, effectiveEnd - effectiveStart);
-    clipLayouts.push({ offsetTime: runningTime, duration: dur });
-    runningTime += dur;
-  }
-  const timelineTotalDuration = runningTime || 1;
-
-  const playheadPercent = Math.min(100, Math.max(0, (currentTime / timelineTotalDuration) * 100));
-
-  // Find source name for a clip
-  const getSourceName = (clip) => {
-    const source = sources.find((s) => s.id === clip.sourceId);
-    return source?.name || '';
-  };
+  const selectedClip = selectedClipIndex !== null ? clips[selectedClipIndex] : null;
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ backgroundColor: '#1F3864' }}>
-      {/* Hidden file input for import */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="video/*"
-        onChange={handleFileSelect}
-        className="hidden"
-        aria-hidden="true"
-      />
+    <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1F3864' }}>
+      <input ref={fileInputRef} type="file" accept="video/*" onChange={handleFileSelect} className="hidden" aria-hidden="true" />
 
-      {/* Edit Toolbar */}
-      <div
-        ref={toolbarRef}
-        role="toolbar"
-        aria-label="Edit toolbar"
-        onKeyDown={handleToolbarKeyDown}
-        className="flex flex-wrap items-center gap-2 p-2 border-b border-white/20"
-      >
-        <ToolbarButton
-          onClick={handleImportClick}
-          disabled={importing}
-          label="Import a video file"
+      {/* Header with clip count and undo/redo */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/20">
+        <h2 className="text-white font-bold text-sm">
+          Editor
+          <span className="ml-2 text-white/60 font-normal">{clips.length} clips</span>
+        </h2>
+        <div className="flex gap-2">
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            aria-label="Undo last action"
+            className="px-3 py-2 rounded text-xs font-medium text-white disabled:opacity-30 focus:outline-2 focus:outline-white"
+            style={{ backgroundColor: '#2B579A', minHeight: '44px' }}
+          >
+            Undo
+          </button>
+          <button
+            onClick={handleRedo}
+            disabled={redoStack.length === 0}
+            aria-label="Redo last action"
+            className="px-3 py-2 rounded text-xs font-medium text-white disabled:opacity-30 focus:outline-2 focus:outline-white"
+            style={{ backgroundColor: '#2B579A', minHeight: '44px' }}
+          >
+            Redo
+          </button>
+        </div>
+      </div>
+
+      {/* Clip List */}
+      <div className="px-3 py-2">
+        <button
+          onClick={() => setExpandedPanel(expandedPanel === 'clips' ? null : 'clips')}
+          aria-expanded={expandedPanel === 'clips'}
+          className="w-full flex items-center justify-between px-3 py-3 rounded-lg text-white text-sm font-medium bg-white/10 hover:bg-white/15 focus:outline-2 focus:outline-white"
+          style={{ minHeight: '48px' }}
         >
-          {importing ? 'Importing...' : 'Import Video'}
-        </ToolbarButton>
-        <div className="border-l border-white/30 h-6 mx-1" />
-        <ToolbarButton
-          onClick={handleSplit}
-          disabled={selectedClipIndex === null}
-          label="Split clip at playhead"
-        >
-          Split
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={handleDelete}
-          disabled={selectedClipIndex === null}
-          label="Delete selected clip"
-        >
-          Delete
-        </ToolbarButton>
-        {selectedClipIndex !== null && (
-          <>
-            <ToolbarButton
-              onClick={handleMoveLeft}
-              disabled={selectedClipIndex === 0}
-              label="Move clip left"
-            >
-              Move Left
-            </ToolbarButton>
-            <ToolbarButton
-              onClick={handleMoveRight}
-              disabled={selectedClipIndex >= clips.length - 1}
-              label="Move clip right"
-            >
-              Move Right
-            </ToolbarButton>
-          </>
+          <span>Clips ({clips.length})</span>
+          <span className="text-white/60">{expandedPanel === 'clips' ? 'Collapse' : 'Expand'}</span>
+        </button>
+
+        {expandedPanel === 'clips' && (
+          <ul className="mt-2 space-y-1" role="listbox" aria-label="Video clips">
+            {clips.map((clip, idx) => {
+              const isSelected = selectedClipIndex === idx;
+              const dur = getEffectiveDuration(clip);
+              return (
+                <li key={clip.id}>
+                  <button
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => handleSelectClip(idx)}
+                    className={`w-full text-left px-3 py-3 rounded-lg text-sm transition-colors focus:outline-2 focus:outline-white ${
+                      isSelected
+                        ? 'bg-white/20 ring-2 ring-white'
+                        : 'bg-white/5 hover:bg-white/10'
+                    }`}
+                    style={{ minHeight: '48px' }}
+                    aria-label={`Clip ${idx + 1}: ${clip.name}, ${dur.toFixed(1)} seconds, ${formatTime(clip.startTime + clip.trimStart)} to ${formatTime(clip.endTime - clip.trimEnd)}`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: clip.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="text-white font-medium truncate">{clip.name}</span>
+                      <span className="text-white/50 text-xs ml-auto flex-shrink-0">{dur.toFixed(1)}s</span>
+                    </span>
+                    <span className="text-white/40 text-xs mt-0.5 block pl-5">
+                      {formatTime(clip.startTime + clip.trimStart)} — {formatTime(clip.endTime - clip.trimEnd)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         )}
-        <div className="border-l border-white/30 h-6 mx-1" />
-        <ToolbarButton
-          onClick={() => setShowCaptionEditor((v) => !v)}
-          label={showCaptionEditor ? 'Hide caption editor' : 'Show caption editor'}
-        >
-          {showCaptionEditor ? 'Hide Captions' : 'Add Caption'}
-        </ToolbarButton>
-        <div className="border-l border-white/30 h-6 mx-1" />
-        <ToolbarButton
-          onClick={handleUndo}
-          disabled={undoStack.length === 0}
-          label="Undo last action"
-        >
-          Undo
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={handleRedo}
-          disabled={redoStack.length === 0}
-          label="Redo last undone action"
-        >
-          Redo
-        </ToolbarButton>
-      </div>
 
-      {/* Source indicators */}
-      {sources.length > 1 && (
-        <div className="flex flex-wrap gap-2 px-2 pt-2" aria-label="Video sources">
-          {sources.map((source, idx) => (
-            <span
-              key={source.id}
-              className="inline-flex items-center gap-1 text-white/70 text-xs px-2 py-0.5 rounded"
-              style={{ backgroundColor: SOURCE_COLORS[idx % SOURCE_COLORS.length] + '40' }}
-            >
-              <span
-                className="w-2 h-2 rounded-full inline-block"
-                style={{ backgroundColor: SOURCE_COLORS[idx % SOURCE_COLORS.length] }}
-                aria-hidden="true"
-              />
-              {source.name}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Timeline Strip */}
-      <div
-        ref={timelineRef}
-        role="listbox"
-        aria-label="Video timeline clips. Click to seek."
-        tabIndex={0}
-        onKeyDown={handleTimelineKeyDown}
-        onClick={(e) => {
-          // Click-to-seek: convert click X position to time
-          if (!timelineRef.current || !onSeek) return;
-          const rect = timelineRef.current.getBoundingClientRect();
-          const x = (e.clientX || (e.touches && e.touches[0].clientX) || 0) - rect.left;
-          const fraction = Math.max(0, Math.min(1, x / rect.width));
-          const seekTime = fraction * timelineTotalDuration;
-          onSeek(seekTime);
-        }}
-        className="relative flex items-stretch mx-2 my-3 rounded overflow-hidden cursor-pointer"
-        style={{ height: '56px', backgroundColor: '#162D54' }}
-      >
-        {clips.map((clip, idx) => {
-          const layout = clipLayouts[idx];
-          const widthPercent = (layout.duration / timelineTotalDuration) * 100;
-          const isSelected = selectedClipIndex === idx;
-          const sourceName = sources.length > 1 ? getSourceName(clip) : '';
-
-          return (
-            <div
-              key={clip.id}
-              role="option"
-              aria-selected={isSelected}
-              aria-label={`${clip.name}${sourceName ? ` (${sourceName})` : ''}, ${layout.duration.toFixed(1)} seconds`}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleSelectClip(idx);
-                // Seek to the clicked position within the clip
-                if (onSeek && timelineRef.current) {
-                  const rect = timelineRef.current.getBoundingClientRect();
-                  const x = e.clientX - rect.left;
-                  const fraction = Math.max(0, Math.min(1, x / rect.width));
-                  const seekTime = fraction * timelineTotalDuration;
-                  onSeek(seekTime);
-                }
-              }}
-              className="relative flex items-center justify-center cursor-pointer overflow-hidden select-none"
-              style={{
-                width: `${widthPercent}%`,
-                backgroundColor: clip.color,
-                border: isSelected ? '3px solid white' : '1px solid rgba(255,255,255,0.3)',
-                borderRadius: '4px',
-                margin: '0 1px',
-                minWidth: '24px',
-              }}
-            >
-              {/* Trim handles (selected clip only) */}
-              {isSelected && (
-                <>
-                  <div
-                    role="slider"
-                    aria-label={`Trim start of ${clip.name}`}
-                    aria-valuemin={0}
-                    aria-valuemax={clip.endTime - clip.startTime}
-                    aria-valuenow={clip.trimStart}
-                    aria-valuetext={`Trim start: ${clip.trimStart.toFixed(1)} seconds`}
-                    tabIndex={0}
-                    onMouseDown={(e) => startTrimDrag(e, idx, 'left')}
-                    onTouchStart={(e) => startTrimDrag(e, idx, 'left')}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const dur = clip.endTime - clip.startTime;
-                        const newVal = Math.min(clip.trimStart + 0.5, dur - clip.trimEnd - 0.5);
-                        saveSnapshot();
-                        setClips((prev) => prev.map((c, i) => (i === idx ? { ...c, trimStart: newVal } : c)));
-                        announce(`Trim start: ${newVal.toFixed(1)} seconds`);
-                      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const newVal = Math.max(0, clip.trimStart - 0.5);
-                        saveSnapshot();
-                        setClips((prev) => prev.map((c, i) => (i === idx ? { ...c, trimStart: newVal } : c)));
-                        announce(`Trim start: ${newVal.toFixed(1)} seconds`);
-                      }
-                    }}
-                    className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize z-10 flex items-center justify-center"
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.5)',
-                      minHeight: '44px',
-                      minWidth: '44px',
-                    }}
-                  >
-                    <div className="w-0.5 h-4 bg-white rounded" />
-                  </div>
-                  <div
-                    role="slider"
-                    aria-label={`Trim end of ${clip.name}`}
-                    aria-valuemin={0}
-                    aria-valuemax={clip.endTime - clip.startTime}
-                    aria-valuenow={clip.trimEnd}
-                    aria-valuetext={`Trim end: ${clip.trimEnd.toFixed(1)} seconds`}
-                    tabIndex={0}
-                    onMouseDown={(e) => startTrimDrag(e, idx, 'right')}
-                    onTouchStart={(e) => startTrimDrag(e, idx, 'right')}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const dur = clip.endTime - clip.startTime;
-                        const newVal = Math.min(clip.trimEnd + 0.5, dur - clip.trimStart - 0.5);
-                        saveSnapshot();
-                        setClips((prev) => prev.map((c, i) => (i === idx ? { ...c, trimEnd: newVal } : c)));
-                        announce(`Trim end: ${newVal.toFixed(1)} seconds`);
-                      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const newVal = Math.max(0, clip.trimEnd - 0.5);
-                        saveSnapshot();
-                        setClips((prev) => prev.map((c, i) => (i === idx ? { ...c, trimEnd: newVal } : c)));
-                        announce(`Trim end: ${newVal.toFixed(1)} seconds`);
-                      }
-                    }}
-                    className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize z-10 flex items-center justify-center"
-                    style={{
-                      backgroundColor: 'rgba(255,255,255,0.5)',
-                      minHeight: '44px',
-                      minWidth: '44px',
-                    }}
-                  >
-                    <div className="w-0.5 h-4 bg-white rounded" />
-                  </div>
-                </>
-              )}
-              <span
-                className="text-white text-xs font-medium truncate px-2 pointer-events-none flex flex-col items-center leading-tight"
-                style={{ textShadow: '0 1px 2px rgba(0,0,0,0.6)' }}
-              >
-                <span className="truncate max-w-full">{clip.name}</span>
-                {sourceName && (
-                  <span className="text-white/50 text-[10px] truncate max-w-full">{sourceName}</span>
-                )}
-              </span>
+        {/* Selected clip actions */}
+        {expandedPanel === 'clips' && selectedClip && (
+          <div className="mt-3 p-3 rounded-lg bg-white/10" role="group" aria-label={`Actions for ${selectedClip.name}`}>
+            <p className="text-white text-xs font-semibold mb-2">
+              Editing: {selectedClip.name}
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <EditorButton onClick={handleSplit} label="Split at playhead">Split Here</EditorButton>
+              <EditorButton onClick={handleDelete} label={`Delete ${selectedClip.name}`} danger>Delete</EditorButton>
+              <EditorButton onClick={handleMoveUp} disabled={selectedClipIndex === 0} label="Move clip earlier">Move Up</EditorButton>
+              <EditorButton onClick={handleMoveDown} disabled={selectedClipIndex >= clips.length - 1} label="Move clip later">Move Down</EditorButton>
+              <EditorButton onClick={handleTrimStart} label="Trim start by 0.5 seconds">Trim Start +0.5s</EditorButton>
+              <EditorButton onClick={handleTrimEnd} label="Trim end by 0.5 seconds">Trim End +0.5s</EditorButton>
             </div>
-          );
-        })}
-
-        {/* Playhead */}
-        <div
-          className="absolute top-0 bottom-0 w-0.5 bg-white z-20 pointer-events-none"
-          style={{ left: `${playheadPercent}%` }}
-        >
-          <div
-            className="w-2 h-2 bg-white rounded-full absolute -top-1"
-            style={{ left: '-3px' }}
-          />
-        </div>
+            {(selectedClip.trimStart > 0 || selectedClip.trimEnd > 0) && (
+              <p className="text-white/50 text-xs mt-2" aria-live="polite">
+                Trimmed: {selectedClip.trimStart.toFixed(1)}s from start, {selectedClip.trimEnd.toFixed(1)}s from end
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Caption Editor */}
-      {showCaptionEditor && (
-        <div className="mx-2 mb-3 p-3 rounded" style={{ backgroundColor: '#162D54' }}>
-          <h3 className="text-white text-sm font-semibold mb-2">Caption Editor</h3>
-          <div className="flex flex-wrap gap-2 items-end mb-3">
-            <div className="flex-1 min-w-[160px]">
-              <label htmlFor="caption-text" className="text-white/70 text-xs block mb-1">
-                Caption text
-              </label>
+      {/* Captions */}
+      <div className="px-3 py-2 border-t border-white/10">
+        <button
+          onClick={() => setExpandedPanel(expandedPanel === 'captions' ? null : 'captions')}
+          aria-expanded={expandedPanel === 'captions'}
+          className="w-full flex items-center justify-between px-3 py-3 rounded-lg text-white text-sm font-medium bg-white/10 hover:bg-white/15 focus:outline-2 focus:outline-white"
+          style={{ minHeight: '48px' }}
+        >
+          <span>Captions ({captions.length})</span>
+          <span className="text-white/60">{expandedPanel === 'captions' ? 'Collapse' : 'Expand'}</span>
+        </button>
+
+        {expandedPanel === 'captions' && (
+          <div className="mt-2 space-y-2">
+            {/* Add caption form */}
+            <div className="flex gap-2">
               <input
-                id="caption-text"
                 type="text"
                 value={captionText}
                 onChange={(e) => setCaptionText(e.target.value)}
-                placeholder="Enter caption..."
-                className="w-full px-2 py-1.5 rounded text-sm bg-white/10 text-white border border-white/20 focus:outline-none focus:border-white/50"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddCaption(); }}
+                placeholder="Type caption text..."
+                className="flex-1 px-3 py-2 rounded-lg text-sm bg-white/10 text-white border border-white/20 placeholder-white/30 focus:outline-2 focus:outline-white"
+                aria-label="Caption text"
+                style={{ minHeight: '44px' }}
               />
+              <button
+                onClick={handleAddCaption}
+                disabled={!captionText.trim()}
+                aria-label="Add caption at current time"
+                className="px-4 py-2 rounded-lg text-sm text-white font-medium disabled:opacity-30 focus:outline-2 focus:outline-white"
+                style={{ backgroundColor: '#2B579A', minHeight: '44px' }}
+              >
+                Add
+              </button>
             </div>
-            <div className="w-20">
-              <label htmlFor="caption-start" className="text-white/70 text-xs block mb-1">
-                Start (s)
-              </label>
-              <input
-                id="caption-start"
-                type="number"
-                min={0}
-                step={0.5}
-                value={captionStart}
-                onChange={(e) => setCaptionStart(Number(e.target.value))}
-                className="w-full px-2 py-1.5 rounded text-sm bg-white/10 text-white border border-white/20 focus:outline-none focus:border-white/50"
-              />
-            </div>
-            <div className="w-20">
-              <label htmlFor="caption-end" className="text-white/70 text-xs block mb-1">
-                End (s)
-              </label>
-              <input
-                id="caption-end"
-                type="number"
-                min={0}
-                step={0.5}
-                value={captionEnd}
-                onChange={(e) => setCaptionEnd(Number(e.target.value))}
-                className="w-full px-2 py-1.5 rounded text-sm bg-white/10 text-white border border-white/20 focus:outline-none focus:border-white/50"
-              />
-            </div>
-            <button
-              onClick={handleAddCaption}
-              disabled={!captionText.trim()}
-              aria-label="Add caption"
-              className="px-3 py-1.5 rounded text-sm text-white font-medium disabled:opacity-40"
-              style={{ backgroundColor: '#2B579A', minHeight: '44px', minWidth: '44px' }}
-            >
-              Add
-            </button>
-          </div>
 
-          {/* Existing captions list */}
-          {captions.length > 0 && (
-            <ul className="space-y-1" aria-label="Captions list">
-              {captions.map((cap) => (
-                <li
-                  key={cap.id}
-                  className="flex items-center justify-between gap-2 px-2 py-1 rounded text-sm text-white bg-white/5"
-                >
-                  <span className="truncate flex-1">
-                    "{cap.text}" ({cap.startTime}s - {cap.endTime}s)
-                  </span>
-                  <button
-                    onClick={() => handleRemoveCaption(cap.id)}
-                    aria-label={`Remove caption: ${cap.text}`}
-                    className="text-red-400 hover:text-red-300 text-xs font-medium shrink-0"
-                    style={{ minHeight: '44px', minWidth: '44px' }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {captions.length === 0 && (
-            <p className="text-white/40 text-xs">No captions added yet.</p>
-          )}
-        </div>
-      )}
+            {/* Captions list */}
+            {captions.length > 0 ? (
+              <ul className="space-y-1" aria-label="Captions list">
+                {captions.map((cap) => (
+                  <li key={cap.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5">
+                    <span className="flex-1 text-white text-sm truncate">
+                      "{cap.text}"
+                      <span className="text-white/40 text-xs ml-1">
+                        at {formatTime(cap.startTime)}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => handleRemoveCaption(cap.id)}
+                      aria-label={`Remove caption: ${cap.text}`}
+                      className="text-red-400 text-xs font-medium px-2 py-2 rounded hover:bg-white/10 focus:outline-2 focus:outline-white"
+                      style={{ minHeight: '44px', minWidth: '44px' }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-white/30 text-xs px-3">No captions yet. Add one above.</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Import button */}
+      <div className="px-3 py-3 border-t border-white/10">
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={importing}
+          aria-label={importing ? 'Importing video...' : 'Import a video file'}
+          className="w-full py-3 rounded-lg text-sm text-white font-medium bg-white/10 hover:bg-white/15 focus:outline-2 focus:outline-white disabled:opacity-40"
+          style={{ minHeight: '48px' }}
+        >
+          {importing ? 'Importing...' : 'Import Video'}
+        </button>
+      </div>
     </div>
   );
 }
 
-/** Toolbar button with consistent styling and minimum 44x44 touch target */
-function ToolbarButton({ children, onClick, disabled, label }) {
+function EditorButton({ children, onClick, disabled, label, danger }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="px-3 py-1.5 rounded text-xs font-medium text-white transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-80"
-      style={{ backgroundColor: '#2B579A', minHeight: '44px', minWidth: '44px' }}
+      className={`py-3 rounded-lg text-xs font-medium text-white disabled:opacity-30 focus:outline-2 focus:outline-white ${
+        danger ? 'bg-red-600/80 hover:bg-red-600' : 'bg-white/15 hover:bg-white/25'
+      }`}
+      style={{ minHeight: '48px' }}
     >
       {children}
     </button>
