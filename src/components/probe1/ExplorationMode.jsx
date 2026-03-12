@@ -139,7 +139,8 @@ export default function ExplorationMode({
 
     playerRef?.current?.pause?.();
     if (segments?.[0]) {
-      playerRef?.current?.seek?.(segments[0].start_time);
+      if (onSeek) onSeek(segments[0].start_time);
+      else playerRef?.current?.seek?.(segments[0].start_time);
     }
 
     setCurrentIndex(0);
@@ -171,7 +172,8 @@ export default function ExplorationMode({
     const seg = segments[nextIdx];
     if (seg) {
       playTone(880);
-      playerRef?.current?.seek?.(seg.start_time);
+      if (onSeek) onSeek(seg.start_time);
+      else playerRef?.current?.seek?.(seg.start_time);
       announce(`Scene ${nextIdx + 1} of ${total}. ${seg.name}.`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
@@ -180,7 +182,7 @@ export default function ExplorationMode({
         direction: 'previous',
       });
     }
-  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef]);
+  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef, onSeek]);
 
   const goToNextSegment = useCallback(() => {
     if (!total || currentIndex >= total - 1) return;
@@ -189,7 +191,8 @@ export default function ExplorationMode({
     const seg = segments[nextIdx];
     if (seg) {
       playTone(880);
-      playerRef?.current?.seek?.(seg.start_time);
+      if (onSeek) onSeek(seg.start_time);
+      else playerRef?.current?.seek?.(seg.start_time);
       announce(`Scene ${nextIdx + 1} of ${total}. ${seg.name}.`);
       announceDescription(seg, currentLevel);
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
@@ -198,7 +201,7 @@ export default function ExplorationMode({
         direction: 'next',
       });
     }
-  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef]);
+  }, [total, segments, currentIndex, currentLevel, announceDescription, logEvent, playerRef, onSeek]);
 
   const increaseLevel = useCallback(() => {
     if (currentLevel >= 3) return;
@@ -347,12 +350,13 @@ export default function ExplorationMode({
       }, 150);
     } else {
       if (segment) {
-        playerRef.current.seek(segment.start_time);
+        if (onSeek) onSeek(segment.start_time);
+        else playerRef.current.seek(segment.start_time);
       }
       playerRef.current.play();
       announce('Playing.');
     }
-  }, [playerRef, isPlaying, segment, currentLevel, announceDescription]);
+  }, [playerRef, isPlaying, segment, currentLevel, announceDescription, onSeek]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handling

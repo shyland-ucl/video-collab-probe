@@ -4,13 +4,18 @@ import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
-import { buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
+import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
+import HandoverModeSelector from '../components/probe2/HandoverModeSelector.jsx';
+import HandoverTransition from '../components/probe2/HandoverTransition.jsx';
+import HandoverSuggestion from '../components/probe2/HandoverSuggestion.jsx';
+import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -27,7 +32,7 @@ export default function Probe3Page() {
     ? roleParam
     : null;
 
-  // Phase: roleSelect -> waiting -> active
+  // Phase: roleSelect -> waiting -> library -> active
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
   const [showOnboarding, setShowOnboarding] = useState(true);
@@ -35,11 +40,30 @@ export default function Probe3Page() {
   // Video state
   const playerRef = useRef(null);
   const [data, setData] = useState(null);
+  const [selectedVideos, setSelectedVideos] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
   const [pendingQuestion, setPendingQuestion] = useState(null);
+  const [editState, setEditState] = useState(null);
+
+  // Synced library selection — both devices see the same set
+  const [librarySelection, setLibrarySelection] = useState(new Set());
+
+  // Marks (voice notes + segment markers) — creator side
+  const [marks, setMarks] = useState([]);
+
+  // Handover state
+  const [handoverMode, setHandoverMode] = useState(null);
+  const [showModeSelector, setShowModeSelector] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState(null);
+  const [pendingSuggestion, setPendingSuggestion] = useState(null);
+
+  // Helper-received tasks (sent via WebSocket from creator)
+  const [helperTasks, setHelperTasks] = useState([]);
+  const [helperHandoverMode, setHelperHandoverMode] = useState(null);
 
   // Sync state
   const [independentMode, setIndependentMode] = useState(false);
@@ -52,7 +76,6 @@ export default function Probe3Page() {
     segmentId: null,
   });
   const [connected, setConnected] = useState(false);
-  const [editState, setEditState] = useState(null);
 
   // Load descriptions on mount, set condition
   useEffect(() => {
@@ -61,11 +84,32 @@ export default function Probe3Page() {
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 
-  const videoDuration = useMemo(() => getTotalDuration(data), [data]);
-  const initialSources = useMemo(() => buildInitialSources(data), [data]);
+  // Build project data from selected videos
+  const projectData = useMemo(() => {
+    if (selectedVideos && data) {
+      return {
+        videos: data.videos
+          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
+          : [data.video],
+      };
+    }
+    return data;
+  }, [data, selectedVideos]);
+
+  const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
+  const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
+  const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
+
+  const allVideos = useMemo(() => {
+    if (!data) return [];
+    if (data.videos) return data.videos;
+    if (data.video) return [data.video];
+    return [];
+  }, [data]);
 
   // Track play/pause state and duration from video element
   useEffect(() => {
+    if (phase !== 'active') return;
     const interval = setInterval(() => {
       const player = playerRef.current;
       if (!player) return;
@@ -83,7 +127,7 @@ export default function Probe3Page() {
       }
     }, 250);
     return () => clearInterval(interval);
-  }, [videoDuration]);
+  }, [phase, videoDuration]);
 
   const handleTimeUpdate = useCallback((time) => {
     setCurrentTime(time);
@@ -107,6 +151,174 @@ export default function Probe3Page() {
     independentModeRef.current = independentMode;
   }, [independentMode]);
 
+  // --- Library selection sync ---
+  const handleSelectionChange = useCallback((videoId, isSelected) => {
+    setLibrarySelection((prev) => {
+      const next = new Set(prev);
+      if (isSelected) next.add(videoId);
+      else next.delete(videoId);
+      return next;
+    });
+    // Broadcast selection change to peer
+    wsRelayService.sendData({
+      type: 'VIDEO_SELECT',
+      videoId,
+      isSelected,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role]);
+
+  // --- Video Import (creator only, triggers both devices) ---
+  const handleImport = useCallback((videos) => {
+    setSelectedVideos(videos);
+    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    const sources = [];
+    const clips = [];
+    videos.forEach((v, srcIdx) => {
+      const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
+      sources.push({ id: v.id, name: v.title || 'Untitled', src: v.src, duration: v.duration });
+      const segs = v.segments || [];
+      if (segs.length > 0) {
+        segs.forEach((seg) => {
+          clips.push({
+            id: seg.id, sourceId: v.id, name: seg.name,
+            startTime: seg.start_time, endTime: seg.end_time,
+            color: seg.color || color, trimStart: 0, trimEnd: 0,
+          });
+        });
+      } else {
+        clips.push({
+          id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+          startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
+        });
+      }
+    });
+    setEditState({ clips, captions: [], sources });
+
+    logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, {
+      videoIds: videos.map((v) => v.id), count: videos.length,
+    });
+    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
+
+    // Tell the peer to also move to active
+    wsRelayService.sendData({
+      type: 'PROJECT_CREATED',
+      videoIds: videos.map((v) => v.id),
+      actor: 'CREATOR',
+    });
+
+    setPhase('active');
+  }, [logEvent]);
+
+  // --- Edit state sync ---
+  const editStateRef = useRef(editState);
+  useEffect(() => { editStateRef.current = editState; }, [editState]);
+
+  // Peer edit notification state (for helper's visual toast)
+  const [peerEditNotification, setPeerEditNotification] = useState(null);
+
+  // Detect what changed between old and new edit states
+  const detectEditAction = useCallback((prevState, newState) => {
+    if (!prevState || !newState) return 'made an edit';
+    const prevClips = prevState.clips?.length || 0;
+    const newClips = newState.clips?.length || 0;
+    const prevCaptions = prevState.captions?.length || 0;
+    const newCaptions = newState.captions?.length || 0;
+    if (newClips > prevClips) return 'split a clip';
+    if (newClips < prevClips) return 'deleted a clip';
+    if (newCaptions > prevCaptions) return 'added a caption';
+    if (newCaptions < prevCaptions) return 'removed a caption';
+    // Check if clips were reordered (same count, different order)
+    if (prevClips === newClips && prevClips > 0) {
+      const prevIds = prevState.clips.map((c) => c.id).join(',');
+      const newIds = newState.clips.map((c) => c.id).join(',');
+      if (prevIds !== newIds) return 'reordered clips';
+    }
+    return 'made an edit';
+  }, []);
+
+  // handleEditChange is only called by MockEditorVisual for LOCAL edits
+  // (peer-driven prop changes are suppressed inside MockEditorVisual via syncFromPropsRef)
+  const handleEditChange = useCallback((clips, captions, sources) => {
+    const newState = { clips, captions, sources };
+    const action = detectEditAction(editStateRef.current, newState);
+    setEditState(newState);
+    wsRelayService.sendData({
+      type: 'EDIT_STATE_UPDATE',
+      editState: newState,
+      action,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role, detectEditAction]);
+
+  // --- Marks management ---
+  const handleAddMark = useCallback((mark) => {
+    setMarks((prev) => [...prev, mark]);
+  }, []);
+
+  const handleDeleteMark = useCallback((markId) => {
+    setMarks((prev) => prev.filter((m) => m.id !== markId));
+  }, []);
+
+  // --- Handover flow ---
+  const handleInitiateHandover = useCallback(() => {
+    logEvent(EventTypes.HANDOVER_INITIATED, Actors.CREATOR, { fromMode: 'creator', markCount: marks.length });
+    setShowModeSelector(true);
+  }, [logEvent, marks.length]);
+
+  const handleSelectHandoverMode = useCallback((selectedMode) => {
+    setShowModeSelector(false);
+    setHandoverMode(selectedMode);
+
+    if (selectedMode === 'tasks') {
+      logEvent(EventTypes.HANDOVER_TASKS, Actors.CREATOR, { taskCount: marks.length });
+    } else {
+      logEvent(EventTypes.HANDOVER_LIVE, Actors.CREATOR);
+    }
+
+    // Send handover data to helper via WebSocket
+    wsRelayService.sendData({
+      type: selectedMode === 'tasks' ? 'HANDOVER_TASKS' : 'HANDOVER_LIVE',
+      marks: selectedMode === 'tasks' ? marks.map((m) => ({
+        id: m.id, segmentId: m.segmentId, segmentName: m.segmentName,
+        audioDuration: m.audioDuration, timestamp: m.timestamp,
+      })) : [],
+      actor: 'CREATOR',
+    });
+
+    // Start transition animation
+    setTransitionDirection('toHelper');
+    setIsTransitioning(true);
+  }, [logEvent, marks]);
+
+  const handleTransitionComplete = useCallback(() => {
+    setIsTransitioning(false);
+    if (transitionDirection === 'toHelper') {
+      logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'helper', handoverMode });
+      announce('Tasks sent to helper');
+    } else {
+      setHandoverMode(null);
+      logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'creator' });
+      announce('Helper has returned');
+    }
+    setTransitionDirection(null);
+  }, [transitionDirection, handoverMode, logEvent]);
+
+  // --- WoZ suggestion flow ---
+  const handleTriggerSuggestion = useCallback((text) => {
+    setPendingSuggestion(text);
+  }, []);
+
+  const handleSuggestionAccept = useCallback(() => {
+    setPendingSuggestion(null);
+    handleInitiateHandover();
+  }, [handleInitiateHandover]);
+
+  const handleSuggestionDismiss = useCallback(() => {
+    setPendingSuggestion(null);
+  }, []);
+
+  // --- WebSocket setup ---
   const unsubscribeRef = useRef({
     data: null,
     connected: null,
@@ -117,14 +329,9 @@ export default function Probe3Page() {
     unsubscribeRef.current.data?.();
     unsubscribeRef.current.connected?.();
     unsubscribeRef.current.disconnected?.();
-    unsubscribeRef.current = {
-      data: null,
-      connected: null,
-      disconnected: null,
-    };
+    unsubscribeRef.current = { data: null, connected: null, disconnected: null };
   }, []);
 
-  // Set up data + disconnect handlers (once, after role is chosen)
   const setupHandlers = useCallback((currentRole) => {
     clearSubscriptions();
 
@@ -173,10 +380,67 @@ export default function Probe3Page() {
           }
           break;
 
+        // Edit state sync — apply peer's edits locally
+        // MockEditorVisual will sync from the editState prop and suppress onEditChange
+        case 'EDIT_STATE_UPDATE': {
+          setEditState(msg.editState);
+          const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
+          const actionDesc = msg.action || 'made an edit';
+          if (role === 'creator') {
+            // BLV creator gets audio announcement via screen reader
+            announce(`${peerLabel} ${actionDesc}`);
+          } else {
+            // Sighted helper gets visual toast
+            setPeerEditNotification({ text: `${peerLabel} ${actionDesc}`, id: Date.now() });
+          }
+          break;
+        }
+
+        // Library selection sync
+        case 'VIDEO_SELECT':
+          setLibrarySelection((prev) => {
+            const next = new Set(prev);
+            if (msg.isSelected) next.add(msg.videoId);
+            else next.delete(msg.videoId);
+            return next;
+          });
+          break;
+
+        // Creator created project — helper follows
+        case 'PROJECT_CREATED':
+          // Build selectedVideos from the IDs the creator sent
+          setSelectedVideos((prev) => {
+            // We need access to allVideos data, so we'll use a ref-based approach
+            return msg.videoIds;
+          });
+          break;
+
+        // Handover message types
+        case 'HANDOVER_TASKS':
+          setHelperTasks(msg.marks || []);
+          setHelperHandoverMode('tasks');
+          announce('Creator sent you tasks to complete');
+          break;
+
+        case 'HANDOVER_LIVE':
+          setHelperHandoverMode('live');
+          announce('Creator started live collaboration');
+          break;
+
+        case 'NOTIFY_CREATOR':
+          announce('Helper is trying to reach you');
+          break;
+
+        case 'RETURN_SUMMARY':
+          announce(`Helper finished: ${msg.summary || 'No summary provided'}`);
+          logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary: msg.summary });
+          setTransitionDirection('toCreator');
+          setIsTransitioning(true);
+          break;
+
         case 'MESSAGE':
         case 'CONTROL_REQUEST':
         case 'CONTROL_RESPONSE':
-          // Handled within device components
           break;
 
         default:
@@ -194,11 +458,56 @@ export default function Probe3Page() {
       setConnected(true);
       logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: currentRole });
       announce('Device connected');
-      setPhase('active');
     });
   }, [clearSubscriptions, logEvent]);
 
-  // --- Role Selection → connect immediately ---
+  // When connected and still on waiting, move to library
+  useEffect(() => {
+    if (phase === 'waiting' && connected) {
+      setPhase('library');
+    }
+  }, [phase, connected]);
+
+  // Handle PROJECT_CREATED from peer — resolve videoIds to video objects and enter active
+  useEffect(() => {
+    if (selectedVideos && Array.isArray(selectedVideos) && typeof selectedVideos[0] === 'string') {
+      // selectedVideos is an array of IDs from WebSocket, resolve to video objects
+      if (allVideos.length > 0) {
+        const resolved = allVideos.filter((v) => selectedVideos.includes(v.id));
+        if (resolved.length > 0) {
+          // Build editState
+          const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+          const sources = [];
+          const clips = [];
+          resolved.forEach((v, srcIdx) => {
+            const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
+            sources.push({ id: v.id, name: v.title || 'Untitled', src: v.src, duration: v.duration });
+            const segs = v.segments || [];
+            if (segs.length > 0) {
+              segs.forEach((seg) => {
+                clips.push({
+                  id: seg.id, sourceId: v.id, name: seg.name,
+                  startTime: seg.start_time, endTime: seg.end_time,
+                  color: seg.color || color, trimStart: 0, trimEnd: 0,
+                });
+              });
+            } else {
+              clips.push({
+                id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+                startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
+              });
+            }
+          });
+          setEditState({ clips, captions: [], sources });
+          setSelectedVideos(resolved);
+          setPhase('active');
+          announce('Creator started the project. Entering session.');
+        }
+      }
+    }
+  }, [selectedVideos, allVideos]);
+
+  // --- Role Selection ---
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);
     setPhase('waiting');
@@ -213,9 +522,10 @@ export default function Probe3Page() {
   useEffect(() => {
     if (validRoleParam && !didAutoConnect.current) {
       didAutoConnect.current = true;
-      handleRoleSelect(validRoleParam);
+      setupHandlers(validRoleParam);
+      wsRelayService.connect(validRoleParam);
     }
-  }, [validRoleParam, handleRoleSelect]);
+  }, [validRoleParam, setupHandlers]);
 
   useEffect(() => () => {
     clearSubscriptions();
@@ -325,6 +635,9 @@ export default function Probe3Page() {
   if (phase === 'waiting') {
     return (
       <div className="min-h-screen bg-white">
+        {showOnboarding && (
+          <OnboardingBrief condition="probe3" onDismiss={() => setShowOnboarding(false)} />
+        )}
         <ConditionHeader condition="probe3" modeLabel={modeLabel} />
         <div className="max-w-lg mx-auto mt-16 px-4 text-center">
           <div className="w-16 h-16 mx-auto mb-6 rounded-full flex items-center justify-center animate-pulse" style={{ backgroundColor: '#F0E6FF' }}>
@@ -343,6 +656,24 @@ export default function Probe3Page() {
     );
   }
 
+  // --- Video Library (synced between devices) ---
+  if (phase === 'library') {
+    const isCreator = role === 'creator';
+    return (
+      <div className="min-h-screen bg-white">
+        <ConditionHeader condition="probe3" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
+        <VideoLibrary
+          videos={allVideos}
+          onImport={handleImport}
+          showPreview={!isCreator}
+          controlledSelection={librarySelection}
+          onSelectionChange={isCreator ? handleSelectionChange : undefined}
+          readOnly={!isCreator}
+        />
+      </div>
+    );
+  }
+
   // --- Active Session ---
   return (
     <div className="min-h-screen bg-white">
@@ -352,10 +683,8 @@ export default function Probe3Page() {
         {role === 'creator' ? (
           <CreatorDevice
             videoRef={playerRef}
-            videoData={data}
+            videoData={projectData}
             webrtcService={wsRelayService}
-            onQuestion={handleQuestion}
-            helperActivities={helperActivities}
             currentTime={currentTime}
             duration={duration}
             isPlaying={isPlaying}
@@ -363,14 +692,18 @@ export default function Probe3Page() {
             onTimeUpdate={handleTimeUpdate}
             onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
+            onInitiateHandover={handleInitiateHandover}
+            marks={marks}
+            onAddMark={handleAddMark}
+            onDeleteMark={handleDeleteMark}
             editState={editState}
-            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
+            onEditChange={handleEditChange}
             initialSources={initialSources}
           />
         ) : (
           <HelperDevice
             videoRef={playerRef}
-            videoData={data}
+            videoData={projectData}
             webrtcService={wsRelayService}
             creatorActivities={creatorActivities}
             currentTime={currentTime}
@@ -384,18 +717,53 @@ export default function Probe3Page() {
             onToggleIndependentMode={handleToggleIndependentMode}
             creatorState={creatorState}
             editState={editState}
-            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
+            onEditChange={handleEditChange}
             initialSources={initialSources}
+            tasks={helperTasks}
+            handoverMode={helperHandoverMode}
+            peerEditNotification={peerEditNotification}
           />
         )}
       </div>
 
-      {/* Researcher WoZ panel */}
+      {/* Handover Mode Selector — creator only */}
+      {role === 'creator' && showModeSelector && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <HandoverModeSelector
+            onSelectMode={handleSelectHandoverMode}
+            onCancel={() => setShowModeSelector(false)}
+            markCount={marks.length}
+          />
+        </div>
+      )}
+
+      {/* Handover Suggestion — creator only */}
+      {role === 'creator' && (
+        <HandoverSuggestion
+          suggestion={pendingSuggestion}
+          onAccept={handleSuggestionAccept}
+          onDismiss={handleSuggestionDismiss}
+        />
+      )}
+
+      {/* Transition animation — both devices */}
+      {isTransitioning && transitionDirection && (
+        <HandoverTransition
+          direction={transitionDirection}
+          onComplete={handleTransitionComplete}
+        />
+      )}
+
+      {/* Researcher WoZ panels */}
       {isResearcher && (
         <div className="max-w-7xl mx-auto px-4 pb-4 space-y-4">
           <ResearcherVQAPanel
             segment={currentSegment}
             pendingQuestion={pendingQuestion}
+          />
+          <ResearcherHandoverPanel
+            onTriggerSuggestion={handleTriggerSuggestion}
+            currentMode={role}
           />
           {/* Manual sync fallback controls */}
           <div

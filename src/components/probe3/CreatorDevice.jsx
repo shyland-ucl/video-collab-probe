@@ -1,31 +1,17 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
-import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
+import { announce } from '../../utils/announcer.js';
+import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
-import TransportControls from '../shared/TransportControls.jsx';
-
-import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
-
-import MockEditor from '../shared/MockEditor.jsx';
-import GranularityController from '../probe1/GranularityController.jsx';
-import DescriptionPanel from '../probe1/DescriptionPanel.jsx';
-import FlagButton from '../probe1/FlagButton.jsx';
-import VQAPanel from '../probe1/VQAPanel.jsx';
-import WorkspaceAwareness from './WorkspaceAwareness.jsx';
-
-const COLORS = {
-  navy: '#1F3864',
-  purple: '#9B59B6',
-  blue: '#2B579A',
-};
+import ExplorationMode from '../probe1/ExplorationMode.jsx';
+import VoiceNoteRecorder from '../probe2/VoiceNoteRecorder.jsx';
+import MarkList from '../probe2/MarkList.jsx';
 
 export default function CreatorDevice({
   videoRef,
   videoData,
   webrtcService,
-  onQuestion,
-  helperActivities,
   currentTime,
   duration,
   isPlaying,
@@ -33,28 +19,42 @@ export default function CreatorDevice({
   onTimeUpdate,
   onSegmentChange,
   onSeek,
+  onInitiateHandover,
+  marks,
+  onAddMark,
+  onDeleteMark,
   editState,
   onEditChange,
   initialSources = [],
 }) {
   const { logEvent } = useEventLogger();
-  const [level, setLevel] = useState(1);
-  const [messageInput, setMessageInput] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [controlRequest, setControlRequest] = useState(null);
-  const messagesEndRef = useRef(null);
-
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
+  const computedSources = useMemo(() => buildInitialSources(videoData), [videoData]);
+  const audioPlayerRef = useRef(null);
 
-  // Sync transport to helper via WebRTC on play/pause/seek
-  const prevTimeRef = useRef(currentTime);
+  // Track which segment we're marking a voice note for
+  const [recordingForSegment, setRecordingForSegment] = useState(null);
+
+  // Keyboard shortcut: H for handover
+  useEffect(() => {
+    function handleKeyDown(e) {
+      const tag = e.target.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        onInitiateHandover();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onInitiateHandover]);
+
+  // --- WebSocket sync: send play/pause/seek to helper ---
   const prevPlayingRef = useRef(isPlaying);
 
   useEffect(() => {
     if (!webrtcService) return;
-
-    // Detect play/pause changes
     if (prevPlayingRef.current !== isPlaying) {
       prevPlayingRef.current = isPlaying;
       webrtcService.sendData({
@@ -64,10 +64,10 @@ export default function CreatorDevice({
       });
       webrtcService.sendData({
         type: 'STATE_UPDATE',
-        state: { isPlaying, currentTime, level, segmentId: currentSegment?.id },
+        state: { isPlaying, currentTime, segmentId: currentSegment?.id },
       });
     }
-  }, [isPlaying, currentTime, webrtcService, level, currentSegment]);
+  }, [isPlaying, currentTime, webrtcService, currentSegment]);
 
   // Send periodic state updates
   useEffect(() => {
@@ -75,13 +75,13 @@ export default function CreatorDevice({
     const interval = setInterval(() => {
       webrtcService.sendData({
         type: 'STATE_UPDATE',
-        state: { isPlaying, currentTime, level, segmentId: currentSegment?.id },
+        state: { isPlaying, currentTime, segmentId: currentSegment?.id },
       });
     }, 2000);
     return () => clearInterval(interval);
-  }, [webrtcService, isPlaying, currentTime, level, currentSegment]);
+  }, [webrtcService, isPlaying, currentTime, currentSegment]);
 
-  // Handle seek sync
+  // Handle seek — sync to helper
   const handleSeek = useCallback((time) => {
     onSeek(time);
     if (webrtcService) {
@@ -93,177 +93,156 @@ export default function CreatorDevice({
     }
   }, [onSeek, webrtcService]);
 
-  // Listen for incoming messages and control requests
-  useEffect(() => {
-    if (!webrtcService) return;
-    const handleData = (data) => {
-      if (data.type === 'MESSAGE') {
-        setMessages((prev) => [...prev, { from: 'helper', text: data.text, timestamp: Date.now() }]);
-      } else if (data.type === 'CONTROL_REQUEST') {
-        setControlRequest(data);
-      }
+  // --- Voice note recording ---
+  const handleMarkFromExploration = useCallback((segmentId, segmentName) => {
+    setRecordingForSegment({ segmentId, segmentName });
+    announce(`Recording voice note for ${segmentName}. Press the record button.`);
+  }, []);
+
+  const handleRecordingComplete = useCallback((blob, audioDuration) => {
+    if (!recordingForSegment) return;
+    const mark = {
+      id: `mark-${Date.now()}`,
+      segmentId: recordingForSegment.segmentId,
+      segmentName: recordingForSegment.segmentName,
+      audioBlob: blob,
+      audioDuration,
+      timestamp: Date.now(),
     };
-    const unsubscribe = webrtcService.onData(handleData);
-    return unsubscribe;
-  }, [webrtcService]);
-
-  // Send message to helper
-  const handleSendMessage = useCallback(() => {
-    const text = messageInput.trim();
-    if (!text || !webrtcService) return;
-    webrtcService.sendData({ type: 'MESSAGE', text, actor: 'CREATOR' });
-    setMessages((prev) => [...prev, { from: 'creator', text, timestamp: Date.now() }]);
-    logEvent(EventTypes.MESSAGE_SENT, Actors.CREATOR, { text });
-    setMessageInput('');
-  }, [messageInput, webrtcService, logEvent]);
-
-  // Handle control request response
-  const handleControlResponse = useCallback((accepted) => {
-    if (!webrtcService || !controlRequest) return;
-    webrtcService.sendData({
-      type: 'CONTROL_RESPONSE',
-      accepted,
-      actor: 'CREATOR',
+    logEvent(EventTypes.RECORD_VOICE_NOTE, Actors.CREATOR, {
+      segmentId: mark.segmentId,
+      duration: audioDuration,
     });
-    logEvent(EventTypes.SYNC_EVENT, Actors.CREATOR, {
-      action: accepted ? 'control_granted' : 'control_denied',
-    });
-    setControlRequest(null);
-  }, [webrtcService, controlRequest, logEvent]);
+    onAddMark(mark);
+    setRecordingForSegment(null);
+    announce(`Voice note saved for ${mark.segmentName}`);
+  }, [recordingForSegment, logEvent, onAddMark]);
 
-  // Auto-scroll messages
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  const handleMarkWithoutVoice = useCallback(() => {
+    if (!recordingForSegment) return;
+    const mark = {
+      id: `mark-${Date.now()}`,
+      segmentId: recordingForSegment.segmentId,
+      segmentName: recordingForSegment.segmentName,
+      audioBlob: null,
+      audioDuration: 0,
+      timestamp: Date.now(),
+    };
+    onAddMark(mark);
+    setRecordingForSegment(null);
+    announce(`Marked ${mark.segmentName} without voice note`);
+  }, [recordingForSegment, onAddMark]);
+
+  const handlePlayVoiceNote = useCallback((mark) => {
+    if (!mark.audioBlob) return;
+    const url = URL.createObjectURL(mark.audioBlob);
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.src = url;
+      audioPlayerRef.current.play();
+    }
+    logEvent(EventTypes.PLAY_VOICE_NOTE, Actors.CREATOR, {
+      markId: mark.id,
+      segmentId: mark.segmentId,
+    });
+  }, [logEvent]);
+
+  const handleDeleteMark = useCallback((markId) => {
+    logEvent(EventTypes.DELETE_MARK, Actors.CREATOR, { markId });
+    onDeleteMark(markId);
+  }, [logEvent, onDeleteMark]);
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-      {/* Left column: Video + Transport */}
-      <div className="lg:w-3/5 flex flex-col gap-2">
+    <div>
+      {/* Hidden audio player for voice note playback */}
+      <audio ref={audioPlayerRef} className="hidden" />
+
+      {/* Mode indicator */}
+      <div
+        className="flex items-center gap-2 px-4 py-2 mb-4 rounded-lg"
+        style={{ backgroundColor: '#2B579A' }}
+      >
+        <span className="text-white font-semibold text-sm">Creator Mode</span>
+      </div>
+
+      {/* Voice Note Recording overlay (when marking a segment) */}
+      {recordingForSegment && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label={`Voice note for ${recordingForSegment.segmentName}`}
+          className="mb-4 p-4 border-2 border-amber-400 bg-amber-50 rounded-lg"
+        >
+          <h3 className="font-bold text-sm mb-2" style={{ color: '#1F3864' }}>
+            Voice Note for: {recordingForSegment.segmentName}
+          </h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Record a voice note explaining what needs to change, or skip to mark without audio.
+          </p>
+          <div className="flex items-center gap-3">
+            <VoiceNoteRecorder onRecordingComplete={handleRecordingComplete} />
+            <button
+              onClick={handleMarkWithoutVoice}
+              className="px-3 py-2 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-gray-400"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label="Mark without voice note"
+            >
+              Skip
+            </button>
+            <button
+              onClick={() => setRecordingForSegment(null)}
+              className="px-3 py-2 text-xs font-medium rounded text-red-600 hover:bg-red-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-red-400"
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label="Cancel marking"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Video player — visual only, not navigable by VoiceOver */}
+      <div aria-hidden="true">
         <VideoPlayer
           ref={videoRef}
-          src={videoData?.video?.src || null}
+          src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
           segments={segments}
           onTimeUpdate={onTimeUpdate}
           onSegmentChange={onSegmentChange}
           editState={editState}
         />
-        <TransportControls
-          playerRef={videoRef}
-          isPlaying={isPlaying}
-          currentTime={currentTime}
-          duration={duration || videoDuration}
-        />
-        <MockEditor
-          segments={segments}
-          initialSources={initialSources}
-          currentTime={currentTime}
-          onSeek={handleSeek}
-          onEditChange={onEditChange}
-        />
-        <SegmentMarkerPanel segment={currentSegment} />
-
-        {/* Message channel */}
-        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-          <div className="px-3 py-2 rounded-t-lg" style={{ backgroundColor: COLORS.navy }}>
-            <h3 className="text-white font-semibold text-sm">Messages to Helper</h3>
-          </div>
-          <div className="max-h-32 overflow-y-auto p-2 space-y-1">
-            {messages.map((msg, i) => (
-              <div key={i} className={`text-xs px-2 py-1 rounded ${msg.from === 'creator' ? 'bg-blue-50 text-right' : 'bg-purple-50'}`}>
-                <span className="font-semibold" style={{ color: msg.from === 'creator' ? COLORS.blue : COLORS.purple }}>
-                  {msg.from === 'creator' ? 'You' : 'Helper'}:
-                </span>{' '}
-                <span className="text-gray-700">{msg.text}</span>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-          <div className="border-t border-gray-200 p-2 flex gap-2">
-            <input
-              type="text"
-              value={messageInput}
-              onChange={(e) => setMessageInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSendMessage(); }}
-              placeholder="Send a message to helper..."
-              className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm focus:outline-2 focus:outline-blue-500"
-              aria-label="Message to helper"
-            />
-            <button
-              onClick={handleSendMessage}
-              disabled={!messageInput.trim()}
-              className="px-3 py-1.5 rounded text-white text-sm font-medium transition-colors disabled:opacity-50 focus:outline-2 focus:outline-offset-2"
-              style={{ backgroundColor: COLORS.blue }}
-              aria-label="Send message to helper"
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </div>
 
-      {/* Right column: Tools */}
-      <div className="lg:w-2/5 flex flex-col gap-4">
-        {/* Control Request Banner */}
-        {controlRequest && (
-          <div
-            className="p-4 rounded-lg border-2 animate-pulse"
-            style={{ borderColor: COLORS.purple, backgroundColor: '#F5EEFF' }}
-            role="alert"
-            aria-label="Helper is requesting control"
-          >
-            <p className="font-semibold text-sm mb-2" style={{ color: COLORS.navy }}>
-              Helper is requesting temporary control
-            </p>
-            {controlRequest.reason && (
-              <p className="text-xs text-gray-600 mb-3">Reason: {controlRequest.reason}</p>
-            )}
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleControlResponse(true)}
-                className="px-4 py-2 rounded text-white text-sm font-medium focus:outline-2 focus:outline-offset-2"
-                style={{ backgroundColor: '#5CB85C' }}
-                aria-label="Accept control request"
-              >
-                Accept
-              </button>
-              <button
-                onClick={() => handleControlResponse(false)}
-                className="px-4 py-2 rounded text-white text-sm font-medium focus:outline-2 focus:outline-offset-2"
-                style={{ backgroundColor: '#D9534F' }}
-                aria-label="Deny control request"
-              >
-                Deny
-              </button>
-            </div>
-          </div>
-        )}
+      {/* Exploration Mode — always active */}
+      <ExplorationMode
+        active={true}
+        segments={segments}
+        videoTitle={videoData?.video?.title || videoData?.videos?.[0]?.title || 'Untitled Video'}
+        onExit={() => {}}
+        onMark={handleMarkFromExploration}
+        onEdit={() => {
+          logEvent(EventTypes.OPEN_EDITOR, Actors.CREATOR);
+        }}
+        isPlaying={isPlaying}
+        playerRef={videoRef}
+        editState={editState}
+        currentTime={currentTime}
+        onSeek={handleSeek}
+        onEditChange={onEditChange}
+      />
 
-        <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Description Level
+      {/* Marks with voice notes */}
+      {marks && marks.length > 0 && (
+        <div className="mt-4 bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-3">
+            Marked Segments ({marks.length})
           </h2>
-          <GranularityController level={level} onLevelChange={setLevel} />
+          <MarkList
+            marks={marks}
+            onDelete={handleDeleteMark}
+            onPlayVoiceNote={handlePlayVoiceNote}
+          />
         </div>
-
-        <div className="flex items-start gap-2">
-          <div className="flex-1">
-            <DescriptionPanel segment={currentSegment} level={level} />
-          </div>
-          {currentSegment && (
-            <div className="pt-1">
-              <FlagButton segmentId={currentSegment.id} level={level} />
-            </div>
-          )}
-        </div>
-
-        <VQAPanel onQuestion={onQuestion} />
-
-        <WorkspaceAwareness
-          activities={helperActivities}
-          title="Helper Activity"
-        />
-      </div>
+      )}
     </div>
   );
 }

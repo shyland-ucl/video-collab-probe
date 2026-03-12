@@ -12,7 +12,7 @@ const SOURCE_COLORS = [
  * Mock iMovie/CapCut-style video editor for the research probe.
  * Supports multiple video sources — clips from different files on one timeline.
  */
-export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [] }) {
+export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState }) {
   const { logEvent } = useEventLogger();
 
   const [clips, setClips] = useState([]);
@@ -36,12 +36,31 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   useEffect(() => { onEditChangeRef.current = onEditChange; }, [onEditChange]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
 
+  // Guard: when true, suppress the next onEditChange broadcast (it came from props, not user)
+  const syncFromPropsRef = useRef(false);
+
   // Notify parent whenever clips, captions, or sources change
   useEffect(() => {
+    if (syncFromPropsRef.current) {
+      syncFromPropsRef.current = false;
+      return;
+    }
     if (onEditChangeRef.current) {
       onEditChangeRef.current(clips, captions, sourcesRef.current);
     }
   }, [clips, captions, sources]);
+
+  // Sync internal state when editState prop changes from outside (peer edits via WebSocket)
+  const prevEditStateRef = useRef(editState);
+  useEffect(() => {
+    if (!editState) return;
+    if (editState === prevEditStateRef.current) return;
+    prevEditStateRef.current = editState;
+    syncFromPropsRef.current = true;
+    if (editState.clips) setClips(editState.clips);
+    if (editState.captions) setCaptions(editState.captions);
+    if (editState.sources) setSources(editState.sources);
+  }, [editState]);
 
   // Initialize clips + sources when initialSources arrives (async data load)
   const didInit = useRef(false);

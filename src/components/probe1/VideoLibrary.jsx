@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { announce } from '../../utils/announcer.js';
 
 // Condensed summaries derived from each video's level_1 descriptions
@@ -22,20 +22,48 @@ const MOCK_DATES = {
   'video-sample3': '18 Jan 2026',
 };
 
-export default function VideoLibrary({ videos, onImport }) {
-  const [selected, setSelected] = useState(new Set());
+/**
+ * VideoLibrary — multi-select video picker.
+ *
+ * Props:
+ *   videos          — array of { id, title, src, duration, segments }
+ *   onImport        — called with selected videos array on "Create Project"
+ *   showPreview     — show video thumbnail for sighted helpers (default false)
+ *   controlledSelection — Set<string> of video ids controlled externally (for sync)
+ *   onSelectionChange   — called with (videoId, isSelected) on each toggle (for sync)
+ *   readOnly        — if true, disable toggling (helper watches creator select)
+ */
+export default function VideoLibrary({
+  videos,
+  onImport,
+  showPreview = false,
+  controlledSelection,
+  onSelectionChange,
+  readOnly = false,
+}) {
+  // Use internal state when not controlled, otherwise use controlled set
+  const [internalSelected, setInternalSelected] = useState(new Set());
+  const selected = controlledSelection || internalSelected;
 
-  const toggleSelect = (videoId) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(videoId)) {
-        next.delete(videoId);
-      } else {
-        next.add(videoId);
-      }
-      return next;
-    });
-  };
+  const toggleSelect = useCallback((videoId) => {
+    if (readOnly) return;
+
+    if (onSelectionChange) {
+      // Controlled mode — notify parent, don't update internal state
+      onSelectionChange(videoId, !selected.has(videoId));
+    } else {
+      // Uncontrolled mode — manage locally
+      setInternalSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(videoId)) {
+          next.delete(videoId);
+        } else {
+          next.add(videoId);
+        }
+        return next;
+      });
+    }
+  }, [readOnly, onSelectionChange, selected]);
 
   const handleCreateProject = () => {
     const selectedVideos = videos.filter((v) => selected.has(v.id));
@@ -50,7 +78,11 @@ export default function VideoLibrary({ videos, onImport }) {
   return (
     <div className="flex flex-col gap-4 p-4 max-w-lg mx-auto" role="region" aria-label="Video library">
       <h2 className="text-lg font-bold text-gray-900">Your Videos</h2>
-      <p className="text-sm text-gray-600">Select the videos you want to explore and edit.</p>
+      <p className="text-sm text-gray-600">
+        {readOnly
+          ? 'Creator is selecting videos. Selections will appear here.'
+          : 'Select the videos you want to explore and edit.'}
+      </p>
 
       <div className="flex flex-col gap-3" role="listbox" aria-label="Available videos" aria-multiselectable="true">
         {videos.map((video) => {
@@ -64,13 +96,14 @@ export default function VideoLibrary({ videos, onImport }) {
               key={video.id}
               role="option"
               aria-selected={isSelected}
-              aria-label={`${video.title}. ${summary}. ${durationText}.`}
+              aria-label={`${video.title}. ${summary}. ${durationText}.${readOnly ? ' Selected by creator.' : ''}`}
               onClick={() => toggleSelect(video.id)}
+              disabled={readOnly}
               className={`w-full text-left p-4 rounded-xl border-2 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${
                 isSelected
                   ? 'border-[#2B579A] bg-blue-50'
                   : 'border-gray-200 bg-white hover:border-gray-300'
-              }`}
+              } ${readOnly ? 'cursor-default' : ''}`}
               style={{ minHeight: '48px' }}
             >
               <div className="flex items-start gap-3">
@@ -89,6 +122,18 @@ export default function VideoLibrary({ videos, onImport }) {
                     </svg>
                   )}
                 </div>
+
+                {showPreview && (
+                  <video
+                    src={video.src}
+                    muted
+                    playsInline
+                    preload="metadata"
+                    className="w-20 h-14 rounded object-cover bg-gray-200 shrink-0"
+                    aria-hidden="true"
+                    onLoadedMetadata={(e) => { e.target.currentTime = 1; }}
+                  />
+                )}
 
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-gray-900 text-base">{video.title}</h3>
@@ -109,15 +154,29 @@ export default function VideoLibrary({ videos, onImport }) {
         })}
       </div>
 
-      <button
-        onClick={handleCreateProject}
-        disabled={selected.size === 0}
-        className="w-full py-4 rounded-xl font-bold text-base text-white shadow-lg transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-        style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
-        aria-label={`Create project with ${selected.size} selected video${selected.size !== 1 ? 's' : ''}`}
-      >
-        Create Project ({selected.size} selected)
-      </button>
+      {!readOnly && (
+        <button
+          onClick={handleCreateProject}
+          disabled={selected.size === 0}
+          className="w-full py-4 rounded-xl font-bold text-base text-white shadow-lg transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
+          aria-label={`Create project with ${selected.size} selected video${selected.size !== 1 ? 's' : ''}`}
+        >
+          Create Project ({selected.size} selected)
+        </button>
+      )}
+
+      {readOnly && (
+        <div
+          className="w-full py-4 rounded-xl text-center text-sm font-medium text-gray-500 border-2 border-dashed border-gray-300"
+          role="status"
+          aria-live="polite"
+        >
+          {selected.size > 0
+            ? `${selected.size} video${selected.size !== 1 ? 's' : ''} selected by creator`
+            : 'Waiting for creator to select videos...'}
+        </div>
+      )}
     </div>
   );
 }
