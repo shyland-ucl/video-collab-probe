@@ -9,6 +9,9 @@ import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import TaskQueue from '../probe2/TaskQueue.jsx';
 import WorkspaceAwareness from './WorkspaceAwareness.jsx';
+import TextOverlay from '../shared/TextOverlay.jsx';
+import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
+import useTextOverlay from '../../hooks/useTextOverlay.js';
 
 export default function HelperDevice({
   videoRef,
@@ -32,6 +35,10 @@ export default function HelperDevice({
   peerEditNotification = null,
 }) {
   const { logEvent } = useEventLogger();
+  const {
+    textOverlays, activeOverlay, activeOverlayId, textToolActive,
+    handleTextTool, handleTextMove, handleTextChange, handleTextApply, handleTextRemove,
+  } = useTextOverlay();
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnSummary, setReturnSummary] = useState('');
   const returnModalTriggerRef = useRef(null);
@@ -207,14 +214,24 @@ export default function HelperDevice({
           <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Video Editor</span>
         </div>
         <div className="flex flex-col">
-          <VideoPlayer
-            ref={videoRef}
-            src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
-            segments={segments}
-            onTimeUpdate={onTimeUpdate}
-            onSegmentChange={onSegmentChange}
-            editState={editState}
-          />
+          <div className="relative">
+            <VideoPlayer
+              ref={videoRef}
+              src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
+              segments={segments}
+              onTimeUpdate={onTimeUpdate}
+              onSegmentChange={onSegmentChange}
+              editState={editState}
+            />
+            {textOverlays.map(overlay => (
+              <TextOverlay
+                key={overlay.id}
+                overlay={overlay}
+                isEditing={overlay.id === activeOverlayId}
+                onMove={handleTextMove}
+              />
+            ))}
+          </div>
           <TransportControls
             playerRef={videoRef}
             isPlaying={isPlaying}
@@ -228,10 +245,22 @@ export default function HelperDevice({
             onSeek={handleSeek}
             onEditChange={onEditChange}
             editState={editState}
+            onTextTool={handleTextTool}
+            textToolActive={textToolActive}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
       </div>
+
+      {/* Text Overlay Settings */}
+      {activeOverlay && (
+        <TextOverlaySettings
+          overlay={activeOverlay}
+          onChange={handleTextChange}
+          onApply={handleTextApply}
+          onRemove={handleTextRemove}
+        />
+      )}
 
       {/* Done / Return Summary Modal */}
       {showReturnModal && (
