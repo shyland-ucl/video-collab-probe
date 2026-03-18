@@ -373,7 +373,7 @@ export default function Probe3Page() {
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
           const actionDesc = msg.action || 'made an edit';
-          if (role === 'creator') {
+          if (currentRole === 'creator') {
             // BLV creator gets audio announcement via screen reader
             announce(`${peerLabel} ${actionDesc}`);
           } else {

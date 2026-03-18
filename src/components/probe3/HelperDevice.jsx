@@ -1,7 +1,4 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
-import { EventTypes, Actors } from '../../utils/eventTypes.js';
-import { announce } from '../../utils/announcer.js';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
@@ -34,15 +31,10 @@ export default function HelperDevice({
   // Peer edit notification (visual toast)
   peerEditNotification = null,
 }) {
-  const { logEvent } = useEventLogger();
   const {
     textOverlays, activeOverlay, activeOverlayId, textToolActive,
     handleTextTool, handleTextMove, handleTextChange, handleTextApply, handleTextRemove,
   } = useTextOverlay();
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnSummary, setReturnSummary] = useState('');
-  const returnModalTriggerRef = useRef(null);
-  const returnModalFirstFocusRef = useRef(null);
   const audioRef = useRef(null);
 
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
@@ -58,12 +50,6 @@ export default function HelperDevice({
     const timer = setTimeout(() => setToastVisible(false), 3000);
     return () => clearTimeout(timer);
   }, [peerEditNotification]);
-
-  useEffect(() => {
-    if (showReturnModal) {
-      setTimeout(() => { returnModalFirstFocusRef.current?.focus(); }, 50);
-    }
-  }, [showReturnModal]);
 
   // Send activity updates to creator
   const sendActivity = useCallback((action, data) => {
@@ -82,22 +68,6 @@ export default function HelperDevice({
     onSeek(time);
     sendActivity('Seeked', `to ${Math.round(time)}s`);
   }, [onSeek, sendActivity]);
-
-  // Done / Return summary
-  const handleReturnClick = useCallback(() => {
-    returnModalTriggerRef.current = document.activeElement;
-    setReturnSummary('');
-    setShowReturnModal(true);
-  }, []);
-
-  const handleReturnConfirm = useCallback(() => {
-    setShowReturnModal(false);
-    if (webrtcService) {
-      webrtcService.sendData({ type: 'RETURN_SUMMARY', summary: returnSummary, actor: 'HELPER' });
-    }
-    logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary: returnSummary });
-    announce('Summary sent to creator');
-  }, [returnSummary, webrtcService, logEvent]);
 
   // Play voice note from task
   const handlePlayVoiceNote = useCallback((task) => {
@@ -131,33 +101,6 @@ export default function HelperDevice({
           {toastText}
         </div>
       )}
-
-      {/* Mode Bar Card */}
-      <div role="region" aria-label="Helper device" className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4">
-        <div
-          className="flex items-center gap-2 px-4 py-2.5"
-          style={{ backgroundColor: '#E67E22' }}
-          role="status"
-          aria-label="Helper device active"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" aria-hidden="true">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-          </svg>
-          <span className="text-white font-semibold text-sm">
-            Helper Device {handoverMode === 'tasks' ? '— Tasks' : handoverMode === 'live' ? '— Live' : ''}
-          </span>
-        </div>
-        <div className="px-4 py-3 bg-[#fff7ed]">
-          <button
-            onClick={handleReturnClick}
-            className="w-full py-2.5 rounded-lg font-bold text-sm transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
-            style={{ backgroundColor: '#2B579A', color: 'white', minHeight: '44px' }}
-            aria-label="Send summary to creator"
-          >
-            ↩ Done
-          </button>
-        </div>
-      </div>
 
       {/* Task Queue + Creator Activity Card */}
       <div role="region" aria-label="Tasks and creator activity" className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4">
@@ -262,64 +205,6 @@ export default function HelperDevice({
         />
       )}
 
-      {/* Done / Return Summary Modal */}
-      {showReturnModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Send summary to creator"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.preventDefault();
-              setShowReturnModal(false);
-              setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
-            }
-          }}
-        >
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md mx-4">
-            <div
-              className="px-6 py-4 rounded-t-lg"
-              style={{ backgroundColor: '#1F3864' }}
-            >
-              <h2 className="text-white font-bold text-lg">Done — Send Summary</h2>
-              <p className="text-white/70 text-sm mt-1">Let the creator know what you did</p>
-            </div>
-            <div className="px-6 py-4">
-              <textarea
-                ref={returnModalFirstFocusRef}
-                value={returnSummary}
-                onChange={(e) => setReturnSummary(e.target.value)}
-                placeholder="Describe what changes you made..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-none focus:outline-2 focus:outline-blue-500"
-                rows={6}
-                aria-label="Summary of actions taken"
-              />
-            </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowReturnModal(false);
-                  setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
-                }}
-                className="px-4 py-2 rounded text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px', minWidth: '44px' }}
-                aria-label="Cancel"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleReturnConfirm}
-                className="px-5 py-2 rounded text-sm font-bold text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ backgroundColor: '#2B579A', minHeight: '44px', minWidth: '44px' }}
-                aria-label="Send summary to creator"
-              >
-                Send Summary
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
