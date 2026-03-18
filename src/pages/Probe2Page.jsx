@@ -135,10 +135,6 @@ export default function Probe2Page() {
     setTransitionDirection(null);
   }, [transitionDirection, handoverMode, logEvent]);
 
-  const handleNotifyCreator = useCallback(() => {
-    // Chime handled in HelperMode
-  }, []);
-
   const handleReturnDevice = useCallback((summary) => {
     logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary });
     setTransitionDirection('toCreator');
@@ -206,7 +202,6 @@ export default function Probe2Page() {
             onTimeUpdate={handleTimeUpdate}
             onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
-            onNotifyCreator={handleNotifyCreator}
             onReturnDevice={handleReturnDevice}
             onTaskComplete={handleTaskComplete}
             editState={editState}
