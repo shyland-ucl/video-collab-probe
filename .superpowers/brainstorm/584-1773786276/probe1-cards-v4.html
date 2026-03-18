@@ -1,0 +1,58 @@
+<h2>Probe 1 — Final Card Layout</h2>
+<p class="subtitle">Video player + 2 cards. Marked segments removed (still logged for researcher). Clean and minimal.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Probe 1: Exploring Video</div>
+  <div class="mockup-body" style="background: #f8fafc; padding: 12px; display: flex; flex-direction: column; gap: 10px; max-width: 400px; margin: 0 auto;">
+
+    <!-- Video Player (no transport controls) -->
+    <div style="border-radius: 12px; overflow: hidden; border: 1px solid #e2e8f0; background: black;">
+      <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); display: flex; align-items: center; justify-content: center; color: #64748b; font-size: 13px; font-weight: 500;">
+        🎬 Video Player
+      </div>
+    </div>
+
+    <!-- CARD 1: Scene Description + Detail Level + Navigation -->
+    <div style="border: 2px solid #2B579A; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #eff6ff; padding: 10px 14px; border-bottom: 1px solid #bfdbfe; display: flex; align-items: center; justify-content: space-between;">
+        <div style="font-weight: 700; color: #2B579A; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Scene Description</div>
+        <span style="background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">Scene 3 of 8</span>
+      </div>
+      <div style="padding: 14px;">
+        <div style="color: #334155; font-size: 13px; line-height: 1.5;">A wide shot of a park bench under autumn trees. Two people sit talking, the one on the left gestures with their hands.</div>
+      </div>
+      <div style="display: flex; gap: 8px; padding: 0 14px 10px;">
+        <div style="flex:1; background: #f1f5f9; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #475569; border: 1px solid #e2e8f0;">− Less Detail</div>
+        <div style="flex:1; background: #f1f5f9; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #475569; border: 1px solid #e2e8f0;">+ More Detail</div>
+      </div>
+      <div style="display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #e2e8f0; background: #f8fafc;">
+        <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #475569;">◀ Previous</div>
+        <div style="flex:0 0 auto; background: #2B579A; border-radius: 8px; padding: 10px 20px; text-align: center; font-size: 12px; font-weight: 600; color: white;">▶ Play</div>
+        <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #475569;">Next ▶</div>
+      </div>
+    </div>
+
+    <!-- CARD 2: Actions -->
+    <div style="border: 2px solid #64748b; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #f1f5f9; padding: 10px 14px; border-bottom: 1px solid #cbd5e1;">
+        <div style="font-weight: 700; color: #475569; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Actions</div>
+      </div>
+      <div style="display: flex; gap: 8px; padding: 12px 14px;">
+        <div style="flex:1; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: #92400e;">⚑ Mark</div>
+        <div style="flex:1; background: #374151; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: white;">✎ Edit</div>
+        <div style="flex:1; background: #2B579A; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: white;">💬 Ask AI</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top: 20px; padding: 16px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0;">
+  <h3 style="margin: 0 0 6px; font-size: 14px; color: #166534;">✓ Probe 1 Summary</h3>
+  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #14532d; line-height: 1.6;">
+    <li>Video player (no transport bar)</li>
+    <li>Scene Description card — text, Less/More Detail, ◀ Prev | ▶ Play | Next ▶</li>
+    <li>Actions card — Mark, Edit, Ask AI</li>
+    <li>Marked segments removed from UI (still logged to event system for researcher)</li>
+  </ul>
+</div>

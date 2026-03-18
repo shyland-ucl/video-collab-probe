@@ -1,0 +1,122 @@
+<h2>Button Grouping Approaches</h2>
+<p class="subtitle">Which visual grouping style feels right for this app? Think about how BLV users navigate with screen readers and how sighted helpers scan the screen.</p>
+
+<div class="cards">
+  <!-- Approach A: Card Containers -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8fafc;">
+      <!-- Mini mockup of card approach -->
+      <div style="border: 2px solid #2B579A; border-radius: 12px; overflow: hidden; font-size: 13px;">
+        <div style="background: #f1f5f9; padding: 12px; border-bottom: 1px solid #e2e8f0;">
+          <div style="font-weight: 600; color: #2B579A; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Scene Description</div>
+          <div style="margin-top: 6px; color: #334155; font-size: 12px;">A wide shot of a park bench under autumn trees. Two people sit talking...</div>
+        </div>
+        <div style="display: flex; gap: 6px; padding: 8px 12px; background: #f8fafc;">
+          <div style="flex:1; background: #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #475569;">◀ Previous</div>
+          <div style="flex:1; background: #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #475569;">Next ▶</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px; border: 2px solid #94a3b8; border-radius: 12px; overflow: hidden;">
+        <div style="background: #f1f5f9; padding: 8px 12px;">
+          <div style="font-weight: 600; color: #475569; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Detail Level</div>
+        </div>
+        <div style="display: flex; gap: 6px; padding: 8px 12px; background: #f8fafc;">
+          <div style="flex:1; background: #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #475569;">Less</div>
+          <div style="flex:1; background: #2B579A; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: white;">Ask</div>
+          <div style="flex:1; background: #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #475569;">More</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 10px; border: 2px solid #94a3b8; border-radius: 12px; overflow: hidden;">
+        <div style="background: #f1f5f9; padding: 8px 12px;">
+          <div style="font-weight: 600; color: #475569; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Actions</div>
+        </div>
+        <div style="display: flex; gap: 6px; padding: 8px 12px; background: #f8fafc;">
+          <div style="flex:1; background: #fef3c7; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #92400e;">Mark</div>
+          <div style="flex:1; background: #374151; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: white;">Edit</div>
+          <div style="flex:1; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px; text-align: center; font-size: 11px; color: #374151;">Play</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Card Containers</h3>
+      <p>Each functional group (description + nav, detail controls, actions) lives in its own bordered card. Strong visual boundaries. Clear hierarchy.</p>
+    </div>
+  </div>
+
+  <!-- Approach B: Toolbar Clustering -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8fafc;">
+      <!-- Mini mockup of toolbar approach -->
+      <div style="font-size: 13px;">
+        <div style="padding: 12px; color: #334155; font-size: 12px; background: white;">A wide shot of a park bench under autumn trees. Two people sit talking...</div>
+
+        <div style="background: #1e293b; border-radius: 8px; padding: 4px; margin-top: 6px;">
+          <div style="display: flex; gap: 4px; padding: 4px;">
+            <div style="flex:1; background: #334155; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #cbd5e1;">◀ Prev</div>
+            <div style="flex:1; background: #334155; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #cbd5e1;">Next ▶</div>
+            <div style="width: 1px; background: #475569; margin: 2px 4px;"></div>
+            <div style="flex:1; background: #334155; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #cbd5e1;">Less</div>
+            <div style="flex:1; background: #2B579A; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: white;">Ask</div>
+            <div style="flex:1; background: #334155; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #cbd5e1;">More</div>
+          </div>
+          <div style="display: flex; gap: 4px; padding: 4px;">
+            <div style="flex:1; background: #92400e; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #fef3c7;">Mark</div>
+            <div style="width: 1px; background: #475569; margin: 2px 4px;"></div>
+            <div style="flex:1; background: #374151; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: white;">Edit</div>
+            <div style="flex:1; border: 1px solid #475569; border-radius: 6px; padding: 7px; text-align: center; font-size: 11px; color: #cbd5e1;">Play</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Toolbar Clustering</h3>
+      <p>Flat layout with a unified dark toolbar strip. Dividers separate button groups within the bar. Compact, app-like feel. Similar to how TransportControls already works.</p>
+    </div>
+  </div>
+
+  <!-- Approach C: Labeled Sections -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="padding: 16px; background: #f8fafc;">
+      <!-- Mini mockup of labeled sections approach -->
+      <div style="font-size: 13px;">
+        <div style="padding: 12px; color: #334155; font-size: 12px; background: white; border-radius: 8px; border: 1px solid #e2e8f0;">A wide shot of a park bench under autumn trees. Two people sit talking...</div>
+
+        <div style="margin-top: 12px;">
+          <div style="font-size: 10px; font-weight: 700; color: #2B579A; text-transform: uppercase; letter-spacing: 1px; padding: 0 4px 4px;">Navigate Scenes</div>
+          <div style="display: flex; gap: 6px;">
+            <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #475569;">◀ Previous</div>
+            <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #475569;">Next ▶</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px;">
+          <div style="font-size: 10px; font-weight: 700; color: #2B579A; text-transform: uppercase; letter-spacing: 1px; padding: 0 4px 4px;">Detail Level</div>
+          <div style="display: flex; gap: 6px;">
+            <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #475569;">Less</div>
+            <div style="flex:1; background: #2B579A; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: white;">Ask</div>
+            <div style="flex:1; background: #e2e8f0; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #475569;">More</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 12px;">
+          <div style="font-size: 10px; font-weight: 700; color: #2B579A; text-transform: uppercase; letter-spacing: 1px; padding: 0 4px 4px;">Actions</div>
+          <div style="display: flex; gap: 6px;">
+            <div style="flex:1; background: #fef3c7; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #92400e;">Mark</div>
+            <div style="flex:1; background: #374151; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: white;">Edit</div>
+            <div style="flex:1; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px; text-align: center; font-size: 11px; color: #374151;">Play</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Labeled Sections</h3>
+      <p>Small uppercase labels above each button group. Light and open feel. Labels double as screen reader landmarks. No heavy borders.</p>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top: 24px; padding: 16px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0;">
+  <p style="margin: 0; font-size: 14px; color: #166534;"><strong>Note:</strong> These can be mixed — e.g., cards for major sections (description + nav) with labels for smaller button groups. Click the one that feels closest to what you want, and tell me in the terminal what you like or don't like.</p>
+</div>

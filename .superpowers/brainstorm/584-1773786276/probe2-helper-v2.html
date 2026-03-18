@@ -1,0 +1,144 @@
+<h2>Probe 2 — Helper Mode with Text Overlay Tool</h2>
+<p class="subtitle">Removed Notify Creator. Added text overlay tool: type text, pick style, drag to position on video frame.</p>
+
+<div class="mockup">
+  <div class="mockup-header" style="background: #E67E22;">Probe 2: Helper Mode — Text Overlay Tool</div>
+  <div class="mockup-body" style="background: #f8fafc; padding: 12px; display: flex; flex-direction: column; gap: 10px; max-width: 400px; margin: 0 auto;">
+
+    <!-- Mode Bar Card (no Notify Creator) -->
+    <div style="border: 2px solid #E67E22; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #E67E22; padding: 10px 14px; display: flex; align-items: center; gap: 8px;">
+        <span style="color: white; font-weight: 700; font-size: 12px;">🔧 Helper Mode — Tasks</span>
+      </div>
+      <div style="padding: 10px 14px; background: #fff7ed;">
+        <div style="background: #2B579A; border-radius: 8px; padding: 10px; text-align: center; font-size: 12px; font-weight: 600; color: white; width: 100%;">↩ Return Device</div>
+      </div>
+    </div>
+
+    <!-- Task Queue Card -->
+    <div style="border: 2px solid #E67E22; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #fff7ed; padding: 10px 14px; border-bottom: 1px solid #fed7aa;">
+        <div style="font-weight: 700; color: #c2410c; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Creator's Tasks (2)</div>
+      </div>
+      <div style="padding: 10px 14px; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #fff7ed; border-radius: 8px; border: 1px solid #fed7aa;">
+          <div style="width: 20px; height: 20px; border: 2px solid #c2410c; border-radius: 4px;"></div>
+          <div style="flex: 1; font-size: 11px; font-weight: 600; color: #7c2d12;">Park bench — add title text</div>
+          <div style="font-size: 10px; color: #ea580c; background: #fed7aa; padding: 3px 8px; border-radius: 6px;">▶ Play</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: #f0fdf4; border-radius: 8px; border: 1px solid #bbf7d0;">
+          <div style="width: 20px; height: 20px; background: #22c55e; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px;">✓</div>
+          <div style="flex: 1; font-size: 11px; font-weight: 600; color: #166534; text-decoration: line-through;">Close-up — adjust color</div>
+          <div style="font-size: 10px; color: #16a34a; background: #dcfce7; padding: 3px 8px; border-radius: 6px;">Done</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Video Editor Card (with text overlay) -->
+    <div style="border: 2px solid #64748b; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #f1f5f9; padding: 10px 14px; border-bottom: 1px solid #cbd5e1;">
+        <div style="font-weight: 700; color: #475569; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Video Editor</div>
+      </div>
+
+      <!-- Video frame with draggable text overlay -->
+      <div style="position: relative; background: black;">
+        <div style="aspect-ratio: 16/9; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); position: relative; overflow: hidden;">
+          <!-- Draggable text element -->
+          <div style="position: absolute; top: 20%; left: 15%; background: rgba(0,0,0,0.5); border: 2px dashed #fbbf24; padding: 6px 12px; cursor: move;">
+            <span style="color: white; font-size: 16px; font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.8);">Hello World</span>
+          </div>
+          <!-- Drag hint -->
+          <div style="position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); padding: 3px 10px; border-radius: 10px;">
+            <span style="color: #fbbf24; font-size: 9px;">↕↔ Drag text to reposition</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transport -->
+      <div style="background: #1F3864; display: flex; align-items: center; gap: 4px; padding: 6px 10px;">
+        <div style="width: 24px; height: 24px; background: #334155; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8;">⏮</div>
+        <div style="width: 24px; height: 24px; background: #334155; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8;">⏪</div>
+        <div style="width: 30px; height: 30px; background: #2B579A; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; color: white; margin: 0 2px;">▶</div>
+        <div style="width: 24px; height: 24px; background: #334155; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8;">⏩</div>
+        <div style="width: 24px; height: 24px; background: #334155; border-radius: 3px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: #94a3b8;">⏭</div>
+        <div style="margin-left: auto; color: #94a3b8; font-size: 10px; font-family: monospace;">0:32 / 2:15</div>
+      </div>
+
+      <!-- Editor toolbar with text tool highlighted -->
+      <div style="background: #1e293b; display: flex; gap: 4px; padding: 6px 10px; flex-wrap: wrap; align-items: center;">
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">Split</div>
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">Delete</div>
+        <div style="width: 1px; height: 18px; background: #475569; margin: 0 2px;"></div>
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">◀ Move</div>
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">Move ▶</div>
+        <div style="width: 1px; height: 18px; background: #475569; margin: 0 2px;"></div>
+        <div style="background: #fbbf24; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #1a1a2e; font-weight: 700;">T Text</div>
+        <div style="width: 1px; height: 18px; background: #475569; margin: 0 2px;"></div>
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">Undo</div>
+        <div style="background: #334155; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #94a3b8;">Redo</div>
+      </div>
+
+      <!-- Timeline -->
+      <div style="padding: 8px 10px;">
+        <div style="display: flex; gap: 2px; height: 32px;">
+          <div style="flex: 3; background: #3b82f6; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: white;">Clip 1</div>
+          <div style="flex: 2; background: #8b5cf6; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: white; border: 2px solid #fbbf24;">Clip 2</div>
+          <div style="flex: 2; background: #ec4899; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 9px; color: white;">Clip 3</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Text Overlay Settings Card (appears when Text tool is active) -->
+    <div style="border: 2px solid #fbbf24; border-radius: 12px; overflow: hidden; background: white;">
+      <div style="background: #fefce8; padding: 10px 14px; border-bottom: 1px solid #fde68a; display: flex; align-items: center; justify-content: space-between;">
+        <div style="font-weight: 700; color: #854d0e; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">Text Overlay</div>
+        <div style="font-size: 10px; color: #a16207; background: #fef9c3; padding: 2px 8px; border-radius: 10px; font-weight: 600;">Active</div>
+      </div>
+      <div style="padding: 14px; display: flex; flex-direction: column; gap: 10px;">
+        <!-- Text input -->
+        <div>
+          <div style="font-size: 10px; font-weight: 600; color: #475569; margin-bottom: 4px;">Text Content</div>
+          <div style="border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #334155; background: #f9fafb;">Hello World</div>
+        </div>
+        <!-- Style options row -->
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 1;">
+            <div style="font-size: 10px; font-weight: 600; color: #475569; margin-bottom: 4px;">Size</div>
+            <div style="display: flex; gap: 4px;">
+              <div style="flex:1; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 10px; color: #475569;">S</div>
+              <div style="flex:1; background: #2B579A; border-radius: 6px; padding: 6px; text-align: center; font-size: 10px; color: white; font-weight: 600;">M</div>
+              <div style="flex:1; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px; text-align: center; font-size: 10px; color: #475569;">L</div>
+            </div>
+          </div>
+          <div style="flex: 1;">
+            <div style="font-size: 10px; font-weight: 600; color: #475569; margin-bottom: 4px;">Color</div>
+            <div style="display: flex; gap: 4px;">
+              <div style="width: 28px; height: 28px; background: white; border: 2px solid #2B579A; border-radius: 6px;"></div>
+              <div style="width: 28px; height: 28px; background: #fbbf24; border: 1px solid #e2e8f0; border-radius: 6px;"></div>
+              <div style="width: 28px; height: 28px; background: #ef4444; border: 1px solid #e2e8f0; border-radius: 6px;"></div>
+              <div style="width: 28px; height: 28px; background: #22c55e; border: 1px solid #e2e8f0; border-radius: 6px;"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Action buttons -->
+        <div style="display: flex; gap: 8px; padding-top: 4px; border-top: 1px solid #e2e8f0;">
+          <div style="flex:1; background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 10px; text-align: center; font-size: 11px; font-weight: 600; color: #854d0e;">✓ Apply Text</div>
+          <div style="flex:1; background: white; border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; text-align: center; font-size: 11px; font-weight: 600; color: #6b7280;">✕ Remove</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top: 20px; padding: 16px; background: #eff6ff; border-radius: 8px; border: 1px solid #bfdbfe;">
+  <h3 style="margin: 0 0 8px; font-size: 14px; color: #1e40af;">How the Text Overlay Works</h3>
+  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #1e3a5f; line-height: 1.6;">
+    <li><strong>Activate:</strong> Tap the "T Text" button in the editor toolbar (highlighted yellow when active)</li>
+    <li><strong>Type:</strong> Text Overlay settings card appears below with text input field</li>
+    <li><strong>Style:</strong> Pick size (S/M/L) and color from swatches</li>
+    <li><strong>Position:</strong> Drag the text element directly on the video frame (dashed border shows it's draggable)</li>
+    <li><strong>Confirm:</strong> "Apply Text" locks it in place, "Remove" deletes it</li>
+    <li><strong>Notify Creator removed</strong> — Return Device is the only mode action</li>
+  </ul>
+</div>
