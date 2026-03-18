@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { announce } from '../../utils/announcer.js';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
@@ -62,7 +62,23 @@ export default function ExplorationMode({
   currentTime,
   onSeek,
   onEditChange,
+  accentColor = '#2B579A',
 }) {
+  // Accent color theming — derive light variants for card headers/badges
+  const accentStyles = useMemo(() => {
+    const isBlue = accentColor === '#2B579A';
+    return {
+      border: accentColor,
+      headerBg: isBlue ? '#eff6ff' : '#f3e8ff',
+      headerBorder: isBlue ? '#bfdbfe' : '#d8b4fe',
+      headerText: accentColor,
+      badgeBg: isBlue ? '#dbeafe' : '#e9d5ff',
+      badgeText: isBlue ? '#1e40af' : '#6b21a8',
+      navBtnBg: isBlue ? '#dbeafe' : '#e9d5ff',
+      navBtnText: isBlue ? '#1e40af' : '#6b21a8',
+    };
+  }, [accentColor]);
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [currentLevel, setCurrentLevel] = useState(1);
   const [showVQA, setShowVQA] = useState(false);
@@ -426,12 +442,13 @@ export default function ExplorationMode({
       <div
         role="region"
         aria-label="Scene description"
-        className="border-2 border-[#2B579A] rounded-xl overflow-hidden bg-white"
+        className="border-2 rounded-xl overflow-hidden bg-white"
+        style={{ borderColor: accentStyles.border }}
       >
         {/* Card header */}
-        <div className="bg-[#eff6ff] px-3 py-2.5 border-b border-[#bfdbfe] flex items-center justify-between">
-          <span className="text-xs font-bold tracking-wide text-[#2B579A] uppercase">Scene Description</span>
-          <span className="bg-[#dbeafe] text-[#1e40af] px-2 py-0.5 rounded-full text-xs font-semibold">
+        <div className="px-3 py-2.5 flex items-center justify-between" style={{ backgroundColor: accentStyles.headerBg, borderBottom: `1px solid ${accentStyles.headerBorder}` }}>
+          <span className="text-xs font-bold tracking-wide uppercase" style={{ color: accentStyles.headerText }}>Scene Description</span>
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: accentStyles.badgeBg, color: accentStyles.badgeText }}>
             {currentIndex + 1} / {total}
           </span>
         </div>
@@ -444,7 +461,7 @@ export default function ExplorationMode({
             className={`${textSizeClasses[textSize] ?? 'text-lg'} leading-relaxed text-gray-800 focus:outline-none`}
             aria-label={`Scene ${currentIndex + 1} of ${total}. ${segment.name}. ${formatTime(segment.start_time)} to ${formatTime(segment.end_time)}. Detail level ${currentLevel} of 3. ${rawDescription}`}
           >
-            <span className="block text-sm font-semibold text-[#2B579A] mb-1" aria-hidden="true">
+            <span className="block text-sm font-semibold mb-1" style={{ color: accentColor }} aria-hidden="true">
               {segment.name}
             </span>
             <span className="block text-xs text-gray-500 mb-2" aria-hidden="true">
@@ -485,8 +502,8 @@ export default function ExplorationMode({
             onClick={goToPrevSegment}
             disabled={isFirst}
             aria-label={isFirst ? 'Previous scene, at first scene' : `Previous scene: ${segments[currentIndex - 1]?.name}`}
-            className="flex-1 py-3 rounded-lg bg-[#dbeafe] text-sm font-semibold text-[#1e40af] hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
+            className="flex-1 py-3 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: accentStyles.navBtnBg, color: accentStyles.navBtnText, '--tw-ring-color': accentColor }}
           >
             ◀ Prev
           </button>
@@ -494,8 +511,8 @@ export default function ExplorationMode({
             type="button"
             onClick={handlePlayPause}
             aria-label={isPlaying ? 'Pause playback' : 'Play from scene start'}
-            className="flex-none px-5 py-3 rounded-lg bg-[#2B579A] text-sm font-bold text-white hover:bg-[#1e3f6f] focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
+            className="flex-none px-5 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
           >
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
@@ -504,8 +521,8 @@ export default function ExplorationMode({
             onClick={goToNextSegment}
             disabled={isLast}
             aria-label={isLast ? 'Next scene, at last scene' : `Next scene: ${segments[currentIndex + 1]?.name}`}
-            className="flex-1 py-3 rounded-lg bg-[#dbeafe] text-sm font-semibold text-[#1e40af] hover:bg-blue-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
+            className="flex-1 py-3 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: accentStyles.navBtnBg, color: accentStyles.navBtnText, '--tw-ring-color': accentColor }}
           >
             Next ▶
           </button>
@@ -544,8 +561,8 @@ export default function ExplorationMode({
             type="button"
             onClick={handleAskQuestion}
             aria-label="Ask a question about this scene"
-            className="flex-1 py-3 rounded-lg bg-[#2B579A] text-sm font-bold text-white hover:bg-[#1e3f6f] focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
+            className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
           >
             💬 Ask AI
           </button>

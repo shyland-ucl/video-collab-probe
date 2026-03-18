@@ -6,7 +6,7 @@ import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../u
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
 import VoiceNoteRecorder from '../probe2/VoiceNoteRecorder.jsx';
-import MarkList from '../probe2/MarkList.jsx';
+// MarkList removed — marks still logged but no longer shown in UI
 
 export default function CreatorDevice({
   videoRef,
@@ -156,46 +156,48 @@ export default function CreatorDevice({
       {/* Hidden audio player for voice note playback */}
       <audio ref={audioPlayerRef} className="hidden" />
 
-      {/* Mode indicator */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 mb-4 rounded-lg"
-        style={{ backgroundColor: '#2B579A' }}
-      >
-        <span className="text-white font-semibold text-sm">Creator Mode</span>
+      {/* Mode Bar Card */}
+      <div role="region" aria-label="Creator device" className="border-2 border-[#9B59B6] rounded-xl overflow-hidden mb-4">
+        <div
+          className="flex items-center gap-2 px-4 py-2.5"
+          style={{ backgroundColor: '#9B59B6' }}
+        >
+          <span className="text-white font-semibold text-sm">Creator Device</span>
+        </div>
       </div>
 
-      {/* Voice Note Recording overlay (when marking a segment) */}
+      {/* Voice Note Card */}
       {recordingForSegment && (
-        <div
-          role="dialog"
-          aria-modal="false"
-          aria-label={`Voice note for ${recordingForSegment.segmentName}`}
-          className="mb-4 p-4 border-2 border-amber-400 bg-amber-50 rounded-lg"
-        >
-          <h3 className="font-bold text-sm mb-2" style={{ color: '#1F3864' }}>
-            Voice Note for: {recordingForSegment.segmentName}
-          </h3>
-          <p className="text-xs text-gray-600 mb-3">
-            Record a voice note explaining what needs to change, or skip to mark without audio.
-          </p>
-          <div className="flex items-center gap-3">
-            <VoiceNoteRecorder onRecordingComplete={handleRecordingComplete} />
-            <button
-              onClick={handleMarkWithoutVoice}
-              className="px-3 py-2 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-gray-400"
-              style={{ minHeight: '44px', minWidth: '44px' }}
-              aria-label="Mark without voice note"
-            >
-              Skip
-            </button>
-            <button
-              onClick={() => setRecordingForSegment(null)}
-              className="px-3 py-2 text-xs font-medium rounded text-red-600 hover:bg-red-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-red-400"
-              style={{ minHeight: '44px', minWidth: '44px' }}
-              aria-label="Cancel marking"
-            >
-              Cancel
-            </button>
+        <div role="region" aria-label="Voice note" className="border-2 border-[#f59e0b] rounded-xl overflow-hidden mb-4 bg-white">
+          <div className="bg-[#fef3c7] px-3 py-2.5 border-b border-[#fde68a]">
+            <span className="text-xs font-bold tracking-wide text-[#92400e] uppercase">Voice Note</span>
+          </div>
+          <div className="p-4">
+            <h3 className="font-bold text-sm mb-2" style={{ color: '#1F3864' }}>
+              {recordingForSegment.segmentName}
+            </h3>
+            <p className="text-xs text-gray-600 mb-3">
+              Record a voice note explaining what needs to change, or skip to mark without audio.
+            </p>
+            <div className="flex items-center gap-3">
+              <VoiceNoteRecorder onRecordingComplete={handleRecordingComplete} />
+              <button
+                onClick={handleMarkWithoutVoice}
+                className="px-3 py-2 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-gray-400"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+                aria-label="Mark without voice note"
+              >
+                Skip
+              </button>
+              <button
+                onClick={() => setRecordingForSegment(null)}
+                className="px-3 py-2 text-xs font-medium rounded text-red-600 hover:bg-red-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-red-400"
+                style={{ minHeight: '44px', minWidth: '44px' }}
+                aria-label="Cancel marking"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -212,7 +214,7 @@ export default function CreatorDevice({
         />
       </div>
 
-      {/* Exploration Mode — always active */}
+      {/* Exploration Mode — always active, purple accent for Probe 3 */}
       <ExplorationMode
         active={true}
         segments={segments}
@@ -228,21 +230,8 @@ export default function CreatorDevice({
         currentTime={currentTime}
         onSeek={handleSeek}
         onEditChange={onEditChange}
+        accentColor="#9B59B6"
       />
-
-      {/* Marks with voice notes */}
-      {marks && marks.length > 0 && (
-        <div className="mt-4 bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-3">
-            Marked Segments ({marks.length})
-          </h2>
-          <MarkList
-            marks={marks}
-            onDelete={handleDeleteMark}
-            onPlayVoiceNote={handlePlayVoiceNote}
-          />
-        </div>
-      )}
     </div>
   );
 }
