@@ -12,7 +12,7 @@ const SOURCE_COLORS = [
  * Mock iMovie/CapCut-style video editor for the research probe.
  * Supports multiple video sources — clips from different files on one timeline.
  */
-export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState }) {
+export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive }) {
   const { logEvent } = useEventLogger();
 
   const [clips, setClips] = useState([]);
@@ -565,6 +565,24 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
         >
           {showCaptionEditor ? 'Hide Captions' : 'Add Caption'}
         </ToolbarButton>
+        {onTextTool && (
+          <>
+            <div className="border-l border-white/30 h-6 mx-1" aria-hidden="true" />
+            <button
+              onClick={onTextTool}
+              className={`px-2 py-1 rounded text-xs font-bold transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
+                textToolActive
+                  ? 'bg-[#fbbf24] text-[#1a1a2e]'
+                  : 'bg-white/10 text-white/70 hover:bg-white/20'
+              }`}
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label="Text overlay tool"
+              aria-pressed={textToolActive}
+            >
+              T Text
+            </button>
+          </>
+        )}
         <div className="border-l border-white/30 h-6 mx-1" />
         <ToolbarButton
           onClick={handleUndo}

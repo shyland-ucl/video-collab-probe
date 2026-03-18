@@ -66,15 +66,8 @@ export default function Probe3Page() {
   const [helperHandoverMode, setHelperHandoverMode] = useState(null);
 
   // Sync state
-  const [independentMode, setIndependentMode] = useState(false);
   const [helperActivities, setHelperActivities] = useState([]);
   const [creatorActivities, setCreatorActivities] = useState([]);
-  const [creatorState, setCreatorState] = useState({
-    isPlaying: false,
-    currentTime: 0,
-    level: 1,
-    segmentId: null,
-  });
   const [connected, setConnected] = useState(false);
 
   // Load descriptions on mount, set condition
@@ -144,12 +137,6 @@ export default function Probe3Page() {
   const handleQuestion = useCallback((question) => {
     setPendingQuestion(question);
   }, []);
-
-  // Use a ref to track independentMode so the onData handler always sees current value
-  const independentModeRef = useRef(independentMode);
-  useEffect(() => {
-    independentModeRef.current = independentMode;
-  }, [independentMode]);
 
   // --- Library selection sync ---
   const handleSelectionChange = useCallback((videoId, isSelected) => {
@@ -338,7 +325,7 @@ export default function Probe3Page() {
     unsubscribeRef.current.data = wsRelayService.onData((msg) => {
       switch (msg.type) {
         case 'PLAY':
-          if (currentRole === 'helper' && !independentModeRef.current) {
+          if (currentRole === 'helper') {
             playerRef.current?.play();
           }
           setCreatorActivities((prev) => [
@@ -348,7 +335,7 @@ export default function Probe3Page() {
           break;
 
         case 'PAUSE':
-          if (currentRole === 'helper' && !independentModeRef.current) {
+          if (currentRole === 'helper') {
             playerRef.current?.pause();
           }
           setCreatorActivities((prev) => [
@@ -358,7 +345,7 @@ export default function Probe3Page() {
           break;
 
         case 'SEEK':
-          if (currentRole === 'helper' && !independentModeRef.current) {
+          if (currentRole === 'helper') {
             playerRef.current?.seek(msg.time);
           }
           setCreatorActivities((prev) => [
@@ -368,7 +355,7 @@ export default function Probe3Page() {
           break;
 
         case 'STATE_UPDATE':
-          setCreatorState(msg.state);
+          // No longer tracked (independent mode removed)
           break;
 
         case 'ACTIVITY':
@@ -531,22 +518,6 @@ export default function Probe3Page() {
     clearSubscriptions();
     wsRelayService.disconnect();
   }, [clearSubscriptions]);
-
-  // Toggle independent mode for helper
-  const handleToggleIndependentMode = useCallback(() => {
-    setIndependentMode((prev) => {
-      const newVal = !prev;
-      logEvent(EventTypes.INDEPENDENT_MODE_TOGGLE, Actors.HELPER, { enabled: newVal });
-      wsRelayService.sendData({
-        type: 'ACTIVITY',
-        action: newVal ? 'Entered independent mode' : 'Returned to sync mode',
-        data: '',
-        actor: 'HELPER',
-        timestamp: Date.now(),
-      });
-      return newVal;
-    });
-  }, [logEvent]);
 
   // Researcher manual sync fallback
   const handleManualSync = useCallback((action) => {
@@ -713,9 +684,6 @@ export default function Probe3Page() {
             onTimeUpdate={handleTimeUpdate}
             onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
-            independentMode={independentMode}
-            onToggleIndependentMode={handleToggleIndependentMode}
-            creatorState={creatorState}
             editState={editState}
             onEditChange={handleEditChange}
             initialSources={initialSources}
@@ -807,7 +775,7 @@ export default function Probe3Page() {
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              Connection: {connected ? 'Active' : 'Not connected'} | Role: {role || 'none'} | Independent: {independentMode ? 'Yes' : 'No'}
+              Connection: {connected ? 'Active' : 'Not connected'} | Role: {role || 'none'}
             </p>
           </div>
         </div>

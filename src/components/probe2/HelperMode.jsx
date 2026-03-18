@@ -8,26 +8,9 @@ import TransportControls from '../shared/TransportControls.jsx';
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import TaskQueue from './TaskQueue.jsx';
-
-function playNotifyChime() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [0, 0.15].forEach((offset, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.frequency.setValueAtTime(i === 0 ? 523 : 659, ctx.currentTime + offset);
-      gain.gain.setValueAtTime(0.3, ctx.currentTime + offset);
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + offset + 0.2);
-      osc.start(ctx.currentTime + offset);
-      osc.stop(ctx.currentTime + offset + 0.2);
-    });
-    setTimeout(() => ctx.close().catch(() => {}), 1000);
-  } catch {
-    // Audio not supported
-  }
-}
+import TextOverlay from '../shared/TextOverlay.jsx';
+import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
+import useTextOverlay from '../../hooks/useTextOverlay.js';
 
 export default function HelperMode({
   playerRef,
@@ -41,7 +24,6 @@ export default function HelperMode({
   onTimeUpdate,
   onSegmentChange,
   onSeek,
-  onNotifyCreator,
   onReturnDevice,
   onTaskComplete,
   editState,
@@ -49,6 +31,10 @@ export default function HelperMode({
   initialSources = [],
 }) {
   const { logEvent } = useEventLogger();
+  const {
+    textOverlays, activeOverlay, activeOverlayId, textToolActive,
+    handleTextTool, handleTextMove, handleTextChange, handleTextApply, handleTextRemove,
+  } = useTextOverlay();
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnSummary, setReturnSummary] = useState('');
   const returnModalTriggerRef = useRef(null);
@@ -63,13 +49,6 @@ export default function HelperMode({
 
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
-
-  const handleNotify = useCallback(() => {
-    playNotifyChime();
-    logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'notify_creator' });
-    announce('Creator notified');
-    if (onNotifyCreator) onNotifyCreator();
-  }, [logEvent, onNotifyCreator]);
 
   const handleReturnClick = useCallback(() => {
     returnModalTriggerRef.current = document.activeElement;
@@ -96,84 +75,100 @@ export default function HelperMode({
       {/* Hidden audio player */}
       <audio ref={audioRef} className="hidden" />
 
-      {/* Mode indicator */}
-      <div
-        className="flex items-center gap-2 px-4 py-2 mb-4 rounded-lg"
-        style={{ backgroundColor: '#E67E22' }}
-        role="status"
-        aria-label="Helper mode active"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" aria-hidden="true">
-          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-        </svg>
-        <span className="text-white font-semibold text-sm">
-          Helper Mode {handoverMode === 'tasks' ? '— Task List' : '— Live'}
-        </span>
-        <div className="ml-auto flex gap-2">
-          <button
-            onClick={handleNotify}
-            className="px-3 py-1.5 rounded font-medium text-sm text-white border border-white/50 hover:bg-white/20 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-white"
-            style={{ minHeight: '44px' }}
-            aria-label="Notify creator"
-          >
-            Notify Creator
-          </button>
+      {/* Mode Bar Card */}
+      <div role="region" aria-label="Helper mode" className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4">
+        <div
+          className="flex items-center gap-2 px-4 py-2.5"
+          style={{ backgroundColor: '#E67E22' }}
+          role="status"
+          aria-label="Helper mode active"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" aria-hidden="true">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+          </svg>
+          <span className="text-white font-semibold text-sm">
+            Helper Mode {handoverMode === 'tasks' ? '— Task List' : '— Live'}
+          </span>
+        </div>
+        <div className="px-4 py-3 bg-[#fff7ed]">
           <button
             onClick={handleReturnClick}
-            className="px-4 py-1.5 rounded font-bold text-sm transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
+            className="w-full py-2.5 rounded-lg font-bold text-sm transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
             style={{ backgroundColor: '#2B579A', color: 'white', minHeight: '44px' }}
             aria-label="Return device to creator"
           >
-            Return Device
+            ↩ Return Device
           </button>
         </div>
       </div>
 
-      {/* Task Queue (for task-based handover) */}
+      {/* Task Queue Card */}
       {handoverMode === 'tasks' && tasks && tasks.length > 0 && (
         <div
-          className="sticky top-0 z-10 border-2 rounded-lg p-4 mb-4 shadow-md"
-          style={{ borderColor: '#E67E22', backgroundColor: '#FFF8F0' }}
+          role="region"
           aria-label="Task queue from creator"
+          className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4"
         >
-          <h3 className="font-bold text-sm mb-3" style={{ color: '#1F3864' }}>
-            Creator's Tasks ({tasks.length})
-          </h3>
-          <TaskQueue
-            tasks={tasks}
-            onTaskComplete={onTaskComplete}
-            onPlayVoiceNote={handlePlayVoiceNote}
-          />
-        </div>
-      )}
-
-      {/* Live mode info banner */}
-      {handoverMode === 'live' && (
-        <div
-          className="border-2 rounded-lg p-4 mb-4 shadow-md"
-          style={{ borderColor: '#2B579A', backgroundColor: '#F0F4FF' }}
-          aria-label="Live collaboration active"
-        >
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
-            <p className="text-sm font-medium" style={{ color: '#1F3864' }}>
-              Live collaboration — Creator is guiding you. Use the editor to make changes.
-            </p>
+          <div className="bg-[#fff7ed] px-3 py-2.5 border-b border-[#fed7aa]">
+            <span className="text-xs font-bold tracking-wide text-[#c2410c] uppercase">
+              Creator's Tasks ({tasks.length})
+            </span>
+          </div>
+          <div className="p-4">
+            <TaskQueue
+              tasks={tasks}
+              onTaskComplete={onTaskComplete}
+              onPlayVoiceNote={handlePlayVoiceNote}
+            />
           </div>
         </div>
       )}
 
-      {/* Video + Tools — mobile stacked layout */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <VideoPlayer
-            ref={playerRef}
-            src={videoData?.video?.src || null}
-            segments={segments}
-            onTimeUpdate={onTimeUpdate}
-            onSegmentChange={onSegmentChange}
-            editState={editState}
-          />
+      {/* Live Collaboration Card */}
+      {handoverMode === 'live' && (
+        <div
+          role="region"
+          aria-label="Live collaboration"
+          className="border-2 border-[#2B579A] rounded-xl overflow-hidden mb-4"
+        >
+          <div className="bg-[#eff6ff] px-3 py-2.5 border-b border-[#bfdbfe]">
+            <span className="text-xs font-bold tracking-wide text-[#2B579A] uppercase">Live Collaboration</span>
+          </div>
+          <div className="p-4">
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
+              <p className="text-sm font-medium" style={{ color: '#1F3864' }}>
+                Creator is guiding you. Use the editor to make changes.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Editor Card */}
+      <div role="region" aria-label="Video editor" className="border-2 border-[#64748b] rounded-xl overflow-hidden">
+        <div className="bg-[#f1f5f9] px-3 py-2.5 border-b border-[#cbd5e1]">
+          <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Video Editor</span>
+        </div>
+        <div className="flex flex-col">
+          <div className="relative">
+            <VideoPlayer
+              ref={playerRef}
+              src={videoData?.video?.src || null}
+              segments={segments}
+              onTimeUpdate={onTimeUpdate}
+              onSegmentChange={onSegmentChange}
+              editState={editState}
+            />
+            {textOverlays.map(overlay => (
+              <TextOverlay
+                key={overlay.id}
+                overlay={overlay}
+                isEditing={overlay.id === activeOverlayId}
+                onMove={handleTextMove}
+              />
+            ))}
+          </div>
           <TransportControls
             playerRef={playerRef}
             isPlaying={isPlaying}
@@ -186,10 +181,22 @@ export default function HelperMode({
             currentTime={currentTime}
             onSeek={onSeek}
             onEditChange={onEditChange}
+            onTextTool={handleTextTool}
+            textToolActive={textToolActive}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
       </div>
+
+      {/* Text Overlay Settings */}
+      {activeOverlay && (
+        <TextOverlaySettings
+          overlay={activeOverlay}
+          onChange={handleTextChange}
+          onApply={handleTextApply}
+          onRemove={handleTextRemove}
+        />
+      )}
 
       {/* Return Device Modal */}
       {showReturnModal && (
