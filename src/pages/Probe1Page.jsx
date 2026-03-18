@@ -208,31 +208,6 @@ export default function Probe1Page() {
             onSeek={handleSeek}
             onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
           />
-
-          {/* Marks list */}
-          {marks.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-amber-700 uppercase tracking-wide mb-2">
-                Marked Segments ({marks.length})
-              </h2>
-              <ul className="space-y-1" aria-label="Marked segments">
-                {marks.map((mark) => (
-                  <li key={mark.segmentId} className="flex items-center gap-2 text-sm text-gray-700">
-                    <span className="w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" />
-                    {mark.segmentName}
-                    <button
-                      onClick={() => handleMark(mark.segmentId, mark.segmentName)}
-                      className="ml-auto text-xs text-red-500 hover:text-red-700 focus:outline-2 focus:outline-red-400 px-2 py-1"
-                      style={{ minHeight: '44px', minWidth: '44px' }}
-                      aria-label={`Remove mark from ${mark.segmentName}`}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </div>
       )}
 
