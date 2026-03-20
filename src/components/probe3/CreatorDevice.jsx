@@ -18,10 +18,6 @@ export default function CreatorDevice({
   onTimeUpdate,
   onSegmentChange,
   onSeek,
-  onInitiateHandover,
-  marks,
-  onAddMark,
-  onDeleteMark,
   editState,
   onEditChange,
   initialSources = [],
@@ -37,20 +33,6 @@ export default function CreatorDevice({
   const [pendingAIResponse, setPendingAIResponse] = useState(false);
   const [aiResponse, setAIResponse] = useState(null);
   const [recentTasks, setRecentTasks] = useState([]);
-
-  // Keyboard shortcut: H for handover
-  useEffect(() => {
-    function handleKeyDown(e) {
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-      if (e.key === 'h' || e.key === 'H') {
-        e.preventDefault();
-        onInitiateHandover();
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onInitiateHandover]);
 
   // --- WebSocket sync: send play/pause/seek to helper ---
   const prevPlayingRef = useRef(isPlaying);

@@ -48,9 +48,6 @@ export default function Probe3Page() {
   // Synced library selection — both devices see the same set
   const [librarySelection, setLibrarySelection] = useState(new Set());
 
-  // Marks (voice notes + segment markers) — creator side
-  const [marks, setMarks] = useState([]);
-
   // Task routing state (Layer 3)
   const [feedItems, setFeedItems] = useState([]);
   const [pendingAIRequest, setPendingAIRequest] = useState(null);
@@ -227,15 +224,6 @@ export default function Probe3Page() {
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
   }, [role, detectEditAction]);
-
-  // --- Marks management ---
-  const handleAddMark = useCallback((mark) => {
-    setMarks((prev) => [...prev, mark]);
-  }, []);
-
-  const handleDeleteMark = useCallback((markId) => {
-    setMarks((prev) => prev.filter((m) => m.id !== markId));
-  }, []);
 
   // --- Task routing callbacks (Layer 3) ---
   const handleHelperTaskStatus = useCallback((taskId, status) => {

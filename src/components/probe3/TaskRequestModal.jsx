@@ -89,7 +89,7 @@ export default function TaskRequestModal({ route, segment, onSend, onClose, pend
             onClick={onClose}
             disabled={isPending}
             className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 focus:outline-2 focus:outline-blue-500"
-            style={{ minHeight: '44px', minWidth: '44px' }}
+            style={{ minHeight: '48px', minWidth: '48px' }}
             aria-label="Close"
           >
             Done
