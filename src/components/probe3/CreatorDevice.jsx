@@ -5,8 +5,7 @@ import { announce } from '../../utils/announcer.js';
 import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../utils/buildInitialSources.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
-import VoiceNoteRecorder from '../probe2/VoiceNoteRecorder.jsx';
-// MarkList removed — marks still logged but no longer shown in UI
+import TaskRequestModal from './TaskRequestModal.jsx';
 
 export default function CreatorDevice({
   videoRef,
@@ -31,10 +30,13 @@ export default function CreatorDevice({
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
   const computedSources = useMemo(() => buildInitialSources(videoData), [videoData]);
-  const audioPlayerRef = useRef(null);
 
-  // Track which segment we're marking a voice note for
-  const [recordingForSegment, setRecordingForSegment] = useState(null);
+  // Task routing state
+  const [taskModalRoute, setTaskModalRoute] = useState(null); // 'ai' | 'helper' | null
+  const [taskModalSegment, setTaskModalSegment] = useState(null);
+  const [pendingAIResponse, setPendingAIResponse] = useState(false);
+  const [aiResponse, setAIResponse] = useState(null);
+  const [recentTasks, setRecentTasks] = useState([]);
 
   // Keyboard shortcut: H for handover
   useEffect(() => {
@@ -93,69 +95,116 @@ export default function CreatorDevice({
     }
   }, [onSeek, webrtcService]);
 
-  // --- Voice note recording ---
-  const handleMarkFromExploration = useCallback((segmentId, segmentName) => {
-    setRecordingForSegment({ segmentId, segmentName });
-    announce(`Recording voice note for ${segmentName}. Press the record button.`);
+  // Register callback for helper task status updates (arrives via Probe3.jsx WebSocket handler)
+  useEffect(() => {
+    window.__taskStatusUpdate = (taskId, status) => {
+      setRecentTasks((prev) => prev.map((t) =>
+        t.id === taskId ? { ...t, helperStatus: status } : t
+      ));
+      announce(`Helper marked task as ${status === 'done' ? 'Done' : status === 'needs_discussion' ? 'Needs Discussion' : "Can't Do"}`);
+    };
+    return () => { delete window.__taskStatusUpdate; };
   }, []);
 
-  const handleRecordingComplete = useCallback((blob, audioDuration) => {
-    if (!recordingForSegment) return;
-    const mark = {
-      id: `mark-${Date.now()}`,
-      segmentId: recordingForSegment.segmentId,
-      segmentName: recordingForSegment.segmentName,
-      audioBlob: blob,
-      audioDuration,
+  // Register WoZ callback for AI edit responses (same pattern as VQA)
+  useEffect(() => {
+    window.__aiEditResponse = (responseText, responseType) => {
+      setPendingAIResponse(false);
+      setAIResponse(responseText);
+      setRecentTasks((prev) => prev.map((t) =>
+        t.id === prev.find((p) => p.status === 'pending_ai')?.id
+          ? { ...t, status: 'done', response: responseText, responseType }
+          : t
+      ));
+      announce(`AI result: ${responseText}`);
+      logEvent(EventTypes.AI_EDIT_RESPONSE, Actors.AI, {
+        response_text: responseText,
+        response_type: responseType,
+      });
+      // Relay AI edit notification to helper via WebSocket
+      if (webrtcService) {
+        webrtcService.sendData({
+          type: 'AI_EDIT_NOTIFY',
+          text: responseText,
+          responseType,
+          actor: 'AI',
+        });
+      }
+    };
+    return () => { delete window.__aiEditResponse; };
+  }, [logEvent, webrtcService]);
+
+  // --- Task routing handlers ---
+  const handleAskAI = useCallback((seg) => {
+    setTaskModalRoute('ai');
+    setTaskModalSegment(seg);
+    setAIResponse(null);
+  }, []);
+
+  const handleAskHelper = useCallback((seg) => {
+    setTaskModalRoute('helper');
+    setTaskModalSegment(seg);
+  }, []);
+
+  const handleTaskSend = useCallback((taskText) => {
+    const task = {
+      id: `task-${Date.now()}`,
+      text: taskText,
+      segment: taskModalSegment?.name,
+      segmentId: taskModalSegment?.id,
+      route: taskModalRoute,
+      status: taskModalRoute === 'ai' ? 'pending_ai' : 'sent',
       timestamp: Date.now(),
     };
-    logEvent(EventTypes.RECORD_VOICE_NOTE, Actors.CREATOR, {
-      segmentId: mark.segmentId,
-      duration: audioDuration,
+    setRecentTasks((prev) => [task, ...prev]);
+
+    // Log routing event
+    const routeEvent = taskModalRoute === 'ai' ? EventTypes.TASK_ROUTE_AI : EventTypes.TASK_ROUTE_HELPER;
+    logEvent(routeEvent, Actors.CREATOR, {
+      task_id: task.id,
+      task_text: taskText,
+      current_segment: taskModalSegment?.id,
+      video_time: currentTime,
     });
-    onAddMark(mark);
-    setRecordingForSegment(null);
-    announce(`Voice note saved for ${mark.segmentName}`);
-  }, [recordingForSegment, logEvent, onAddMark]);
 
-  const handleMarkWithoutVoice = useCallback(() => {
-    if (!recordingForSegment) return;
-    const mark = {
-      id: `mark-${Date.now()}`,
-      segmentId: recordingForSegment.segmentId,
-      segmentName: recordingForSegment.segmentName,
-      audioBlob: null,
-      audioDuration: 0,
-      timestamp: Date.now(),
-    };
-    onAddMark(mark);
-    setRecordingForSegment(null);
-    announce(`Marked ${mark.segmentName} without voice note`);
-  }, [recordingForSegment, onAddMark]);
-
-  const handlePlayVoiceNote = useCallback((mark) => {
-    if (!mark.audioBlob) return;
-    const url = URL.createObjectURL(mark.audioBlob);
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.src = url;
-      audioPlayerRef.current.play();
+    if (taskModalRoute === 'ai') {
+      setPendingAIResponse(true);
+      // Notify researcher WoZ panel
+      if (typeof window.__aiEditReceive === 'function') {
+        window.__aiEditReceive({
+          text: taskText,
+          segment: taskModalSegment?.name,
+          segmentId: taskModalSegment?.id,
+          videoTime: currentTime,
+        });
+      }
+    } else {
+      // Send to helper via WebSocket
+      if (webrtcService?.isConnected?.()) {
+        webrtcService.sendData({
+          type: 'TASK_TO_HELPER',
+          taskId: task.id,
+          text: taskText,
+          segment: taskModalSegment?.name,
+          segmentId: taskModalSegment?.id,
+          actor: 'CREATOR',
+        });
+        announce('Sent to Helper');
+      } else {
+        announce('Helper not connected — task will be sent when reconnected');
+      }
     }
-    logEvent(EventTypes.PLAY_VOICE_NOTE, Actors.CREATOR, {
-      markId: mark.id,
-      segmentId: mark.segmentId,
-    });
-  }, [logEvent]);
+  }, [taskModalRoute, taskModalSegment, currentTime, webrtcService, logEvent]);
 
-  const handleDeleteMark = useCallback((markId) => {
-    logEvent(EventTypes.DELETE_MARK, Actors.CREATOR, { markId });
-    onDeleteMark(markId);
-  }, [logEvent, onDeleteMark]);
+  const handleEditMyselfLog = useCallback((seg) => {
+    logEvent(EventTypes.TASK_ROUTE_SELF, Actors.CREATOR, {
+      current_segment: seg?.id,
+      video_time: currentTime,
+    });
+  }, [logEvent, currentTime]);
 
   return (
     <div>
-      {/* Hidden audio player for voice note playback */}
-      <audio ref={audioPlayerRef} className="hidden" />
-
       {/* Mode Bar Card */}
       <div role="region" aria-label="Creator device" className="border-2 border-[#9B59B6] rounded-xl overflow-hidden mb-4">
         <div
@@ -165,42 +214,6 @@ export default function CreatorDevice({
           <span className="text-white font-semibold text-sm">Creator Device</span>
         </div>
       </div>
-
-      {/* Voice Note Card */}
-      {recordingForSegment && (
-        <div role="region" aria-label="Voice note" className="border-2 border-[#f59e0b] rounded-xl overflow-hidden mb-4 bg-white">
-          <div className="bg-[#fef3c7] px-3 py-2.5 border-b border-[#fde68a]">
-            <span className="text-xs font-bold tracking-wide text-[#92400e] uppercase">Voice Note</span>
-          </div>
-          <div className="p-4">
-            <h3 className="font-bold text-sm mb-2" style={{ color: '#1F3864' }}>
-              {recordingForSegment.segmentName}
-            </h3>
-            <p className="text-xs text-gray-600 mb-3">
-              Record a voice note explaining what needs to change, or skip to mark without audio.
-            </p>
-            <div className="flex items-center gap-3">
-              <VoiceNoteRecorder onRecordingComplete={handleRecordingComplete} />
-              <button
-                onClick={handleMarkWithoutVoice}
-                className="px-3 py-2 text-xs font-medium rounded border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-gray-400"
-                style={{ minHeight: '44px', minWidth: '44px' }}
-                aria-label="Mark without voice note"
-              >
-                Skip
-              </button>
-              <button
-                onClick={() => setRecordingForSegment(null)}
-                className="px-3 py-2 text-xs font-medium rounded text-red-600 hover:bg-red-50 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-red-400"
-                style={{ minHeight: '44px', minWidth: '44px' }}
-                aria-label="Cancel marking"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Video player — visual only, not navigable by VoiceOver */}
       <div aria-hidden="true">
@@ -220,8 +233,9 @@ export default function CreatorDevice({
         segments={segments}
         videoTitle={videoData?.video?.title || videoData?.videos?.[0]?.title || 'Untitled Video'}
         onExit={() => {}}
-        onMark={handleMarkFromExploration}
-        onEdit={() => {
+        onMark={() => {}}
+        onEdit={(seg) => {
+          handleEditMyselfLog(seg);
           logEvent(EventTypes.OPEN_EDITOR, Actors.CREATOR);
         }}
         isPlaying={isPlaying}
@@ -231,7 +245,66 @@ export default function CreatorDevice({
         onSeek={handleSeek}
         onEditChange={onEditChange}
         accentColor="#9B59B6"
+        actionMode="probe3"
+        onAskAI={handleAskAI}
+        onAskHelper={handleAskHelper}
       />
+
+      {/* Task Request Modal */}
+      {taskModalRoute && (
+        <TaskRequestModal
+          route={taskModalRoute}
+          segment={taskModalSegment}
+          onSend={handleTaskSend}
+          onClose={() => {
+            setTaskModalRoute(null);
+            setTaskModalSegment(null);
+            setPendingAIResponse(false);
+            setAIResponse(null);
+          }}
+          pendingAIResponse={pendingAIResponse}
+          aiResponse={aiResponse}
+        />
+      )}
+
+      {/* Recent Tasks */}
+      {recentTasks.length > 0 && (
+        <div role="region" aria-label="Recent tasks" className="border-2 border-[#64748b] rounded-xl overflow-hidden bg-white mt-3">
+          <div className="bg-[#f1f5f9] px-3 py-2.5 border-b border-[#cbd5e1]">
+            <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">
+              Recent Tasks ({recentTasks.length})
+            </span>
+          </div>
+          <div className="divide-y divide-gray-100 max-h-48 overflow-y-auto">
+            {recentTasks.slice(0, 10).map((task) => (
+              <div key={task.id} className="px-4 py-2.5 flex items-start gap-2">
+                <span className="text-xs mt-0.5" aria-hidden="true">
+                  {task.route === 'ai' ? '(AI)' : '(Helper)'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-gray-800 truncate">{task.text}</p>
+                  {task.response && (
+                    <p className="text-xs text-green-700 mt-0.5">{task.response}</p>
+                  )}
+                  {task.status === 'pending_ai' && (
+                    <p className="text-xs text-purple-500 mt-0.5">Waiting for AI...</p>
+                  )}
+                  {task.status === 'sent' && (
+                    <p className="text-xs text-orange-500 mt-0.5">Sent to helper</p>
+                  )}
+                  {task.helperStatus && (
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      Helper: {task.helperStatus === 'done' ? 'Done' :
+                               task.helperStatus === 'needs_discussion' ? 'Needs Discussion' :
+                               "Can't Do"}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
