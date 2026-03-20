@@ -31,5 +31,8 @@ dist-ssr
 # Claude Code session data
 .claude/
 
+# Git worktrees
+.worktrees/
+
 # Research documents
 *.docx
