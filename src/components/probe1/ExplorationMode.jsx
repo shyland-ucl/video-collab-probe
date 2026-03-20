@@ -63,6 +63,10 @@ export default function ExplorationMode({
   onSeek,
   onEditChange,
   accentColor = '#2B579A',
+  // Probe 3 Layer 3 props
+  actionMode,       // 'probe3' | undefined
+  onAskAI,          // (taskText, segment) => void
+  onAskHelper,      // (taskText, segment) => void
 }) {
   // Accent color theming — derive light variants for card headers/badges
   const accentStyles = useMemo(() => {
@@ -249,8 +253,8 @@ export default function ExplorationMode({
   const handleEditOpen = useCallback(() => {
     setShowEditPanel(true);
     announce('Edit panel opened.');
-    onEdit?.();
-  }, [onEdit]);
+    onEdit?.(segment);  // pass segment so parent knows which clip
+  }, [onEdit, segment]);
 
   const handleEditClose = useCallback(() => {
     setShowEditPanel(false);
@@ -494,6 +498,22 @@ export default function ExplorationMode({
             + More
           </button>
         </div>
+        {actionMode === 'probe3' && (
+          <button
+            type="button"
+            onClick={handleAskQuestion}
+            aria-label="Ask a question about this scene"
+            className="mt-2 w-full py-2.5 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{
+              minHeight: '48px',
+              backgroundColor: accentColor,
+              color: 'white',
+              '--tw-ring-color': accentColor,
+            }}
+          >
+            Ask Question
+          </button>
+        )}
 
         {/* Navigation row */}
         <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e2e8f0] bg-[#f8fafc]">
@@ -539,33 +559,67 @@ export default function ExplorationMode({
           <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Actions</span>
         </div>
         <div className="flex items-center gap-2 px-3 py-3">
-          <button
-            type="button"
-            onClick={handleMark}
-            aria-label="Mark this scene for review"
-            className="flex-1 py-3 rounded-lg bg-[#fef3c7] border border-[#fbbf24] text-sm font-semibold text-[#92400e] hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-            style={{ minHeight: '48px' }}
-          >
-            ⚑ Mark
-          </button>
-          <button
-            type="button"
-            onClick={handleEditOpen}
-            aria-label="Edit video timeline"
-            className="flex-1 py-3 rounded-lg bg-[#374151] text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-            style={{ minHeight: '48px' }}
-          >
-            ✎ Edit
-          </button>
-          <button
-            type="button"
-            onClick={handleAskQuestion}
-            aria-label="Ask a question about this scene"
-            className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
-            style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
-          >
-            💬 Ask AI
-          </button>
+          {actionMode === 'probe3' ? (
+            <>
+              <button
+                type="button"
+                onClick={handleEditOpen}
+                aria-label="Edit this clip yourself"
+                className="flex-1 py-3 rounded-lg bg-[#374151] text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                style={{ minHeight: '48px' }}
+              >
+                Edit Myself
+              </button>
+              <button
+                type="button"
+                onClick={() => onAskAI?.(segment)}
+                aria-label="Ask AI to edit this clip"
+                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
+                style={{ minHeight: '48px', backgroundColor: '#9B59B6', '--tw-ring-color': '#9B59B6' }}
+              >
+                Ask AI
+              </button>
+              <button
+                type="button"
+                onClick={() => onAskHelper?.(segment)}
+                aria-label="Ask helper to edit this clip"
+                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
+                style={{ minHeight: '48px', backgroundColor: '#E67E22', '--tw-ring-color': '#E67E22' }}
+              >
+                Ask Helper
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleMark}
+                aria-label="Mark this scene for review"
+                className="flex-1 py-3 rounded-lg bg-[#fef3c7] border border-[#fbbf24] text-sm font-semibold text-[#92400e] hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
+                style={{ minHeight: '48px' }}
+              >
+                Mark
+              </button>
+              <button
+                type="button"
+                onClick={handleEditOpen}
+                aria-label="Edit video timeline"
+                className="flex-1 py-3 rounded-lg bg-[#374151] text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                style={{ minHeight: '48px' }}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={handleAskQuestion}
+                aria-label="Ask a question about this scene"
+                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
+                style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
+              >
+                Ask AI
+              </button>
+            </>
+          )}
         </div>
       </div>
 
