@@ -22,6 +22,26 @@
           "What type of flooring is visible?": "Warm hardwood floors are visible.",
           "What room is being walked away from?": "The living room, which has a television and framed pictures.",
           "What is the lighting like?": "The lighting is bright and natural, coming from windows in the adjacent rooms."
+        },
+        "ai_edits_prepared": {
+          "trim_start": {
+            "response": "Trimmed Walking to Kitchen -- now starts a step or two later, cutting the initial turn from the living room",
+            "partial": "Trimmed, but unsure about exact start point -- the handoff from the living room may feel abrupt. Verify with helper."
+          },
+          "split": {
+            "response": "Split Walking to Kitchen into two clips at the current position -- before and after the light switch",
+            "partial": "Split the clip, but the split point may not land exactly at the light switch. Check the cut."
+          },
+          "delete": {
+            "response": "Removed Walking to Kitchen from the timeline"
+          },
+          "add_caption": {
+            "response": "Added caption to Walking to Kitchen",
+            "partial": "Added caption, but placed at default position -- helper may want to adjust placement over the hallway section"
+          },
+          "reorder": {
+            "response": "Moved Walking to Kitchen to a new position in the timeline"
+          }
         }
       },
       {
@@ -41,6 +61,26 @@
           "What kind of lighting is in the kitchen?": "Overhead fluorescent lighting illuminates the space.",
           "What type of flooring is in the kitchen?": "Wooden floors match the wooden cabinetry.",
           "Where are you heading as you enter the kitchen?": "You walk straight ahead into the center of the kitchen, toward the main countertop area near the sink."
+        },
+        "ai_edits_prepared": {
+          "trim_start": {
+            "response": "Trimmed Entering the Kitchen -- now starts just as you clear the doorway, skipping the approach through the hallway",
+            "partial": "Trimmed, but unsure about exact start point -- the kitchen entrance may feel too sudden. Verify with helper."
+          },
+          "split": {
+            "response": "Split Entering the Kitchen into two clips at the current position -- the doorway crossing and the walk toward the counter",
+            "partial": "Split the clip, but the split point may not be exactly at the doorway threshold. Check the cut."
+          },
+          "delete": {
+            "response": "Removed Entering the Kitchen from the timeline"
+          },
+          "add_caption": {
+            "response": "Added caption to Entering the Kitchen",
+            "partial": "Added caption, but placed at default position -- helper may want to reposition it to avoid obscuring the refrigerator"
+          },
+          "reorder": {
+            "response": "Moved Entering the Kitchen to a new position in the timeline"
+          }
         }
       },
       {
@@ -60,6 +100,26 @@
           "What other appliances are on the counter?": "Oils, a toaster, and an electric kettle are on the countertop.",
           "How is the counter lit?": "By an under-cabinet light and natural light from the window above the sink.",
           "How is the coffee tin opened?": "Both hands are used to twist off the plastic lid."
+        },
+        "ai_edits_prepared": {
+          "trim_start": {
+            "response": "Trimmed Grabbing Mug and Coffee -- now starts as the mug is already in hand, cutting the initial approach to the counter",
+            "partial": "Trimmed, but unsure about exact start point -- the action might start too abruptly. Verify with helper."
+          },
+          "split": {
+            "response": "Split Grabbing Mug and Coffee into two clips at the current position -- picking up the mug and opening the coffee tin",
+            "partial": "Split the clip, but the split point may fall mid-gesture. Check the cut feels natural."
+          },
+          "delete": {
+            "response": "Removed Grabbing Mug and Coffee from the timeline"
+          },
+          "add_caption": {
+            "response": "Added caption to Grabbing Mug and Coffee",
+            "partial": "Added caption, but placed at default position -- helper may want to adjust so it doesn't cover the mug or tin"
+          },
+          "reorder": {
+            "response": "Moved Grabbing Mug and Coffee to a new position in the timeline"
+          }
         }
       },
       {
@@ -79,6 +139,26 @@
           "How full is the mug after pouring the water?": "The mug is filled close to the top.",
           "Where is the coffee tin placed after pouring?": "The tin is set aside to the left side of the mug.",
           "What color are the coffee granules?": "The instant coffee granules are dark in color."
+        },
+        "ai_edits_prepared": {
+          "trim_start": {
+            "response": "Trimmed Making the Coffee -- now starts just as the kettle is lifted, skipping the granule-pouring moment",
+            "partial": "Trimmed, but unsure about exact start point -- viewers may miss context about the granules. Verify with helper."
+          },
+          "split": {
+            "response": "Split Making the Coffee into two clips at the current position -- pouring the granules and pouring the hot water",
+            "partial": "Split the clip, but the split point may not land cleanly between the tin and kettle actions. Check the cut."
+          },
+          "delete": {
+            "response": "Removed Making the Coffee from the timeline"
+          },
+          "add_caption": {
+            "response": "Added caption to Making the Coffee",
+            "partial": "Added caption, but placed at default position -- helper may want to move it to avoid covering the kettle pour"
+          },
+          "reorder": {
+            "response": "Moved Making the Coffee to a new position in the timeline"
+          }
         }
       },
       {
@@ -98,6 +178,26 @@
           "Where is the kettle placed after pouring?": "The kettle is set back down onto its base on the counter.",
           "How does the scene end?": "The mug is brought up to the mouth for a drink, ending with a sense of warm morning comfort.",
           "What does tilting the mug reveal?": "Tilting the mug reveals the dark coffee inside."
+        },
+        "ai_edits_prepared": {
+          "trim_start": {
+            "response": "Trimmed Taking a Sip -- now starts as the mug is already raised, cutting the kettle-setting-down moment",
+            "partial": "Trimmed, but unsure about exact start point -- the transition may feel too abrupt. Verify with helper."
+          },
+          "split": {
+            "response": "Split Taking a Sip into two clips at the current position -- setting the kettle down and lifting the mug",
+            "partial": "Split the clip, but the split point may be slightly off the natural pause between actions. Check the cut."
+          },
+          "delete": {
+            "response": "Removed Taking a Sip from the timeline"
+          },
+          "add_caption": {
+            "response": "Added caption to Taking a Sip",
+            "partial": "Added caption, but placed at default position -- helper may want to reposition it before the mug fills the frame"
+          },
+          "reorder": {
+            "response": "Moved Taking a Sip to a new position in the timeline"
+          }
         }
       }
     ]
@@ -126,6 +226,26 @@
             "What type of flooring is visible?": "Warm hardwood floors are visible.",
             "What room is being walked away from?": "The living room, which has a television and framed pictures.",
             "What is the lighting like?": "The lighting is bright and natural, coming from windows in the adjacent rooms."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Walking to Kitchen -- now starts a step or two later, cutting the initial turn from the living room",
+              "partial": "Trimmed, but unsure about exact start point -- the handoff from the living room may feel abrupt. Verify with helper."
+            },
+            "split": {
+              "response": "Split Walking to Kitchen into two clips at the current position -- before and after the light switch",
+              "partial": "Split the clip, but the split point may not land exactly at the light switch. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Walking to Kitchen from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Walking to Kitchen",
+              "partial": "Added caption, but placed at default position -- helper may want to adjust placement over the hallway section"
+            },
+            "reorder": {
+              "response": "Moved Walking to Kitchen to a new position in the timeline"
+            }
           }
         },
         {
@@ -145,6 +265,26 @@
             "What kind of lighting is in the kitchen?": "Overhead fluorescent lighting illuminates the space.",
             "What type of flooring is in the kitchen?": "Wooden floors match the wooden cabinetry.",
             "Where are you heading as you enter the kitchen?": "You walk straight ahead into the center of the kitchen, toward the main countertop area near the sink."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Entering the Kitchen -- now starts just as you clear the doorway, skipping the approach through the hallway",
+              "partial": "Trimmed, but unsure about exact start point -- the kitchen entrance may feel too sudden. Verify with helper."
+            },
+            "split": {
+              "response": "Split Entering the Kitchen into two clips at the current position -- the doorway crossing and the walk toward the counter",
+              "partial": "Split the clip, but the split point may not be exactly at the doorway threshold. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Entering the Kitchen from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Entering the Kitchen",
+              "partial": "Added caption, but placed at default position -- helper may want to reposition it to avoid obscuring the refrigerator"
+            },
+            "reorder": {
+              "response": "Moved Entering the Kitchen to a new position in the timeline"
+            }
           }
         },
         {
@@ -164,6 +304,26 @@
             "What other appliances are on the counter?": "Oils, a toaster, and an electric kettle are on the countertop.",
             "How is the counter lit?": "By an under-cabinet light and natural light from the window above the sink.",
             "How is the coffee tin opened?": "Both hands are used to twist off the plastic lid."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Grabbing Mug and Coffee -- now starts as the mug is already in hand, cutting the initial approach to the counter",
+              "partial": "Trimmed, but unsure about exact start point -- the action might start too abruptly. Verify with helper."
+            },
+            "split": {
+              "response": "Split Grabbing Mug and Coffee into two clips at the current position -- picking up the mug and opening the coffee tin",
+              "partial": "Split the clip, but the split point may fall mid-gesture. Check the cut feels natural."
+            },
+            "delete": {
+              "response": "Removed Grabbing Mug and Coffee from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Grabbing Mug and Coffee",
+              "partial": "Added caption, but placed at default position -- helper may want to adjust so it doesn't cover the mug or tin"
+            },
+            "reorder": {
+              "response": "Moved Grabbing Mug and Coffee to a new position in the timeline"
+            }
           }
         },
         {
@@ -183,6 +343,26 @@
             "How full is the mug after pouring the water?": "The mug is filled close to the top.",
             "Where is the coffee tin placed after pouring?": "The tin is set aside to the left side of the mug.",
             "What color are the coffee granules?": "The instant coffee granules are dark in color."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Making the Coffee -- now starts just as the kettle is lifted, skipping the granule-pouring moment",
+              "partial": "Trimmed, but unsure about exact start point -- viewers may miss context about the granules. Verify with helper."
+            },
+            "split": {
+              "response": "Split Making the Coffee into two clips at the current position -- pouring the granules and pouring the hot water",
+              "partial": "Split the clip, but the split point may not land cleanly between the tin and kettle actions. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Making the Coffee from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Making the Coffee",
+              "partial": "Added caption, but placed at default position -- helper may want to move it to avoid covering the kettle pour"
+            },
+            "reorder": {
+              "response": "Moved Making the Coffee to a new position in the timeline"
+            }
           }
         },
         {
@@ -202,6 +382,26 @@
             "Where is the kettle placed after pouring?": "The kettle is set back down onto its base on the counter.",
             "How does the scene end?": "The mug is brought up to the mouth for a drink, ending with a sense of warm morning comfort.",
             "What does tilting the mug reveal?": "Tilting the mug reveals the dark coffee inside."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Taking a Sip -- now starts as the mug is already raised, cutting the kettle-setting-down moment",
+              "partial": "Trimmed, but unsure about exact start point -- the transition may feel too abrupt. Verify with helper."
+            },
+            "split": {
+              "response": "Split Taking a Sip into two clips at the current position -- setting the kettle down and lifting the mug",
+              "partial": "Split the clip, but the split point may be slightly off the natural pause between actions. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Taking a Sip from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Taking a Sip",
+              "partial": "Added caption, but placed at default position -- helper may want to reposition it before the mug fills the frame"
+            },
+            "reorder": {
+              "response": "Moved Taking a Sip to a new position in the timeline"
+            }
           }
         }
       ]
@@ -229,6 +429,26 @@
             "What type of cabinets are in the kitchen?": "Wooden kitchen cabinets.",
             "What is being poured into the mug?": "Dark instant coffee granules from the red tin.",
             "What view is this filmed from?": "A first-person perspective."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Opening Coffee Tin -- now starts as the tin is already tipped and pouring, skipping the lid removal",
+              "partial": "Trimmed, but unsure about exact start point -- the opening action may be cut too early. Verify with helper."
+            },
+            "split": {
+              "response": "Split Opening Coffee Tin into two clips at the current position -- removing the lid and pouring the granules",
+              "partial": "Split the clip, but the split point may fall mid-pour. Check that the cut feels intentional."
+            },
+            "delete": {
+              "response": "Removed Opening Coffee Tin from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Opening Coffee Tin",
+              "partial": "Added caption, but placed at default position -- helper may want to move it away from the mug in the center of frame"
+            },
+            "reorder": {
+              "response": "Moved Opening Coffee Tin to a new position in the timeline"
+            }
           }
         },
         {
@@ -248,6 +468,26 @@
             "What happens after pouring the water?": "The kettle is set back on its base, then the mug is picked up for a drink.",
             "Is the water hot?": "Yes, the water is steaming as it is poured.",
             "How full is the mug?": "The mug is filled up with the hot water."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Pouring Water and Drinking -- now starts as the kettle is mid-pour, cutting the moment of picking it up",
+              "partial": "Trimmed, but unsure about exact start point -- the transition from the tin may feel missing. Verify with helper."
+            },
+            "split": {
+              "response": "Split Pouring Water and Drinking into two clips at the current position -- the kettle pour and the drinking moment",
+              "partial": "Split the clip, but the split point may not cleanly separate the pouring from the mug lift. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Pouring Water and Drinking from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Pouring Water and Drinking",
+              "partial": "Added caption, but placed at default position -- helper may want to reposition before the mug is raised to camera"
+            },
+            "reorder": {
+              "response": "Moved Pouring Water and Drinking to a new position in the timeline"
+            }
           }
         },
         {
@@ -267,6 +507,26 @@
             "What does the man say?": "He says 'I'm in the kitchen, I'm about to make a cup of coffee'.",
             "What is his hair like?": "He has short brown hair.",
             "How has the camera angle changed?": "It shifted from a first-person view to a front-facing shot."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Man Introduces Himself -- now starts a beat into his opening line, cutting the very first moment he looks at the camera",
+              "partial": "Trimmed, but unsure about exact start point -- his introduction may feel cut off mid-sentence. Verify with helper."
+            },
+            "split": {
+              "response": "Split Man Introduces Himself into two clips at the current position -- the opening look to camera and his spoken introduction",
+              "partial": "Split the clip, but the split point may fall mid-sentence. Check that the cut doesn't break his line."
+            },
+            "delete": {
+              "response": "Removed Man Introduces Himself from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Man Introduces Himself",
+              "partial": "Added caption, but placed at default position -- helper may want to position it so it doesn't obscure his face"
+            },
+            "reorder": {
+              "response": "Moved Man Introduces Himself to a new position in the timeline"
+            }
           }
         },
         {
@@ -286,6 +546,26 @@
             "What is his expression like?": "His expression is engaged and conversational.",
             "Where is he standing?": "In the center of the white kitchen.",
             "Who is he speaking to?": "He is speaking directly to the camera audience."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Man Explains Absence -- now starts mid-explanation, cutting the initial setup of his sentence",
+              "partial": "Trimmed, but unsure about exact start point -- the explanation may lose context without the opening words. Verify with helper."
+            },
+            "split": {
+              "response": "Split Man Explains Absence into two clips at the current position -- the start of his explanation and his key gesture",
+              "partial": "Split the clip, but the split point may interrupt his hand gesture. Check the cut doesn't look jarring."
+            },
+            "delete": {
+              "response": "Removed Man Explains Absence from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Man Explains Absence",
+              "partial": "Added caption, but placed at default position -- helper may want to move it clear of his raised hands"
+            },
+            "reorder": {
+              "response": "Moved Man Explains Absence to a new position in the timeline"
+            }
           }
         },
         {
@@ -305,6 +585,26 @@
             "Does he maintain eye contact?": "Yes, he maintains steady eye contact with the camera lens.",
             "What is his expression?": "His facial expression remains friendly.",
             "Where is this scene set?": "In a bright white kitchen with white cabinets."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Man Announces Video -- now starts just as he says the closing line, cutting any lead-in pause",
+              "partial": "Trimmed, but unsure about exact start point -- his concluding statement may start too abruptly. Verify with helper."
+            },
+            "split": {
+              "response": "Split Man Announces Video into two clips at the current position -- his hands coming down and his final spoken line",
+              "partial": "Split the clip, but the split point may cut right before his key phrase. Check the timing carefully."
+            },
+            "delete": {
+              "response": "Removed Man Announces Video from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Man Announces Video",
+              "partial": "Added caption, but placed at default position -- helper may want to position it as a lower-third subtitle for his spoken line"
+            },
+            "reorder": {
+              "response": "Moved Man Announces Video to a new position in the timeline"
+            }
           }
         }
       ]
@@ -332,6 +632,26 @@
             "Where is the backpack?": "Resting on a white windowsill.",
             "What is glimpsed inside the backpack?": "Something blue is briefly visible inside.",
             "What perspective is this filmed from?": "A first-person perspective."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Opening Backpack by Window -- now starts as the zipper is already moving, cutting the initial hands-on-windowsill moment",
+              "partial": "Trimmed, but unsure about exact start point -- the lake view through the window may be lost. Verify with helper."
+            },
+            "split": {
+              "response": "Split Opening Backpack by Window into two clips at the current position -- looking out the window and unzipping the backpack",
+              "partial": "Split the clip, but the split point may separate the window view from the unzipping too abruptly. Check the cut."
+            },
+            "delete": {
+              "response": "Removed Opening Backpack by Window from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Opening Backpack by Window",
+              "partial": "Added caption, but placed at default position -- helper may want to position it so it doesn't block the lake view through the window"
+            },
+            "reorder": {
+              "response": "Moved Opening Backpack by Window to a new position in the timeline"
+            }
           }
         },
         {
@@ -351,6 +671,26 @@
             "Who is ahead on the path?": "A bald man in a black t-shirt and shorts is jogging.",
             "What are you carrying?": "The black backpack is being carried in front of you.",
             "What is next to the path?": "A calm blue lake is right next to the path."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Walking Along Lakeside Path -- now starts a few steps in, cutting the initial outdoor establishing shot",
+              "partial": "Trimmed, but unsure about exact start point -- the jogger may already be further ahead than expected. Verify with helper."
+            },
+            "split": {
+              "response": "Split Walking Along Lakeside Path into two clips at the current position -- the opening outdoor view and the walk following the jogger",
+              "partial": "Split the clip, but the split point may land mid-stride. Check the cut doesn't feel jumpy."
+            },
+            "delete": {
+              "response": "Removed Walking Along Lakeside Path from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Walking Along Lakeside Path",
+              "partial": "Added caption, but placed at default position -- helper may want to position it so it doesn't obscure the lake or the jogger ahead"
+            },
+            "reorder": {
+              "response": "Moved Walking Along Lakeside Path to a new position in the timeline"
+            }
           }
         },
         {
@@ -370,6 +710,26 @@
             "Which hand opens the zipper?": "The right hand grasps the zipper pull.",
             "Where is the jogger?": "The jogger is getting further ahead on the path.",
             "What are you approaching?": "A paved section by the water where a bench sits."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Unzipping Backpack While Walking -- now starts as the right hand is already reaching for the zipper, cutting the look-down moment",
+              "partial": "Trimmed, but unsure about exact start point -- the motivation for reaching into the backpack may be unclear. Verify with helper."
+            },
+            "split": {
+              "response": "Split Unzipping Backpack While Walking into two clips at the current position -- approaching the paved section and reaching for the zipper",
+              "partial": "Split the clip, but the split point may fall while the hand is mid-reach. Check the cut feels deliberate."
+            },
+            "delete": {
+              "response": "Removed Unzipping Backpack While Walking from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Unzipping Backpack While Walking",
+              "partial": "Added caption, but placed at default position -- helper may want to reposition away from the hands and backpack in the lower frame"
+            },
+            "reorder": {
+              "response": "Moved Unzipping Backpack While Walking to a new position in the timeline"
+            }
           }
         },
         {
@@ -389,6 +749,26 @@
             "What door is open?": "The driver's side door is open.",
             "What happens in the scene transition?": "It cuts from a car by the lake to a gas station setting.",
             "What are you reaching towards?": "You are reaching towards the hood of the black SUV."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Car Door and Gas Station -- now starts directly at the gas station shot, cutting the lakeside car door moment entirely",
+              "partial": "Trimmed, but unsure about exact start point -- the abrupt location jump may be disorienting without context. Verify with helper."
+            },
+            "split": {
+              "response": "Split Car Door and Gas Station into two clips at the current position -- the lakeside car door and the gas station arrival",
+              "partial": "Split the clip, but the split point may not land cleanly on the scene cut. Check that the two clips each make sense on their own."
+            },
+            "delete": {
+              "response": "Removed Car Door and Gas Station from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Car Door and Gas Station",
+              "partial": "Added caption, but placed at default position -- helper may want to add location labels for both the lake and gas station shots separately"
+            },
+            "reorder": {
+              "response": "Moved Car Door and Gas Station to a new position in the timeline"
+            }
           }
         },
         {
@@ -408,6 +788,26 @@
             "What is visible on the front of the car?": "A large silver grille is visible below the hood.",
             "Which hand is being used?": "The right arm is extended toward the front of the car.",
             "What is the SUV parked under?": "The Shell gas station canopy."
+          },
+          "ai_edits_prepared": {
+            "trim_start": {
+              "response": "Trimmed Opening SUV Hood -- now starts as the fingers are already under the hood edge, cutting the initial reach toward the front of the car",
+              "partial": "Trimmed, but unsure about exact start point -- the action may look like it starts mid-motion. Verify with helper."
+            },
+            "split": {
+              "response": "Split Opening SUV Hood into two clips at the current position -- reaching to the hood and feeling for the latch",
+              "partial": "Split the clip, but the split point may land while the hand is still searching for the latch. Check the cut makes sense."
+            },
+            "delete": {
+              "response": "Removed Opening SUV Hood from the timeline"
+            },
+            "add_caption": {
+              "response": "Added caption to Opening SUV Hood",
+              "partial": "Added caption, but placed at default position -- helper may want to reposition it away from the hood and grille area in the lower frame"
+            },
+            "reorder": {
+              "response": "Moved Opening SUV Hood to a new position in the timeline"
+            }
           }
         }
       ]

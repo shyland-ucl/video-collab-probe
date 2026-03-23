@@ -76,25 +76,25 @@ export default function HelperMode({
       <audio ref={audioRef} className="hidden" />
 
       {/* Mode Bar Card */}
-      <div role="region" aria-label="Helper mode" className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4">
+      <div role="region" aria-label="Helper mode" className="rounded-2xl overflow-hidden mb-4" style={{ border: '1px solid rgba(230,126,34,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
         <div
-          className="flex items-center gap-2 px-4 py-2.5"
-          style={{ backgroundColor: '#E67E22' }}
+          className="flex items-center gap-2.5 px-4 py-3"
+          style={{ background: 'linear-gradient(135deg, #E67E22, #D35400)' }}
           role="status"
           aria-label="Helper mode active"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
           </svg>
-          <span className="text-white font-semibold text-sm">
+          <span className="text-white font-bold text-sm tracking-wide">
             Helper Mode {handoverMode === 'tasks' ? '— Task List' : '— Live'}
           </span>
         </div>
-        <div className="px-4 py-3 bg-[#fff7ed]">
+        <div className="px-4 py-3" style={{ background: '#fffcf8' }}>
           <button
             onClick={handleReturnClick}
-            className="w-full py-2.5 rounded-lg font-bold text-sm transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
-            style={{ backgroundColor: '#2B579A', color: 'white', minHeight: '44px' }}
+            className="w-full py-2.5 rounded-xl font-bold text-sm text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
+            style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '44px' }}
             aria-label="Return device to creator"
           >
             ↩ Return Device
@@ -107,14 +107,15 @@ export default function HelperMode({
         <div
           role="region"
           aria-label="Task queue from creator"
-          className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4"
+          className="rounded-2xl overflow-hidden mb-4"
+          style={{ border: '1px solid rgba(230,126,34,0.2)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
         >
-          <div className="bg-[#fff7ed] px-3 py-2.5 border-b border-[#fed7aa]">
-            <span className="text-xs font-bold tracking-wide text-[#c2410c] uppercase">
+          <div className="px-4 py-2.5" style={{ background: '#fff8f1', borderBottom: '1px solid #fde8d0' }}>
+            <span className="text-xs font-bold tracking-wider text-[#c2410c] uppercase">
               Creator's Tasks ({tasks.length})
             </span>
           </div>
-          <div className="p-4">
+          <div className="p-4 bg-white">
             <TaskQueue
               tasks={tasks}
               onTaskComplete={onTaskComplete}
@@ -129,15 +130,16 @@ export default function HelperMode({
         <div
           role="region"
           aria-label="Live collaboration"
-          className="border-2 border-[#2B579A] rounded-xl overflow-hidden mb-4"
+          className="rounded-2xl overflow-hidden mb-4"
+          style={{ border: '1px solid rgba(43,87,154,0.15)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
         >
-          <div className="bg-[#eff6ff] px-3 py-2.5 border-b border-[#bfdbfe]">
-            <span className="text-xs font-bold tracking-wide text-[#2B579A] uppercase">Live Collaboration</span>
+          <div className="px-4 py-2.5" style={{ background: '#f0f6ff', borderBottom: '1px solid #dbe9fe' }}>
+            <span className="text-xs font-bold tracking-wider text-[#2B579A] uppercase">Live Collaboration</span>
           </div>
-          <div className="p-4">
-            <div className="flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-green-500 animate-pulse" aria-hidden="true" />
-              <p className="text-sm font-medium" style={{ color: '#1F3864' }}>
+          <div className="p-4 bg-white">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: '0 0 6px rgba(16,185,129,0.4)' }} aria-hidden="true" />
+              <p className="text-sm font-medium text-[#1e3a5f]">
                 Creator is guiding you. Use the editor to make changes.
               </p>
             </div>
@@ -146,9 +148,9 @@ export default function HelperMode({
       )}
 
       {/* Video Editor Card */}
-      <div role="region" aria-label="Video editor" className="border-2 border-[#64748b] rounded-xl overflow-hidden">
-        <div className="bg-[#f1f5f9] px-3 py-2.5 border-b border-[#cbd5e1]">
-          <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Video Editor</span>
+      <div role="region" aria-label="Video editor" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
+        <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
+          <span className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</span>
         </div>
         <div className="flex flex-col">
           <div className="relative">
@@ -183,6 +185,7 @@ export default function HelperMode({
             onEditChange={onEditChange}
             onTextTool={handleTextTool}
             textToolActive={textToolActive}
+            clipPerSource
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
@@ -201,7 +204,8 @@ export default function HelperMode({
       {/* Return Device Modal */}
       {showReturnModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
           role="dialog"
           aria-modal="true"
           aria-label="Return device summary"
@@ -213,41 +217,42 @@ export default function HelperMode({
             }
           }}
         >
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-md mx-4">
+          <div className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.1)' }}>
             <div
-              className="px-6 py-4 rounded-t-lg"
-              style={{ backgroundColor: '#1F3864' }}
+              className="px-6 py-5 rounded-t-2xl"
+              style={{ background: 'linear-gradient(135deg, #1a2d4d, #152240)' }}
             >
               <h2 className="text-white font-bold text-lg">Return to Creator</h2>
-              <p className="text-white/70 text-sm mt-1">Add a summary of what you did</p>
+              <p className="text-white/60 text-sm mt-1">Add a summary of what you did</p>
             </div>
-            <div className="px-6 py-4">
+            <div className="px-6 py-5">
               <textarea
                 ref={returnModalFirstFocusRef}
                 value={returnSummary}
                 onChange={(e) => setReturnSummary(e.target.value)}
                 placeholder="Describe what changes you made..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-none focus:outline-2 focus:outline-blue-500"
+                className="w-full px-3.5 py-2.5 rounded-xl text-sm resize-none transition-colors focus:outline-none focus:ring-2 focus:ring-[#2B579A]"
+                style={{ border: '1px solid #e2e8f0', background: '#f8f9fb' }}
                 rows={6}
                 aria-label="Summary of actions taken"
               />
             </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+            <div className="px-6 py-4 flex justify-end gap-3" style={{ borderTop: '1px solid #eef2f7' }}>
               <button
                 onClick={() => {
                   setShowReturnModal(false);
                   setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
                 }}
-                className="px-4 py-2 rounded text-sm font-medium text-gray-700 border border-gray-300 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px', minWidth: '44px' }}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 transition-all duration-150 active:scale-[0.97] hover:bg-gray-100 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ minHeight: '44px', minWidth: '44px', border: '1px solid #e2e8f0' }}
                 aria-label="Cancel return"
               >
                 Cancel
               </button>
               <button
                 onClick={handleReturnConfirm}
-                className="px-5 py-2 rounded text-sm font-bold text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ backgroundColor: '#2B579A', minHeight: '44px', minWidth: '44px' }}
+                className="px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '44px', minWidth: '44px' }}
                 aria-label="Confirm return to creator"
               >
                 Confirm Return

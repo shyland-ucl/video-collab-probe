@@ -12,10 +12,7 @@ import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
-import HandoverModeSelector from '../components/probe2/HandoverModeSelector.jsx';
-import HandoverTransition from '../components/probe2/HandoverTransition.jsx';
-import HandoverSuggestion from '../components/probe2/HandoverSuggestion.jsx';
-import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
+import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -51,19 +48,9 @@ export default function Probe3Page() {
   // Synced library selection — both devices see the same set
   const [librarySelection, setLibrarySelection] = useState(new Set());
 
-  // Marks (voice notes + segment markers) — creator side
-  const [marks, setMarks] = useState([]);
-
-  // Handover state
-  const [handoverMode, setHandoverMode] = useState(null);
-  const [showModeSelector, setShowModeSelector] = useState(false);
-  const [isTransitioning, setIsTransitioning] = useState(false);
-  const [transitionDirection, setTransitionDirection] = useState(null);
-  const [pendingSuggestion, setPendingSuggestion] = useState(null);
-
-  // Helper-received tasks (sent via WebSocket from creator)
-  const [helperTasks, setHelperTasks] = useState([]);
-  const [helperHandoverMode, setHelperHandoverMode] = useState(null);
+  // Task routing state (Layer 3)
+  const [feedItems, setFeedItems] = useState([]);
+  const [pendingAIRequest, setPendingAIRequest] = useState(null);
 
   // Sync state
   const [helperActivities, setHelperActivities] = useState([]);
@@ -238,72 +225,33 @@ export default function Probe3Page() {
     });
   }, [role, detectEditAction]);
 
-  // --- Marks management ---
-  const handleAddMark = useCallback((mark) => {
-    setMarks((prev) => [...prev, mark]);
-  }, []);
-
-  const handleDeleteMark = useCallback((markId) => {
-    setMarks((prev) => prev.filter((m) => m.id !== markId));
-  }, []);
-
-  // --- Handover flow ---
-  const handleInitiateHandover = useCallback(() => {
-    logEvent(EventTypes.HANDOVER_INITIATED, Actors.CREATOR, { fromMode: 'creator', markCount: marks.length });
-    setShowModeSelector(true);
-  }, [logEvent, marks.length]);
-
-  const handleSelectHandoverMode = useCallback((selectedMode) => {
-    setShowModeSelector(false);
-    setHandoverMode(selectedMode);
-
-    if (selectedMode === 'tasks') {
-      logEvent(EventTypes.HANDOVER_TASKS, Actors.CREATOR, { taskCount: marks.length });
-    } else {
-      logEvent(EventTypes.HANDOVER_LIVE, Actors.CREATOR);
-    }
-
-    // Send handover data to helper via WebSocket
+  // --- Task routing callbacks (Layer 3) ---
+  const handleHelperTaskStatus = useCallback((taskId, status) => {
+    setFeedItems((prev) => prev.map((item) =>
+      item.id === taskId ? { ...item, status } : item
+    ));
+    logEvent(EventTypes.HELPER_TASK_STATUS, Actors.HELPER, { taskId, status });
+    // Notify creator via WebSocket
     wsRelayService.sendData({
-      type: selectedMode === 'tasks' ? 'HANDOVER_TASKS' : 'HANDOVER_LIVE',
-      marks: selectedMode === 'tasks' ? marks.map((m) => ({
-        id: m.id, segmentId: m.segmentId, segmentName: m.segmentName,
-        audioDuration: m.audioDuration, timestamp: m.timestamp,
-      })) : [],
-      actor: 'CREATOR',
+      type: 'TASK_STATUS_UPDATE',
+      taskId,
+      status,
+      actor: 'HELPER',
     });
+  }, [logEvent]);
 
-    // Start transition animation
-    setTransitionDirection('toHelper');
-    setIsTransitioning(true);
-  }, [logEvent, marks]);
+  const handleAIReview = useCallback((item) => {
+    logEvent(EventTypes.AI_EDIT_REVIEWED, Actors.HELPER, { text: item.text });
+    announce(`Reviewing: ${item.text}`);
+  }, [logEvent]);
 
-  const handleTransitionComplete = useCallback(() => {
-    setIsTransitioning(false);
-    if (transitionDirection === 'toHelper') {
-      logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'helper', handoverMode });
-      announce('Tasks sent to helper');
-    } else {
-      setHandoverMode(null);
-      logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'creator' });
-      announce('Helper has returned');
-    }
-    setTransitionDirection(null);
-  }, [transitionDirection, handoverMode, logEvent]);
-
-  // --- WoZ suggestion flow ---
-  const handleTriggerSuggestion = useCallback((text) => {
-    setPendingSuggestion(text);
-  }, []);
-
-  const handleSuggestionAccept = useCallback(() => {
-    setPendingSuggestion(null);
-    handleInitiateHandover();
-  }, [handleInitiateHandover]);
-
-  const handleSuggestionDismiss = useCallback(() => {
-    setPendingSuggestion(null);
-  }, []);
+  const handleAIUndo = useCallback((item) => {
+    setFeedItems((prev) => prev.map((fi) =>
+      fi.id === item.id ? { ...fi, undone: true } : fi
+    ));
+    logEvent(EventTypes.AI_EDIT_UNDONE, Actors.HELPER, { text: item.text });
+    announce(`Undid AI edit: ${item.text}`);
+  }, [logEvent]);
 
   // --- WebSocket setup ---
   const unsubscribeRef = useRef({
@@ -402,28 +350,52 @@ export default function Probe3Page() {
           });
           break;
 
-        // Handover message types
-        case 'HANDOVER_TASKS':
-          setHelperTasks(msg.marks || []);
-          setHelperHandoverMode('tasks');
-          announce('Creator sent you tasks to complete');
+        // Task routing message types (Layer 3)
+        case 'TASK_TO_HELPER': {
+          const item = {
+            id: msg.taskId || `task-${Date.now()}`,
+            type: 'helper_task',
+            text: msg.text,
+            segment: msg.segment,
+            segmentId: msg.segmentId,
+            status: 'pending',
+            timestamp: Date.now(),
+          };
+          setFeedItems((prev) => [item, ...prev]);
+          logEvent(EventTypes.HELPER_TASK_RECEIVED, Actors.HELPER, {
+            taskId: item.id, text: msg.text, segment: msg.segment,
+          });
+          announce(`Creator sent you a task: ${msg.text}`);
           break;
+        }
 
-        case 'HANDOVER_LIVE':
-          setHelperHandoverMode('live');
-          announce('Creator started live collaboration');
+        case 'TASK_STATUS_UPDATE': {
+          // Forward to CreatorDevice's recentTasks via same-page callback
+          if (typeof window.__taskStatusUpdate === 'function') {
+            window.__taskStatusUpdate(msg.taskId, msg.status);
+          }
+          logEvent(EventTypes.HELPER_TASK_STATUS, Actors.HELPER, {
+            taskId: msg.taskId, status: msg.status,
+          });
           break;
+        }
 
-        case 'NOTIFY_CREATOR':
-          announce('Helper is trying to reach you');
+        case 'AI_EDIT_NOTIFY': {
+          const item = {
+            id: `ai-${Date.now()}`,
+            type: 'ai_edit',
+            text: msg.text,
+            responseType: msg.responseType,
+            timestamp: Date.now(),
+            undone: false,
+          };
+          setFeedItems((prev) => [item, ...prev]);
+          logEvent(EventTypes.AI_EDIT_RESPONSE, Actors.AI, {
+            text: msg.text, responseType: msg.responseType,
+          });
+          announce(`AI edit: ${msg.text}`);
           break;
-
-        case 'RETURN_SUMMARY':
-          announce(`Helper finished: ${msg.summary || 'No summary provided'}`);
-          logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary: msg.summary });
-          setTransitionDirection('toCreator');
-          setIsTransitioning(true);
-          break;
+        }
 
         case 'MESSAGE':
         case 'CONTROL_REQUEST':
@@ -518,6 +490,28 @@ export default function Probe3Page() {
     clearSubscriptions();
     wsRelayService.disconnect();
   }, [clearSubscriptions]);
+
+  // Register WoZ AI edit receive callback (researcher panel writes to this)
+  useEffect(() => {
+    window.__aiEditReceive = (request) => {
+      setPendingAIRequest(request);
+    };
+    return () => { delete window.__aiEditReceive; };
+  }, []);
+
+  const handleAIEditResponse = useCallback((responseText, responseType) => {
+    setPendingAIRequest(null);
+    // The response is delivered to creator via window.__aiEditResponse
+    // (registered in CreatorDevice)
+    if (typeof window.__aiEditResponse === 'function') {
+      window.__aiEditResponse(responseText, responseType);
+    }
+  }, []);
+
+  const handleApplyEdit = useCallback((editAction) => {
+    // Researcher wants to actually modify edit state
+    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
+  }, [logEvent]);
 
   // Researcher manual sync fallback
   const handleManualSync = useCallback((action) => {
@@ -663,10 +657,6 @@ export default function Probe3Page() {
             onTimeUpdate={handleTimeUpdate}
             onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
-            onInitiateHandover={handleInitiateHandover}
-            marks={marks}
-            onAddMark={handleAddMark}
-            onDeleteMark={handleDeleteMark}
             editState={editState}
             onEditChange={handleEditChange}
             initialSources={initialSources}
@@ -687,40 +677,14 @@ export default function Probe3Page() {
             editState={editState}
             onEditChange={handleEditChange}
             initialSources={initialSources}
-            tasks={helperTasks}
-            handoverMode={helperHandoverMode}
+            feedItems={feedItems}
+            onTaskStatus={handleHelperTaskStatus}
+            onAIReview={handleAIReview}
+            onAIUndo={handleAIUndo}
             peerEditNotification={peerEditNotification}
           />
         )}
       </div>
-
-      {/* Handover Mode Selector — creator only */}
-      {role === 'creator' && showModeSelector && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <HandoverModeSelector
-            onSelectMode={handleSelectHandoverMode}
-            onCancel={() => setShowModeSelector(false)}
-            markCount={marks.length}
-          />
-        </div>
-      )}
-
-      {/* Handover Suggestion — creator only */}
-      {role === 'creator' && (
-        <HandoverSuggestion
-          suggestion={pendingSuggestion}
-          onAccept={handleSuggestionAccept}
-          onDismiss={handleSuggestionDismiss}
-        />
-      )}
-
-      {/* Transition animation — both devices */}
-      {isTransitioning && transitionDirection && (
-        <HandoverTransition
-          direction={transitionDirection}
-          onComplete={handleTransitionComplete}
-        />
-      )}
 
       {/* Researcher WoZ panels */}
       {isResearcher && (
@@ -729,9 +693,11 @@ export default function Probe3Page() {
             segment={currentSegment}
             pendingQuestion={pendingQuestion}
           />
-          <ResearcherHandoverPanel
-            onTriggerSuggestion={handleTriggerSuggestion}
-            currentMode={role}
+          <ResearcherAIEditPanel
+            segment={currentSegment}
+            pendingRequest={pendingAIRequest}
+            onSendResponse={handleAIEditResponse}
+            onApplyEdit={handleApplyEdit}
           />
           {/* Manual sync fallback controls */}
           <div

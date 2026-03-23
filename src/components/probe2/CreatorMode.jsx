@@ -113,28 +113,20 @@ export default function CreatorMode({
       <audio ref={audioPlayerRef} className="hidden" />
 
       {/* Mode Bar Card */}
-      <div role="region" aria-label="Creator mode" className="border-2 border-[#2B579A] rounded-xl overflow-hidden mb-4">
+      <div role="region" aria-label="Creator mode" className="rounded-2xl overflow-hidden mb-4" style={{ border: '1px solid rgba(43,87,154,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
         <div
-          className="flex items-center gap-2 px-4 py-2.5"
-          style={{ backgroundColor: '#2B579A' }}
+          className="flex items-center gap-2 px-4 py-3"
+          style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)' }}
         >
-          <span className="text-white font-semibold text-sm" aria-hidden="true">Creator Mode</span>
-          <button
-            onClick={onInitiateHandover}
-            className="ml-auto px-4 py-1.5 rounded font-bold text-sm text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-orange-400"
-            style={{ backgroundColor: '#E67E22', minHeight: '44px' }}
-            aria-label="Hand over to helper"
-          >
-            Handover
-          </button>
+          <span className="text-white font-bold text-sm tracking-wide" aria-hidden="true">Creator Mode</span>
         </div>
       </div>
 
       {/* Voice Note Card (when marking a segment) */}
       {recordingForSegment && (
-        <div role="region" aria-label="Voice note" className="border-2 border-[#f59e0b] rounded-xl overflow-hidden mb-4 bg-white">
-          <div className="bg-[#fef3c7] px-3 py-2.5 border-b border-[#fde68a]">
-            <span className="text-xs font-bold tracking-wide text-[#92400e] uppercase">Voice Note</span>
+        <div role="region" aria-label="Voice note" className="rounded-2xl overflow-hidden mb-4 bg-white" style={{ border: '1px solid rgba(245,158,11,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div className="px-4 py-2.5" style={{ background: '#fefce8', borderBottom: '1px solid #fde68a' }}>
+            <span className="text-xs font-bold tracking-wider text-[#92400e] uppercase">Voice Note</span>
           </div>
           <div className="p-4">
             <h3 className="font-bold text-sm mb-2" style={{ color: '#1F3864' }}>
@@ -194,6 +186,8 @@ export default function CreatorMode({
         currentTime={currentTime}
         onSeek={onSeek}
         onEditChange={onEditChange}
+        actionMode="probe2"
+        onAskHelper={onInitiateHandover}
       />
     </div>
   );
