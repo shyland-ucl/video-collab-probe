@@ -93,7 +93,7 @@ export default function TransportControls({ playerRef, isPlaying, currentTime, d
     }
   }, [playerRef, duration]);
 
-  const btnBase = 'flex items-center justify-center w-10 h-10 rounded text-white hover:bg-white/20 transition-colors focus:outline-2 focus:outline-white focus:outline-offset-2';
+  const btnBase = 'flex items-center justify-center w-11 h-11 rounded text-white hover:bg-white/20 transition-colors focus:outline-2 focus:outline-white focus:outline-offset-2';
 
   return (
     <div
@@ -148,7 +148,7 @@ export default function TransportControls({ playerRef, isPlaying, currentTime, d
         <IconSkipForward />
       </button>
 
-      <div className="ml-auto text-white text-sm font-mono" aria-live="off" aria-label="Time display">
+      <div className="ml-auto text-white text-sm font-mono" aria-live="off" aria-label={`Time: ${formatTime(currentTime)} of ${formatTime(duration)}`} role="timer">
         {formatTime(currentTime)} / {formatTime(duration)}
       </div>
     </div>

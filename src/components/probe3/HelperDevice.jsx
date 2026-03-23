@@ -73,11 +73,12 @@ export default function HelperDevice({
       {/* Peer edit toast notification */}
       {toastVisible && (
         <div
-          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-2xl text-sm font-semibold text-white"
           style={{
-            backgroundColor: '#2B579A',
+            background: 'linear-gradient(135deg, #2B579A, #1e3f73)',
             maxWidth: '90vw',
             animation: 'slideDown 0.3s ease-out',
+            boxShadow: '0 4px 16px rgba(43,87,154,0.35)',
           }}
           role="status"
           aria-live="polite"
@@ -87,9 +88,9 @@ export default function HelperDevice({
       )}
 
       {/* Activity Feed Card */}
-      <div role="region" aria-label="Tasks and activity" className="border-2 border-[#E67E22] rounded-xl overflow-hidden mb-4">
-        <div className="bg-[#fff7ed] px-3 py-2.5 border-b border-[#fed7aa]">
-          <span className="text-xs font-bold tracking-wide text-[#c2410c] uppercase">
+      <div role="region" aria-label="Tasks and activity" className="rounded-2xl overflow-hidden mb-4" style={{ border: '1px solid rgba(230,126,34,0.2)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+        <div className="px-4 py-2.5" style={{ background: '#fff8f1', borderBottom: '1px solid #fde8d0' }}>
+          <span className="text-xs font-bold tracking-wider text-[#c2410c] uppercase">
             Activity Feed {feedItems.length > 0 ? `(${feedItems.length})` : ''}
           </span>
         </div>
@@ -103,9 +104,9 @@ export default function HelperDevice({
       </div>
 
       {/* Video Editor Card */}
-      <div role="region" aria-label="Video editor" className="border-2 border-[#64748b] rounded-xl overflow-hidden">
-        <div className="bg-[#f1f5f9] px-3 py-2.5 border-b border-[#cbd5e1]">
-          <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Video Editor</span>
+      <div role="region" aria-label="Video editor" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
+        <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
+          <span className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</span>
         </div>
         <div className="flex flex-col">
           <div className="relative">
@@ -141,6 +142,7 @@ export default function HelperDevice({
             editState={editState}
             onTextTool={handleTextTool}
             textToolActive={textToolActive}
+            clipPerSource
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>

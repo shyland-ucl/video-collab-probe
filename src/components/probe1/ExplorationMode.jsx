@@ -64,7 +64,7 @@ export default function ExplorationMode({
   onEditChange,
   accentColor = '#2B579A',
   // Probe 3 Layer 3 props
-  actionMode,       // 'probe3' | undefined
+  actionMode,       // 'probe1' | 'probe2' | 'probe3'
   onAskAI,          // (taskText, segment) => void
   onAskHelper,      // (taskText, segment) => void
 }) {
@@ -91,7 +91,9 @@ export default function ExplorationMode({
   const [captionText, setCaptionText] = useState('');
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const hasAnnouncedSummary = useRef(false);
+  const speakingTimerRef = useRef(null);
   const modalRef = useRef(null);
   const descriptionRef = useRef(null);
   const { logEvent } = useEventLogger();
@@ -133,6 +135,16 @@ export default function ExplorationMode({
   // ---------------------------------------------------------------------------
   // Announce description helper
   // ---------------------------------------------------------------------------
+  const stopSpeaking = useCallback(() => {
+    ttsService.stop();
+    setIsSpeaking(false);
+    if (speakingTimerRef.current) {
+      clearInterval(speakingTimerRef.current);
+      speakingTimerRef.current = null;
+    }
+    announce('Stopped reading.');
+  }, []);
+
   const announceDescription = useCallback(
     (seg, level) => {
       if (!seg) return;
@@ -143,10 +155,27 @@ export default function ExplorationMode({
       announce(text);
       if (audioEnabled) {
         ttsService.speak(text, { rate: speechRate });
+        setIsSpeaking(true);
+        // Poll to detect when speech ends
+        if (speakingTimerRef.current) clearInterval(speakingTimerRef.current);
+        speakingTimerRef.current = setInterval(() => {
+          if (!ttsService.isSpeaking) {
+            setIsSpeaking(false);
+            clearInterval(speakingTimerRef.current);
+            speakingTimerRef.current = null;
+          }
+        }, 250);
       }
     },
     [audioEnabled, speechRate],
   );
+
+  // Clean up speaking timer on unmount
+  useEffect(() => {
+    return () => {
+      if (speakingTimerRef.current) clearInterval(speakingTimerRef.current);
+    };
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Activation: pause video, announce summary on first open
@@ -446,16 +475,70 @@ export default function ExplorationMode({
       <div
         role="region"
         aria-label="Scene description"
-        className="border-2 rounded-xl overflow-hidden bg-white"
-        style={{ borderColor: accentStyles.border }}
+        className="rounded-2xl overflow-hidden bg-white"
+        style={{ border: `1px solid ${accentStyles.headerBorder}`, boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)' }}
       >
         {/* Card header */}
-        <div className="px-3 py-2.5 flex items-center justify-between" style={{ backgroundColor: accentStyles.headerBg, borderBottom: `1px solid ${accentStyles.headerBorder}` }}>
-          <span className="text-xs font-bold tracking-wide uppercase" style={{ color: accentStyles.headerText }}>Scene Description</span>
-          <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ backgroundColor: accentStyles.badgeBg, color: accentStyles.badgeText }}>
+        <div
+          className="px-4 py-3 flex items-center justify-between"
+          style={{ background: `linear-gradient(135deg, ${accentColor}, ${accentColor}dd)` }}
+        >
+          <span className="text-xs font-bold tracking-wider uppercase text-white/90">Scene Description</span>
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-white/20 text-white backdrop-blur-sm">
             {currentIndex + 1} / {total}
           </span>
         </div>
+
+        {/* Detail level controls */}
+        <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: '1px solid #eef2f7', background: '#fafbfc' }}>
+          <span className="text-xs font-bold text-[#64748b] whitespace-nowrap tracking-wide" role="status" aria-live="polite" aria-label={`Detail level ${currentLevel} of 3`}>
+            Detail {currentLevel}/3
+          </span>
+          <div className="flex-1 flex items-center gap-1.5">
+            {[1, 2, 3].map((lvl) => (
+              <div
+                key={lvl}
+                className="flex-1 h-1 rounded-full transition-all duration-300"
+                style={{ backgroundColor: lvl <= currentLevel ? accentColor : '#e2e8f0' }}
+                aria-hidden="true"
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={decreaseLevel}
+            disabled={currentLevel <= 1}
+            aria-label={`Less detail, currently level ${currentLevel} of 3`}
+            className="py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 active:scale-[0.97] disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', '--tw-ring-color': accentColor }}
+          >
+            − Less
+          </button>
+          <button
+            type="button"
+            onClick={increaseLevel}
+            disabled={currentLevel >= 3}
+            aria-label={`More detail, currently level ${currentLevel} of 3`}
+            className="py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-150 active:scale-[0.97] disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0', '--tw-ring-color': accentColor }}
+          >
+            + More
+          </button>
+        </div>
+
+        {/* Stop Reading banner — shown while TTS is active */}
+        {isSpeaking && (
+          <button
+            type="button"
+            onClick={stopSpeaking}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold transition-all duration-150 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white/50"
+            style={{ background: accentColor, color: 'white', minHeight: '44px' }}
+            aria-label="Stop reading description"
+          >
+            <span className="w-3 h-3 rounded-sm bg-white" aria-hidden="true" />
+            Tap to Stop Reading
+          </button>
+        )}
 
         {/* Description body */}
         <div className="px-4 py-4">
@@ -465,64 +548,24 @@ export default function ExplorationMode({
             className={`${textSizeClasses[textSize] ?? 'text-lg'} leading-relaxed text-gray-800 focus:outline-none`}
             aria-label={`Scene ${currentIndex + 1} of ${total}. ${segment.name}. ${formatTime(segment.start_time)} to ${formatTime(segment.end_time)}. Detail level ${currentLevel} of 3. ${rawDescription}`}
           >
-            <span className="block text-sm font-semibold mb-1" style={{ color: accentColor }} aria-hidden="true">
+            <span className="block text-sm font-bold mb-0.5" style={{ color: accentColor }} aria-hidden="true">
               {segment.name}
             </span>
-            <span className="block text-xs text-gray-500 mb-2" aria-hidden="true">
-              {formatTime(segment.start_time)} – {formatTime(segment.end_time)} · Detail {currentLevel}/3
+            <span className="block text-xs text-gray-400 mb-3 font-medium tracking-wide" aria-hidden="true">
+              {formatTime(segment.start_time)} – {formatTime(segment.end_time)}
             </span>
-            <span aria-hidden="true">{rawDescription}</span>
+            <span className="text-[#334155]" aria-hidden="true">{rawDescription}</span>
           </p>
         </div>
 
-        {/* Detail level controls */}
-        <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e2e8f0]">
-          <button
-            type="button"
-            onClick={decreaseLevel}
-            disabled={currentLevel <= 1}
-            aria-label={`Less detail, currently level ${currentLevel} of 3`}
-            className="flex-1 py-3 rounded-lg bg-[#f1f5f9] border border-[#e2e8f0] text-sm font-semibold text-[#475569] hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
-          >
-            − Less
-          </button>
-          <button
-            type="button"
-            onClick={increaseLevel}
-            disabled={currentLevel >= 3}
-            aria-label={`More detail, currently level ${currentLevel} of 3`}
-            className="flex-1 py-3 rounded-lg bg-[#f1f5f9] border border-[#e2e8f0] text-sm font-semibold text-[#475569] hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#2B579A] focus:ring-offset-1"
-            style={{ minHeight: '48px' }}
-          >
-            + More
-          </button>
-        </div>
-        {actionMode === 'probe3' && (
-          <button
-            type="button"
-            onClick={handleAskQuestion}
-            aria-label="Ask a question about this scene"
-            className="mt-2 w-full py-2.5 rounded-lg text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-offset-1"
-            style={{
-              minHeight: '48px',
-              backgroundColor: accentColor,
-              color: 'white',
-              '--tw-ring-color': accentColor,
-            }}
-          >
-            Ask Question
-          </button>
-        )}
-
         {/* Navigation row */}
-        <div className="flex items-center gap-2 px-3 py-2 border-t border-[#e2e8f0] bg-[#f8fafc]">
+        <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderTop: '1px solid #eef2f7', background: '#fafbfc' }}>
           <button
             type="button"
             onClick={goToPrevSegment}
             disabled={isFirst}
             aria-label={isFirst ? 'Previous scene, at first scene' : `Previous scene: ${segments[currentIndex - 1]?.name}`}
-            className="flex-1 py-3 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-150 active:scale-[0.97] disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
             style={{ minHeight: '48px', backgroundColor: accentStyles.navBtnBg, color: accentStyles.navBtnText, '--tw-ring-color': accentColor }}
           >
             ◀ Prev
@@ -531,8 +574,8 @@ export default function ExplorationMode({
             type="button"
             onClick={handlePlayPause}
             aria-label={isPlaying ? 'Pause playback' : 'Play from scene start'}
-            className="flex-none px-5 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
-            style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
+            className="flex-none px-5 py-3 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-offset-1"
+            style={{ minHeight: '48px', backgroundColor: accentColor, boxShadow: `0 2px 8px ${accentColor}40`, '--tw-ring-color': accentColor }}
           >
             {isPlaying ? '⏸ Pause' : '▶ Play'}
           </button>
@@ -541,7 +584,7 @@ export default function ExplorationMode({
             onClick={goToNextSegment}
             disabled={isLast}
             aria-label={isLast ? 'Next scene, at last scene' : `Next scene: ${segments[currentIndex + 1]?.name}`}
-            className="flex-1 py-3 rounded-lg text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
+            className="flex-1 py-3 rounded-xl text-sm font-semibold transition-all duration-150 active:scale-[0.97] disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1"
             style={{ minHeight: '48px', backgroundColor: accentStyles.navBtnBg, color: accentStyles.navBtnText, '--tw-ring-color': accentColor }}
           >
             Next ▶
@@ -549,79 +592,48 @@ export default function ExplorationMode({
         </div>
       </div>
 
-      {/* Actions Card */}
-      <div
-        role="region"
-        aria-label="Actions"
-        className="border-2 border-[#64748b] rounded-xl overflow-hidden bg-white"
-      >
-        <div className="bg-[#f1f5f9] px-3 py-2.5 border-b border-[#cbd5e1]">
-          <span className="text-xs font-bold tracking-wide text-[#475569] uppercase">Actions</span>
+      {/* Actions Card — hidden for probe1 */}
+      {actionMode !== 'probe1' && (
+        <div
+          role="region"
+          aria-label="Actions"
+          className="rounded-2xl overflow-hidden bg-white"
+          style={{ border: '1px solid #e8ecf1', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}
+        >
+          <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
+            <span className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Actions</span>
+          </div>
+          <div className="flex items-center gap-2.5 px-3 py-3">
+            <button
+              type="button"
+              onClick={handleEditOpen}
+              aria-label="Edit this clip yourself"
+              className="flex-1 py-3 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+              style={{ minHeight: '48px', background: 'linear-gradient(135deg, #374151, #1f2937)', boxShadow: '0 2px 6px rgba(55,65,81,0.3)' }}
+            >
+              <span aria-hidden="true">✏️ </span>Edit Myself
+            </button>
+            <button
+              type="button"
+              onClick={() => onAskAI ? onAskAI(segment) : handleAskQuestion()}
+              aria-label="Ask AI to edit this clip"
+              className="flex-1 py-3 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-offset-1"
+              style={{ minHeight: '48px', background: 'linear-gradient(135deg, #7D3C98, #6C3483)', boxShadow: '0 2px 6px rgba(125,60,152,0.35)', '--tw-ring-color': '#7D3C98' }}
+            >
+              <span aria-hidden="true">🤖 </span>Ask AI
+            </button>
+            <button
+              type="button"
+              onClick={() => onAskHelper?.(segment)}
+              aria-label="Ask helper to edit this clip"
+              className="flex-1 py-3 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-offset-1"
+              style={{ minHeight: '48px', background: 'linear-gradient(135deg, #B85C14, #A04000)', boxShadow: '0 2px 6px rgba(184,92,20,0.35)', '--tw-ring-color': '#B85C14' }}
+            >
+              <span aria-hidden="true">🙋 </span>Ask Helper
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 px-3 py-3">
-          {actionMode === 'probe3' ? (
-            <>
-              <button
-                type="button"
-                onClick={handleEditOpen}
-                aria-label="Edit this clip yourself"
-                className="flex-1 py-3 rounded-lg bg-[#374151] text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                style={{ minHeight: '48px' }}
-              >
-                Edit Myself
-              </button>
-              <button
-                type="button"
-                onClick={() => onAskAI?.(segment)}
-                aria-label="Ask AI to edit this clip"
-                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
-                style={{ minHeight: '48px', backgroundColor: '#9B59B6', '--tw-ring-color': '#9B59B6' }}
-              >
-                Ask AI
-              </button>
-              <button
-                type="button"
-                onClick={() => onAskHelper?.(segment)}
-                aria-label="Ask helper to edit this clip"
-                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
-                style={{ minHeight: '48px', backgroundColor: '#E67E22', '--tw-ring-color': '#E67E22' }}
-              >
-                Ask Helper
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={handleMark}
-                aria-label="Mark this scene for review"
-                className="flex-1 py-3 rounded-lg bg-[#fef3c7] border border-[#fbbf24] text-sm font-semibold text-[#92400e] hover:bg-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-2"
-                style={{ minHeight: '48px' }}
-              >
-                Mark
-              </button>
-              <button
-                type="button"
-                onClick={handleEditOpen}
-                aria-label="Edit video timeline"
-                className="flex-1 py-3 rounded-lg bg-[#374151] text-sm font-bold text-white hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                style={{ minHeight: '48px' }}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={handleAskQuestion}
-                aria-label="Ask a question about this scene"
-                className="flex-1 py-3 rounded-lg text-sm font-bold text-white focus:outline-none focus:ring-2 focus:ring-offset-1"
-                style={{ minHeight: '48px', backgroundColor: accentColor, '--tw-ring-color': accentColor }}
-              >
-                Ask AI
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* VQA Modal — portalled to document.body for VoiceOver focus trap */}
       {showVQA && createPortal(
@@ -637,7 +649,7 @@ export default function ExplorationMode({
         >
           <div className="w-full max-w-lg bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <h3 className="font-bold text-sm text-gray-900" aria-hidden="true">Ask About This Scene</h3>
+              <h3 className="font-bold text-sm text-gray-900">Ask About This Scene</h3>
               <button
                 onClick={() => setShowVQA(false)}
                 className="px-3 py-1.5 rounded text-sm font-medium text-gray-600 hover:bg-gray-100 focus:outline-2 focus:outline-blue-500"
@@ -669,7 +681,7 @@ export default function ExplorationMode({
         >
           <div className="w-full max-w-lg bg-white rounded-t-2xl shadow-2xl">
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-              <h3 className="font-bold text-sm text-gray-900" aria-hidden="true">
+              <h3 className="font-bold text-sm text-gray-900">
                 Edit: {currentClip?.name || 'Current Scene'}
               </h3>
               <button

@@ -207,6 +207,7 @@ export default function Probe1Page() {
             currentTime={currentTime}
             onSeek={handleSeek}
             onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
+            actionMode="probe1"
           />
         </div>
       )}

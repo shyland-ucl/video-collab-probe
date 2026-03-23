@@ -12,7 +12,7 @@ const SOURCE_COLORS = [
  * Mock iMovie/CapCut-style video editor for the research probe.
  * Supports multiple video sources — clips from different files on one timeline.
  */
-export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive }) {
+export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive, clipPerSource = false }) {
   const { logEvent } = useEventLogger();
 
   const [clips, setClips] = useState([]);
@@ -82,7 +82,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
       const allClips = [];
       initialSources.forEach((src, srcIdx) => {
         const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
-        if (src.segments && src.segments.length > 0) {
+        if (!clipPerSource && src.segments && src.segments.length > 0) {
           src.segments.forEach((seg) => {
             allClips.push({
               id: seg.id,
@@ -227,7 +227,9 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   const handleSelectClip = (index) => {
     setSelectedClipIndex(index);
     if (clips[index]) {
-      announce(`Selected clip: ${clips[index].name}`);
+      const clip = clips[index];
+      const dur = Math.max(0.5, (clip.endTime - clip.trimEnd) - (clip.startTime + clip.trimStart));
+      announce(`Selected clip ${index + 1} of ${clips.length}: ${clip.name}, ${dur.toFixed(1)} seconds`);
     }
   };
 
@@ -499,7 +501,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   };
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ backgroundColor: '#1F3864' }}>
+    <div className="overflow-hidden" style={{ background: 'linear-gradient(180deg, #1a2d4d, #152240)' }}>
       {/* Hidden file input for import */}
       <input
         ref={fileInputRef}
@@ -516,7 +518,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
         role="toolbar"
         aria-label="Edit toolbar"
         onKeyDown={handleToolbarKeyDown}
-        className="flex flex-wrap items-center gap-2 p-2 border-b border-white/20"
+        className="flex flex-wrap items-center gap-1.5 p-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}
       >
         <ToolbarButton
           onClick={handleImportClick}
@@ -602,16 +604,16 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
 
       {/* Source indicators */}
       {sources.length > 1 && (
-        <div className="flex flex-wrap gap-2 px-2 pt-2" aria-label="Video sources">
+        <div className="flex flex-wrap gap-1.5 px-2 pt-2" aria-label="Video sources">
           {sources.map((source, idx) => (
             <span
               key={source.id}
-              className="inline-flex items-center gap-1 text-white/70 text-xs px-2 py-0.5 rounded"
-              style={{ backgroundColor: SOURCE_COLORS[idx % SOURCE_COLORS.length] + '40' }}
+              className="inline-flex items-center gap-1.5 text-white/80 text-xs font-medium px-2.5 py-1 rounded-md"
+              style={{ backgroundColor: 'rgba(255,255,255,0.06)', border: `1px solid ${SOURCE_COLORS[idx % SOURCE_COLORS.length]}40` }}
             >
               <span
                 className="w-2 h-2 rounded-full inline-block"
-                style={{ backgroundColor: SOURCE_COLORS[idx % SOURCE_COLORS.length] }}
+                style={{ backgroundColor: SOURCE_COLORS[idx % SOURCE_COLORS.length], boxShadow: `0 0 4px ${SOURCE_COLORS[idx % SOURCE_COLORS.length]}60` }}
                 aria-hidden="true"
               />
               {source.name}
@@ -636,8 +638,8 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
           const seekTime = fraction * timelineTotalDuration;
           onSeek(seekTime);
         }}
-        className="relative flex items-stretch mx-2 my-3 rounded overflow-hidden cursor-pointer"
-        style={{ height: '56px', backgroundColor: '#162D54' }}
+        className="relative flex items-stretch mx-2 my-3 rounded-lg overflow-hidden cursor-pointer"
+        style={{ height: '56px', backgroundColor: '#0f1d35', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)' }}
       >
         {clips.map((clip, idx) => {
           const layout = clipLayouts[idx];
@@ -663,14 +665,15 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
                   onSeek(seekTime);
                 }
               }}
-              className="relative flex items-center justify-center cursor-pointer overflow-hidden select-none"
+              className="relative flex items-center justify-center cursor-pointer overflow-hidden select-none transition-all duration-150"
               style={{
                 width: `${widthPercent}%`,
-                backgroundColor: clip.color,
-                border: isSelected ? '3px solid white' : '1px solid rgba(255,255,255,0.3)',
-                borderRadius: '4px',
-                margin: '0 1px',
+                background: isSelected ? `linear-gradient(180deg, ${clip.color}, ${clip.color}cc)` : `linear-gradient(180deg, ${clip.color}dd, ${clip.color}99)`,
+                border: isSelected ? '2px solid white' : '1px solid rgba(255,255,255,0.15)',
+                borderRadius: '6px',
+                margin: '0 1.5px',
                 minWidth: '24px',
+                boxShadow: isSelected ? '0 0 0 1px rgba(255,255,255,0.3), 0 2px 8px rgba(0,0,0,0.3)' : '0 1px 3px rgba(0,0,0,0.2)',
               }}
             >
               {/* Trim handles (selected clip only) */}
@@ -767,19 +770,19 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
 
         {/* Playhead */}
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-white z-20 pointer-events-none"
-          style={{ left: `${playheadPercent}%` }}
+          className="absolute top-0 bottom-0 z-20 pointer-events-none"
+          style={{ left: `${playheadPercent}%`, width: '2px', background: 'white', boxShadow: '0 0 6px rgba(255,255,255,0.5)' }}
         >
           <div
-            className="w-2 h-2 bg-white rounded-full absolute -top-1"
-            style={{ left: '-3px' }}
+            className="absolute -top-0.5 rounded-sm"
+            style={{ left: '-4px', width: '10px', height: '6px', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }}
           />
         </div>
       </div>
 
       {/* Caption Editor */}
       {showCaptionEditor && (
-        <div className="mx-2 mb-3 p-3 rounded" style={{ backgroundColor: '#162D54' }}>
+        <div className="mx-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <h3 className="text-white text-sm font-semibold mb-2">Caption Editor</h3>
           <div className="flex flex-wrap gap-2 items-end mb-3">
             <div className="flex-1 min-w-[160px]">
@@ -873,8 +876,8 @@ function ToolbarButton({ children, onClick, disabled, label }) {
       onClick={onClick}
       disabled={disabled}
       aria-label={label}
-      className="px-3 py-1.5 rounded text-xs font-medium text-white transition-opacity disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-80"
-      style={{ backgroundColor: '#2B579A', minHeight: '44px', minWidth: '44px' }}
+      className="px-3 py-1.5 rounded-md text-xs font-semibold text-white/90 transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/15 active:scale-[0.97]"
+      style={{ backgroundColor: 'rgba(255,255,255,0.08)', minHeight: '44px', minWidth: '44px', border: '1px solid rgba(255,255,255,0.1)' }}
     >
       {children}
     </button>
