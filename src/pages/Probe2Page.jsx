@@ -45,8 +45,8 @@ export default function Probe2Page() {
   const [marks, setMarks] = useState([]);
 
   useEffect(() => {
-    setCondition('probe2');
-    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2' });
+    setCondition('probe2a');
+    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2a' });
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 

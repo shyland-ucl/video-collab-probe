@@ -4,6 +4,7 @@ import { AccessibilityProvider, useAccessibility } from './contexts/Accessibilit
 import SessionSetupPage from './pages/SessionSetupPage.jsx'
 import Probe1Page from './pages/Probe1Page.jsx'
 import Probe2Page from './pages/Probe2Page.jsx'
+import Probe2bPage from './pages/Probe2bPage.jsx'
 import Probe3Page from './pages/Probe3.jsx'
 import ResearcherPage from './pages/ResearcherPage.jsx'
 import StudyLayout from './components/shared/StudyLayout.jsx'
@@ -39,7 +40,8 @@ function AppShell() {
         <Routes>
           <Route path="/" element={<SessionSetupPage />} />
           <Route path="/probe1" element={<StudyLayout condition="probe1"><Probe1Page /></StudyLayout>} />
-          <Route path="/probe2" element={<StudyLayout condition="probe2"><Probe2Page /></StudyLayout>} />
+          <Route path="/probe2" element={<StudyLayout condition="probe2a"><Probe2Page /></StudyLayout>} />
+          <Route path="/probe2b" element={<StudyLayout condition="probe2b"><Probe2bPage /></StudyLayout>} />
           <Route path="/probe3" element={<StudyLayout condition="probe3"><Probe3Page /></StudyLayout>} />
           <Route path="/researcher" element={<ResearcherPage />} />
         </Routes>

@@ -810,6 +810,64 @@
             }
           }
         }
+      ],
+      "suggestions": [
+        {
+          "id": "sug-c-01",
+          "category": "issue",
+          "text": "Scene 4 (Car Door and Gas Station) appears slightly out of focus compared to other scenes — the car door handle and lake background are soft.",
+          "relatedScene": 4,
+          "actionable": false
+        },
+        {
+          "id": "sug-c-02",
+          "category": "structural",
+          "text": "Scenes 1 and 3 both feature the lake prominently — you might consider placing them adjacent for visual continuity.",
+          "relatedScene": [1, 3],
+          "actionable": false
+        },
+        {
+          "id": "sug-c-03",
+          "category": "creative",
+          "text": "The lighting shifts noticeably from warm indoor tones in Scene 1 to bright outdoor exposure in Scene 2, creating an abrupt mood change.",
+          "relatedScene": [1, 2],
+          "actionable": false
+        },
+        {
+          "id": "sug-c-04",
+          "category": "issue",
+          "text": "Scene 5 (Opening SUV Hood) ends abruptly mid-action — the hood latch hasn't been fully released when the clip cuts.",
+          "relatedScene": 5,
+          "actionable": false
+        },
+        {
+          "id": "sug-c-05",
+          "category": "structural",
+          "text": "The jump from lakeside walking (Scene 2) to approaching the water's edge (Scene 3) could use a brief transition or pause to signal the change in activity.",
+          "relatedScene": [2, 3],
+          "actionable": false
+        },
+        {
+          "id": "sug-c-06",
+          "category": "creative",
+          "text": "The jogger visible in Scene 2 adds dynamic movement but never reappears — consider whether this character element supports or distracts from your narrative.",
+          "relatedScene": 2,
+          "actionable": false
+        },
+        {
+          "id": "sug-c-07",
+          "category": "issue",
+          "text": "There is a noticeable audio level difference between the indoor scene (Scene 1) and the outdoor scenes — the wind noise in Scenes 2-3 is much louder.",
+          "relatedScene": [1, 2, 3],
+          "actionable": false
+        },
+        {
+          "id": "sug-c-08",
+          "category": "creative",
+          "text": "The black backpack appears in Scenes 1 and 2 as a connecting object but is not referenced again — this could be a strong visual thread to carry through the edit.",
+          "relatedScene": [1, 2],
+          "actionable": false
+        }
       ]
     }
   ]

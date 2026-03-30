@@ -24,16 +24,27 @@ const CONDITION_BRIEFS = {
     ],
     summary: 'Collaborate with your sighted helper by marking scenes and handing over tasks.',
   },
+  probe2b: {
+    title: 'Decoupled Coordination',
+    color: '#5CB85C',
+    steps: [
+      { icon: '1', text: 'You and your helper each use your own phone' },
+      { icon: '2', text: 'Your project from Phase 2a carries over — same video, same edits' },
+      { icon: '3', text: 'Route tasks to your helper or ask AI for help' },
+      { icon: '4', text: 'Your helper can respond to tasks or work independently on their device' },
+    ],
+    summary: 'Continue your project on separate devices with reactive task routing.',
+  },
   probe3: {
-    title: 'Dual Device Mode',
+    title: 'Proactive AI Collaboration',
     color: '#9B59B6',
     steps: [
       { icon: '1', text: 'You and your helper each use your own phone' },
       { icon: '2', text: 'As the Creator, your playback controls sync to the helper\'s screen' },
-      { icon: '3', text: 'Send messages and ask questions through the chat channel' },
-      { icon: '4', text: 'Your helper can describe what they see or work independently' },
+      { icon: '3', text: 'AI may suggest observations — dismiss, save, or route to your helper' },
+      { icon: '4', text: 'Route tasks to your helper or ask AI, and review helper responses' },
     ],
-    summary: 'Work together on separate devices with synchronised playback.',
+    summary: 'Work together on separate devices with AI-driven suggestions.',
   },
 };
 

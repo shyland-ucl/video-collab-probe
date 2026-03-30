@@ -6,13 +6,18 @@ const conditionConfig = {
   },
   probe2: {
     color: '#5CB85C',
-    label: 'Probe 2: Smart Handover',
+    label: 'Probe 2a: Co-located Handover',
     description: 'Collaborative editing with intent locking and handover suggestions',
+  },
+  probe2b: {
+    color: '#5CB85C',
+    label: 'Probe 2b: Decoupled Coordination',
+    description: 'Two-device collaboration with reactive task routing',
   },
   probe3: {
     color: '#9B59B6',
-    label: 'Probe 3: Local Mirroring',
-    description: 'Synchronised multi-device viewing with independent exploration',
+    label: 'Probe 3: Proactive AI',
+    description: 'Decoupled collaboration with proactive AI suggestions',
   },
 };
 

@@ -6,8 +6,9 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 
 const CONDITIONS = [
   { key: 'probe1', label: 'Probe 1: AI Description', path: '/probe1' },
-  { key: 'probe2', label: 'Probe 2: Smart Handover', path: '/probe2' },
-  { key: 'probe3', label: 'Probe 3: Local Mirroring', path: '/probe3' },
+  { key: 'probe2a', label: 'Probe 2a: Co-located Handover', path: '/probe2' },
+  { key: 'probe2b', label: 'Probe 2b: Decoupled Coordination', path: '/probe2b' },
+  { key: 'probe3', label: 'Probe 3: Proactive AI', path: '/probe3' },
 ];
 
 function generateUUID() {
@@ -52,7 +53,7 @@ export default function SessionSetupPage() {
     const config = {
       sessionId,
       dyadId: dyadId.trim(),
-      conditionOrder: ['probe1', 'probe2', 'probe3'],
+      conditionOrder: ['probe1', 'probe2a', 'probe2b', 'probe3'],
       completedConditions: [],
       startedAt: new Date().toISOString(),
     };
@@ -238,6 +239,29 @@ export default function SessionSetupPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Study phases (fixed order) */}
+          <div className="mb-6">
+            <h3
+              className="text-sm font-bold mb-3"
+              style={{ color: '#1F3864' }}
+            >
+              Study Phases (Fixed Order)
+            </h3>
+            <ol className="space-y-2">
+              {CONDITIONS.map((cond, i) => (
+                <li key={cond.key} className="flex items-center gap-3 text-sm text-gray-700">
+                  <span
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    {i + 1}
+                  </span>
+                  {cond.label}
+                </li>
+              ))}
+            </ol>
           </div>
 
           {/* Start button */}
