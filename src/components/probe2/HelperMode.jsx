@@ -31,10 +31,22 @@ export default function HelperMode({
   initialSources = [],
 }) {
   const { logEvent } = useEventLogger();
+  const handleOverlayChange = useCallback((nextTextOverlays) => {
+    onEditChange?.(
+      editState?.clips || [],
+      editState?.captions || [],
+      editState?.sources || [],
+      nextTextOverlays,
+    );
+  }, [editState, onEditChange]);
+
   const {
     textOverlays, activeOverlay, activeOverlayId, textToolActive,
     handleTextTool, handleTextMove, handleTextChange, handleTextApply, handleTextRemove,
-  } = useTextOverlay();
+  } = useTextOverlay({
+    initialOverlays: editState?.textOverlays || [],
+    onOverlaysChange: handleOverlayChange,
+  });
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnSummary, setReturnSummary] = useState('');
   const returnModalTriggerRef = useRef(null);
@@ -183,6 +195,7 @@ export default function HelperMode({
             currentTime={currentTime}
             onSeek={onSeek}
             onEditChange={onEditChange}
+            editState={editState}
             onTextTool={handleTextTool}
             textToolActive={textToolActive}
             clipPerSource

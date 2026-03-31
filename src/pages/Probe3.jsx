@@ -5,8 +5,10 @@ import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildProjectStats, buildSessionGuide, summarizeEditStateChange } from '../utils/projectOverview.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
+import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
@@ -34,6 +36,7 @@ export default function Probe3Page() {
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
   const [showOnboarding, setShowOnboarding] = useState(true);
+  const [sessionGuide, setSessionGuide] = useState(null);
 
   // Video state
   const playerRef = useRef(null);
@@ -53,6 +56,7 @@ export default function Probe3Page() {
   const [helperActivities, setHelperActivities] = useState([]);
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
+  const [projectUpdate, setProjectUpdate] = useState(null);
 
   // Suggestion system state
   const [activeSuggestion, setActiveSuggestion] = useState(null);
@@ -60,6 +64,7 @@ export default function Probe3Page() {
   const [deployedSuggestions, setDeployedSuggestions] = useState({});
   const [showSuggestionHistory, setShowSuggestionHistory] = useState(false);
   const suggestionDeployTimeRef = useRef({});
+  const autoSuggestionTimeoutRef = useRef(null);
 
   useEffect(() => {
     setCondition('probe3');
@@ -103,6 +108,9 @@ export default function Probe3Page() {
     if (data.video) return [data.video];
     return [];
   }, [data]);
+  const sessionGuideBrief = useMemo(() => (
+    sessionGuide ? buildSessionGuide({ condition: 'probe3', projectStats: sessionGuide }) : null
+  ), [sessionGuide]);
 
   useEffect(() => {
     if (phase !== 'active') return;
@@ -151,7 +159,14 @@ export default function Probe3Page() {
         clips.push({ id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled', startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0 });
       }
     });
-    setEditState({ clips, captions: [], sources });
+    const nextEditState = { clips, captions: [], sources, textOverlays: [] };
+    setEditState(nextEditState);
+    setSessionGuide(buildProjectStats({
+      projectData: { videos },
+      editState: nextEditState,
+      role: 'creator',
+    }));
+    setProjectUpdate(null);
     logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, { videoIds: videos.map((v) => v.id), count: videos.length });
     announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
     wsRelayService.sendData({ type: 'PROJECT_CREATED', videoIds: videos.map((v) => v.id), actor: 'CREATOR' });
@@ -180,11 +195,18 @@ export default function Probe3Page() {
     return 'made an edit';
   }, []);
 
-  const handleEditChange = useCallback((clips, captions, sources) => {
-    const newState = { clips, captions, sources };
+  const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    const newState = {
+      clips,
+      captions,
+      sources,
+      textOverlays: textOverlays ?? editStateRef.current?.textOverlays ?? [],
+    };
     const action = detectEditAction(editStateRef.current, newState);
+    const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
+    const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
     setEditState(newState);
-    wsRelayService.sendData({ type: 'EDIT_STATE_UPDATE', editState: newState, action, actor: role === 'creator' ? 'CREATOR' : 'HELPER' });
+    wsRelayService.sendData({ type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary, actor: role === 'creator' ? 'CREATOR' : 'HELPER' });
   }, [role, detectEditAction]);
 
   const handleHelperTaskStatus = useCallback((taskId, status) => {
@@ -255,32 +277,58 @@ export default function Probe3Page() {
     setActiveSuggestion(null);
   }, [activeSuggestion, logEvent]);
 
-  // Researcher deploys a suggestion
-  const handleDeploySuggestion = useCallback((suggestion) => {
+  const deploySuggestion = useCallback((suggestion, actor, source) => {
     const deployTime = Date.now();
     suggestionDeployTimeRef.current[suggestion.id] = deployTime;
 
-    logEvent(EventTypes.SUGGESTION_DEPLOYED, Actors.RESEARCHER, {
+    logEvent(EventTypes.SUGGESTION_DEPLOYED, actor, {
       suggestionId: suggestion.id,
       category: suggestion.category,
       text: suggestion.text,
       relatedScene: suggestion.relatedScene,
       creatorCurrentScene: currentSegment?.id,
       timestamp: deployTime,
+      source,
     });
 
     setDeployedSuggestions((prev) => ({
       ...prev,
-      [suggestion.id]: { deployedAt: deployTime, response: null },
+      [suggestion.id]: { deployedAt: deployTime, response: null, source },
     }));
 
-    // Send to creator's device via WebSocket
-    wsRelayService.sendData({
-      type: 'SUGGESTION_PUSH',
-      suggestion,
-      actor: 'RESEARCHER',
+    setActiveSuggestion(suggestion);
+  }, [currentSegment, logEvent]);
+
+  // Researcher deploys a suggestion
+  const handleDeploySuggestion = useCallback((suggestion) => {
+    deploySuggestion(suggestion, Actors.RESEARCHER, 'researcher');
+  }, [deploySuggestion]);
+
+  useEffect(() => {
+    if (role !== 'creator' || phase !== 'active' || !currentSegment || activeSuggestion) return undefined;
+
+    const currentSceneNumber = segments.findIndex((segment) => segment.id === currentSegment.id) + 1;
+    if (currentSceneNumber <= 0) return undefined;
+
+    const nextSuggestion = videoSuggestions.find((suggestion) => {
+      if (deployedSuggestions[suggestion.id]) return false;
+      const relatedScenes = Array.isArray(suggestion.relatedScene)
+        ? suggestion.relatedScene
+        : [suggestion.relatedScene];
+      return relatedScenes.includes(currentSceneNumber);
     });
-  }, [logEvent, currentSegment]);
+
+    if (!nextSuggestion) return undefined;
+
+    autoSuggestionTimeoutRef.current = setTimeout(() => {
+      deploySuggestion(nextSuggestion, Actors.AI, 'auto');
+    }, 1200);
+
+    return () => {
+      clearTimeout(autoSuggestionTimeoutRef.current);
+      autoSuggestionTimeoutRef.current = null;
+    };
+  }, [activeSuggestion, deployedSuggestions, currentSegment, deploySuggestion, phase, role, segments, videoSuggestions]);
 
   // WebSocket setup
   const unsubscribeRef = useRef({ data: null, connected: null, disconnected: null });
@@ -317,11 +365,16 @@ export default function Probe3Page() {
           }
           break;
         case 'EDIT_STATE_UPDATE': {
+          const previousState = editStateRef.current;
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
-          const actionDesc = msg.action || 'made an edit';
-          if (currentRole === 'creator') announce(`${peerLabel} ${actionDesc}`);
-          else setPeerEditNotification({ text: `${peerLabel} ${actionDesc}`, id: Date.now() });
+          const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
+          if (currentRole === 'creator') {
+            setProjectUpdate({ ...changeSummary, id: Date.now() });
+            announce(changeSummary.announcement);
+          } else {
+            setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
+          }
           break;
         }
         case 'VIDEO_SELECT':
@@ -459,14 +512,26 @@ export default function Probe3Page() {
               clips.push({ id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled', startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0 });
             }
           });
-          setEditState({ clips, captions: [], sources });
+          const nextEditState = {
+            clips,
+            captions: [],
+            sources,
+            textOverlays: editStateRef.current?.textOverlays || [],
+          };
+          setEditState(nextEditState);
           setSelectedVideos(resolved);
+          setSessionGuide(buildProjectStats({
+            projectData: { videos: resolved },
+            editState: nextEditState,
+            role,
+          }));
+          setProjectUpdate(null);
           setPhase('active');
           announce('Creator started the project. Entering session.');
         }
       }
     }
-  }, [selectedVideos, allVideos]);
+  }, [selectedVideos, allVideos, role]);
 
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);
@@ -584,6 +649,13 @@ export default function Probe3Page() {
   // Active Session
   return (
     <div className="min-h-screen bg-white">
+      {sessionGuideBrief && (
+        <OnboardingBrief
+          condition="probe3"
+          guide={sessionGuideBrief}
+          onDismiss={() => setSessionGuide(null)}
+        />
+      )}
       <ConditionHeader condition="probe3" modeLabel={modeLabel} />
 
       <div className="p-3 max-w-lg mx-auto">
@@ -602,6 +674,7 @@ export default function Probe3Page() {
             editState={editState}
             onEditChange={handleEditChange}
             initialSources={initialSources}
+            projectUpdate={projectUpdate}
           >
             {/* Suggestion UI injected into Creator Device */}
             {activeSuggestion && (

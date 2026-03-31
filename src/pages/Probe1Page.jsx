@@ -26,6 +26,7 @@ export default function Probe1Page() {
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(true);
+  const [editingGuide, setEditingGuide] = useState(null);
 
   // Phase: 'library' → 'exploring'
   const [phase, setPhase] = useState('library');
@@ -89,6 +90,7 @@ export default function Probe1Page() {
     const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
     const sources = [];
     const clips = [];
+    const clipDurations = [];
     videos.forEach((v, srcIdx) => {
       const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
       sources.push({
@@ -100,6 +102,10 @@ export default function Probe1Page() {
       const segs = v.segments || [];
       if (segs.length > 0) {
         segs.forEach((seg) => {
+          const segmentDuration = (seg.end_time || 0) - (seg.start_time || 0);
+          if (segmentDuration > 0) {
+            clipDurations.push(segmentDuration);
+          }
           clips.push({
             id: seg.id,
             sourceId: v.id,
@@ -112,6 +118,10 @@ export default function Probe1Page() {
           });
         });
       } else {
+        const videoDuration = v.duration || 0;
+        if (videoDuration > 0) {
+          clipDurations.push(videoDuration);
+        }
         clips.push({
           id: `clip-${v.id}`,
           sourceId: v.id,
@@ -124,13 +134,26 @@ export default function Probe1Page() {
         });
       }
     });
+
+    const totalDuration = videos.reduce((sum, video) => sum + (video.duration || 0), 0);
+    const firstClipDuration = clipDurations[0] ?? null;
+    const clipLengthSeconds = firstClipDuration && clipDurations.every((clipDuration) => Math.abs(clipDuration - firstClipDuration) < 0.01)
+      ? Math.round(firstClipDuration)
+      : null;
+
     setEditState({ clips, captions: [], sources });
+    setEditingGuide({
+      videoCount: videos.length,
+      totalDuration,
+      clipCount: clips.length,
+      clipLengthSeconds,
+    });
     setPhase('exploring');
     logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, {
       videoIds: videos.map((v) => v.id),
       count: videos.length,
     });
-    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Entering exploration mode.`);
+    announce('Project created. Opening editing guide.');
   }, [logEvent]);
 
   const handleMark = useCallback((segmentId, segmentName) => {
@@ -168,8 +191,15 @@ export default function Probe1Page() {
 
   return (
     <div className="min-h-screen bg-white">
-      {showOnboarding && (
+      {showOnboarding && phase === 'library' && (
         <OnboardingBrief condition="probe1" onDismiss={() => setShowOnboarding(false)} />
+      )}
+      {editingGuide && phase === 'exploring' && (
+        <OnboardingBrief
+          condition="probe1"
+          projectStats={editingGuide}
+          onDismiss={() => setEditingGuide(null)}
+        />
       )}
       <ConditionHeader condition="probe1" />
 
@@ -193,7 +223,7 @@ export default function Probe1Page() {
 
           {/* Exploration Mode — always active */}
           <ExplorationMode
-            active={true}
+            active={!editingGuide}
             segments={segments}
             videoTitle={projectTitle}
             onExit={() => {}} // No exit in new flow

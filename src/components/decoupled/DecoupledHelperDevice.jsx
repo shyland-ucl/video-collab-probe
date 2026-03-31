@@ -34,10 +34,22 @@ export default function DecoupledHelperDevice({
   onSuggestionResponse,
   children,
 }) {
+  const handleOverlayChange = useCallback((nextTextOverlays) => {
+    onEditChange?.(
+      editState?.clips || [],
+      editState?.captions || [],
+      editState?.sources || [],
+      nextTextOverlays,
+    );
+  }, [editState, onEditChange]);
+
   const {
     textOverlays, activeOverlay, activeOverlayId, textToolActive,
     handleTextTool, handleTextMove, handleTextChange, handleTextApply, handleTextRemove,
-  } = useTextOverlay();
+  } = useTextOverlay({
+    initialOverlays: editState?.textOverlays || [],
+    onOverlaysChange: handleOverlayChange,
+  });
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
 

@@ -5,9 +5,11 @@ import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildProjectStats, buildSessionGuide, summarizeEditStateChange } from '../utils/projectOverview.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import { loadProjectState } from '../utils/projectState.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
+import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
@@ -32,6 +34,7 @@ export default function Probe2bPage() {
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
   const [showOnboarding, setShowOnboarding] = useState(true);
+  const [sessionGuide, setSessionGuide] = useState(null);
 
   // Video state
   const playerRef = useRef(null);
@@ -51,6 +54,7 @@ export default function Probe2bPage() {
   const [helperActivities, setHelperActivities] = useState([]);
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
+  const [projectUpdate, setProjectUpdate] = useState(null);
 
   useEffect(() => {
     setCondition('probe2b');
@@ -97,6 +101,9 @@ export default function Probe2bPage() {
     if (data.video) return [data.video];
     return [];
   }, [data]);
+  const sessionGuideBrief = useMemo(() => (
+    sessionGuide ? buildSessionGuide({ condition: 'probe2b', projectStats: sessionGuide }) : null
+  ), [sessionGuide]);
 
   // Track play/pause state
   useEffect(() => {
@@ -158,7 +165,14 @@ export default function Probe2bPage() {
         });
       }
     });
-    setEditState({ clips, captions: [], sources });
+    const nextEditState = { clips, captions: [], sources, textOverlays: [] };
+    setEditState(nextEditState);
+    setSessionGuide(buildProjectStats({
+      projectData: { videos },
+      editState: nextEditState,
+      role: 'creator',
+    }));
+    setProjectUpdate(null);
     logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, { videoIds: videos.map((v) => v.id), count: videos.length });
     announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
     wsRelayService.sendData({ type: 'PROJECT_CREATED', videoIds: videos.map((v) => v.id), actor: 'CREATOR' });
@@ -188,12 +202,19 @@ export default function Probe2bPage() {
     return 'made an edit';
   }, []);
 
-  const handleEditChange = useCallback((clips, captions, sources) => {
-    const newState = { clips, captions, sources };
+  const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    const newState = {
+      clips,
+      captions,
+      sources,
+      textOverlays: textOverlays ?? editStateRef.current?.textOverlays ?? [],
+    };
     const action = detectEditAction(editStateRef.current, newState);
+    const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
+    const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
     setEditState(newState);
     wsRelayService.sendData({
-      type: 'EDIT_STATE_UPDATE', editState: newState, action,
+      type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
   }, [role, detectEditAction]);
@@ -255,13 +276,15 @@ export default function Probe2bPage() {
           }
           break;
         case 'EDIT_STATE_UPDATE': {
+          const previousState = editStateRef.current;
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
-          const actionDesc = msg.action || 'made an edit';
+          const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
           if (currentRole === 'creator') {
-            announce(`${peerLabel} ${actionDesc}`);
+            setProjectUpdate({ ...changeSummary, id: Date.now() });
+            announce(changeSummary.announcement);
           } else {
-            setPeerEditNotification({ text: `${peerLabel} ${actionDesc}`, id: Date.now() });
+            setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
           }
           break;
         }
@@ -369,14 +392,26 @@ export default function Probe2bPage() {
               });
             }
           });
-          setEditState({ clips, captions: [], sources });
+          const nextEditState = {
+            clips,
+            captions: [],
+            sources,
+            textOverlays: editStateRef.current?.textOverlays || [],
+          };
+          setEditState(nextEditState);
           setSelectedVideos(resolved);
+          setSessionGuide(buildProjectStats({
+            projectData: { videos: resolved },
+            editState: nextEditState,
+            role,
+          }));
+          setProjectUpdate(null);
           setPhase('active');
           announce('Creator started the project. Entering session.');
         }
       }
     }
-  }, [selectedVideos, allVideos]);
+  }, [selectedVideos, allVideos, role]);
 
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);
@@ -469,6 +504,13 @@ export default function Probe2bPage() {
   // Active Session
   return (
     <div className="min-h-screen bg-white">
+      {sessionGuideBrief && (
+        <OnboardingBrief
+          condition="probe2b"
+          guide={sessionGuideBrief}
+          onDismiss={() => setSessionGuide(null)}
+        />
+      )}
       <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
       <div className="p-3 max-w-lg mx-auto">
         {role === 'creator' ? (
@@ -488,6 +530,7 @@ export default function Probe2bPage() {
             editState={editState}
             onEditChange={handleEditChange}
             initialSources={initialSources}
+            projectUpdate={projectUpdate}
           />
         ) : (
           <DecoupledHelperDevice

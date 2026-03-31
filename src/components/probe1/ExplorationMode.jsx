@@ -145,6 +145,10 @@ export default function ExplorationMode({
     announce('Stopped reading.');
   }, []);
 
+  const focusDescription = useCallback(() => {
+    descriptionRef.current?.focus();
+  }, []);
+
   const announceDescription = useCallback(
     (seg, level) => {
       if (!seg) return;
@@ -204,12 +208,9 @@ export default function ExplorationMode({
 
     // Focus the description and read it aloud via TTS
     setTimeout(() => {
-      descriptionRef.current?.focus();
-      if (segments?.[0]) {
-        announceDescription(segments[0], 1);
-      }
+      focusDescription();
     }, 300);
-  }, [active]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, focusDescription]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
   // Navigation callbacks (no wrapping — clamp at boundaries)
@@ -394,8 +395,7 @@ export default function ExplorationMode({
       playerRef.current.pause();
       // Return focus to the description and read it aloud
       setTimeout(() => {
-        descriptionRef.current?.focus();
-        announceDescription(segment, currentLevel);
+        focusDescription();
       }, 150);
     } else {
       if (segment) {
@@ -405,7 +405,7 @@ export default function ExplorationMode({
       playerRef.current.play();
       announce('Playing.');
     }
-  }, [playerRef, isPlaying, segment, currentLevel, announceDescription, onSeek]);
+  }, [playerRef, isPlaying, segment, onSeek, focusDescription]);
 
   // ---------------------------------------------------------------------------
   // Keyboard handling

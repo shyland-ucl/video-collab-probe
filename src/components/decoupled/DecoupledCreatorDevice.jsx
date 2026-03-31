@@ -23,6 +23,7 @@ export default function DecoupledCreatorDevice({
   editState,
   onEditChange,
   initialSources = [],
+  projectUpdate = null,
   children,
 }) {
   const { logEvent } = useEventLogger();
@@ -181,6 +182,26 @@ export default function DecoupledCreatorDevice({
 
   return (
     <div>
+      {projectUpdate && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl overflow-hidden mb-4 bg-white"
+          style={{ border: `1px solid ${accentColor}40`, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+        >
+          <div className="px-4 py-2.5" style={{ backgroundColor: `${accentColor}14`, borderBottom: `1px solid ${accentColor}26` }}>
+            <span className="text-xs font-bold tracking-wider uppercase" style={{ color: accentColor }}>
+              Project Update
+            </span>
+          </div>
+          <div className="px-4 py-3 text-sm text-slate-700 space-y-1">
+            <p className="font-semibold text-slate-900">{projectUpdate.shortText}</p>
+            <p>{projectUpdate.overviewText}</p>
+            <p>{projectUpdate.promptText}</p>
+          </div>
+        </div>
+      )}
+
       {/* Mode Bar Card */}
       <div role="region" aria-label="Creator device" className="border-2 rounded-xl overflow-hidden mb-4" style={{ borderColor: accentColor }}>
         <div

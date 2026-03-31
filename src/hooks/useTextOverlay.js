@@ -1,13 +1,47 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 
-export default function useTextOverlay() {
+function getOverlaySignature(overlays = []) {
+  return overlays
+    .map((overlay) => `${overlay.id}:${overlay.content}:${overlay.size}:${overlay.color}:${overlay.x}:${overlay.y}`)
+    .join('|');
+}
+
+export default function useTextOverlay({ initialOverlays = [], onOverlaysChange } = {}) {
   const { logEvent } = useEventLogger();
-  const [textOverlays, setTextOverlays] = useState([]);
+  const [textOverlays, setTextOverlays] = useState(initialOverlays);
   const [activeOverlayId, setActiveOverlayId] = useState(null);
   const [textToolActive, setTextToolActive] = useState(false);
+  const syncingFromPropsRef = useRef(false);
+  const onOverlaysChangeRef = useRef(onOverlaysChange);
+  const initialSignature = getOverlaySignature(initialOverlays);
+
+  useEffect(() => {
+    onOverlaysChangeRef.current = onOverlaysChange;
+  }, [onOverlaysChange]);
+
+  useEffect(() => {
+    const nextSignature = getOverlaySignature(initialOverlays);
+    const currentSignature = getOverlaySignature(textOverlays);
+    if (nextSignature === currentSignature) return;
+    syncingFromPropsRef.current = true;
+    setTextOverlays(initialOverlays);
+    if (activeOverlayId && !initialOverlays.some((overlay) => overlay.id === activeOverlayId)) {
+      setActiveOverlayId(null);
+      setTextToolActive(false);
+    }
+  }, [activeOverlayId, initialOverlays, initialSignature, textOverlays]);
+
+  useEffect(() => {
+    if (!onOverlaysChangeRef.current) return;
+    if (syncingFromPropsRef.current) {
+      syncingFromPropsRef.current = false;
+      return;
+    }
+    onOverlaysChangeRef.current(textOverlays);
+  }, [textOverlays]);
 
   const handleTextTool = useCallback(() => {
     if (textToolActive) {
