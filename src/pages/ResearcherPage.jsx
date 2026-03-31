@@ -71,6 +71,12 @@ export default function ResearcherPage() {
   const logEndRef = useRef(null);
   const logContainerRef = useRef(null);
 
+  // Connect as researcher to WS relay for navigation control
+  useEffect(() => {
+    wsRelayService.connect('researcher');
+    return () => wsRelayService.disconnect();
+  }, []);
+
   useEffect(() => {
     loadDescriptions().then(setData).catch(console.error);
   }, []);
@@ -225,6 +231,10 @@ export default function ResearcherPage() {
     const time = parseFloat(seekTime) || 0;
     logEvent(EventTypes.SEEK, Actors.RESEARCHER, { time, source: 'manual_sync' });
   }, [seekTime, logEvent]);
+
+  const handleNavigatePhone = useCallback((path) => {
+    wsRelayService.sendData({ type: 'NAVIGATE', path });
+  }, []);
 
   const segments = data?.video?.segments || [];
   const handleSegmentSelect = useCallback((seg) => setCurrentSegment(seg), []);
@@ -573,6 +583,43 @@ export default function ResearcherPage() {
                     <button onClick={() => setShowClearConfirm(true)} className="w-full py-1.5 rounded text-xs font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors focus:outline-2 focus:outline-offset-2" aria-label="Clear event log">Clear Log</button>
                   )}
                 </div>
+              </div>
+            </div>
+
+            {/* Navigate Participant Phones */}
+            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
+              <h2 className="font-bold text-sm mb-3" style={{ color: COLORS.navy }}>
+                Navigate Participant Phones
+              </h2>
+              <div className="space-y-1.5">
+                <button
+                  onClick={() => handleNavigatePhone('/probe1')}
+                  className="w-full py-2 px-3 rounded text-sm font-medium text-white transition-colors focus:outline-2 focus:outline-offset-2"
+                  style={{ backgroundColor: COLORS.blue }}
+                >
+                  Go to Probe 1
+                </button>
+                <button
+                  onClick={() => handleNavigatePhone('/probe2')}
+                  className="w-full py-2 px-3 rounded text-sm font-medium text-white transition-colors focus:outline-2 focus:outline-offset-2"
+                  style={{ backgroundColor: COLORS.green }}
+                >
+                  Go to Probe 2a
+                </button>
+                <button
+                  onClick={() => handleNavigatePhone('/probe2b')}
+                  className="w-full py-2 px-3 rounded text-sm font-medium text-white transition-colors focus:outline-2 focus:outline-offset-2"
+                  style={{ backgroundColor: COLORS.green }}
+                >
+                  Go to Probe 2b
+                </button>
+                <button
+                  onClick={() => handleNavigatePhone('/probe3')}
+                  className="w-full py-2 px-3 rounded text-sm font-medium text-white transition-colors focus:outline-2 focus:outline-offset-2"
+                  style={{ backgroundColor: COLORS.purple }}
+                >
+                  Go to Probe 3
+                </button>
               </div>
             </div>
 
