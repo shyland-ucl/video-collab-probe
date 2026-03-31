@@ -3,15 +3,12 @@ import { WebSocketServer } from 'ws';
 /**
  * Vite plugin that runs a WebSocket relay on the dev server.
  * Pairs one "creator" and one "helper" client automatically.
- * Also supports a "researcher" role (broadcasts to all) and
- * multiple "participant" roles (receive broadcasts).
  *
  * Protocol:
- *   Client → Server:  { type: 'JOIN', role: 'creator'|'helper'|'researcher'|'participant' }
+ *   Client → Server:  { type: 'JOIN', role: 'creator'|'helper' }
  *   Server → Client:  { type: 'PAIRED' }       — when both roles are connected
  *   Server → Client:  { type: 'PEER_DISCONNECTED' } — when the other peer drops
  *   After pairing, every message from one peer is relayed to the other.
- *   Researcher messages are broadcast to all connected clients.
  */
 export default function wsRelayPlugin() {
   return {
@@ -21,8 +18,6 @@ export default function wsRelayPlugin() {
 
       let creator = null;
       let helper = null;
-      let researcher = null;
-      const participants = new Set();
 
       function tryPair() {
         if (creator && helper) {
@@ -49,27 +44,12 @@ export default function wsRelayPlugin() {
               creator = ws;
             } else if (role === 'helper') {
               helper = ws;
-            } else if (role === 'researcher') {
-              researcher = ws;
-            } else if (role === 'participant') {
-              participants.add(ws);
             }
             tryPair();
             return;
           }
 
-          // Researcher broadcasts to all clients
-          if (role === 'researcher') {
-            const targets = [creator, helper, ...participants].filter(
-              (t) => t && t.readyState === 1
-            );
-            for (const target of targets) {
-              target.send(raw.toString());
-            }
-            return;
-          }
-
-          // Creator/helper relay to each other (existing behavior)
+          // Relay to the other peer
           const peer = role === 'creator' ? helper : creator;
           if (peer && peer.readyState === 1) {
             peer.send(raw.toString());
@@ -77,17 +57,12 @@ export default function wsRelayPlugin() {
         });
 
         ws.on('close', () => {
-          if (role === 'researcher') {
-            researcher = null;
-          } else if (role === 'participant') {
-            participants.delete(ws);
-          } else {
-            const peer = role === 'creator' ? helper : creator;
-            if (role === 'creator') creator = null;
-            if (role === 'helper') helper = null;
-            if (peer && peer.readyState === 1) {
-              peer.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
-            }
+          const peer = role === 'creator' ? helper : creator;
+          if (role === 'creator') creator = null;
+          if (role === 'helper') helper = null;
+
+          if (peer && peer.readyState === 1) {
+            peer.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
           }
         });
       });
