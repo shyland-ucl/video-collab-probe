@@ -1,4 +1,6 @@
-import { Routes, Route } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, useNavigate } from 'react-router-dom'
+import { wsRelayService } from './services/wsRelayService.js'
 import { EventLoggerProvider } from './contexts/EventLoggerContext.jsx'
 import { AccessibilityProvider, useAccessibility } from './contexts/AccessibilityContext.jsx'
 import SessionSetupPage from './pages/SessionSetupPage.jsx'
@@ -17,6 +19,17 @@ const TEXT_SIZE_CLASSES = {
 
 function AppShell() {
   const { highContrast, textSize } = useAccessibility()
+  const navigate = useNavigate()
+
+  // Listen for researcher navigation commands via WebSocket
+  useEffect(() => {
+    const unsubscribe = wsRelayService.onData((msg) => {
+      if (msg.type === 'NAVIGATE' && msg.path) {
+        navigate(msg.path);
+      }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
 
   const rootClasses = [
     highContrast ? 'high-contrast' : '',
