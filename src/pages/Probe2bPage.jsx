@@ -7,26 +7,24 @@ import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { buildProjectStats, buildSessionGuide, summarizeEditStateChange } from '../utils/projectOverview.js';
 import { wsRelayService } from '../services/wsRelayService.js';
+import { loadProjectState } from '../utils/projectState.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
-import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
-import HelperDevice from '../components/probe3/HelperDevice.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
-import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
-import SuggestionCard from '../components/probe3/SuggestionCard.jsx';
-import SuggestionHistory from '../components/probe3/SuggestionHistory.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
+import DecoupledCreatorDevice from '../components/decoupled/DecoupledCreatorDevice.jsx';
+import DecoupledHelperDevice from '../components/decoupled/DecoupledHelperDevice.jsx';
 
 const COLORS = {
   navy: '#1F3864',
-  purple: '#9B59B6',
+  green: '#5CB85C',
   blue: '#2B579A',
 };
 
-export default function Probe3Page() {
+export default function Probe2bPage() {
   const { setCondition, logEvent } = useEventLogger();
   const [searchParams] = useSearchParams();
   const isResearcher = searchParams.get('mode') === 'researcher';
@@ -58,34 +56,29 @@ export default function Probe3Page() {
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
 
-  // Suggestion system state
-  const [activeSuggestion, setActiveSuggestion] = useState(null);
-  const [notedSuggestions, setNotedSuggestions] = useState([]);
-  const [deployedSuggestions, setDeployedSuggestions] = useState({});
-  const [showSuggestionHistory, setShowSuggestionHistory] = useState(false);
-  const suggestionDeployTimeRef = useRef({});
-  const autoSuggestionTimeoutRef = useRef(null);
-
   useEffect(() => {
-    setCondition('probe3');
-    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe3' });
+    setCondition('probe2b');
+    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2b' });
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 
-  // Get suggestions for the selected video (Video C)
-  const videoSuggestions = useMemo(() => {
-    if (!selectedVideos || !data) return [];
-    // Find the video with suggestions (typically the third video)
-    const allVids = data.videos || (data.video ? [data.video] : []);
-    for (const v of allVids) {
-      if (v.suggestions && v.suggestions.length > 0) {
-        // Check if this video is in the selected set
-        const isSelected = selectedVideos.some?.((sv) => (typeof sv === 'string' ? sv : sv.id) === v.id);
-        if (isSelected) return v.suggestions;
+  // Try loading project state from Phase 2a
+  useEffect(() => {
+    const savedState = loadProjectState();
+    if (savedState && data) {
+      // Apply saved state
+      if (savedState.editState) {
+        setEditState(savedState.editState);
       }
+      if (savedState.selectedVideoIds && data.videos) {
+        const resolved = data.videos.filter((v) => savedState.selectedVideoIds.includes(v.id));
+        if (resolved.length > 0) {
+          setSelectedVideos(resolved);
+        }
+      }
+      announce('Project state loaded from Phase 2a');
     }
-    return [];
-  }, [selectedVideos, data]);
+  }, [data]);
 
   const projectData = useMemo(() => {
     if (selectedVideos && data) {
@@ -109,9 +102,10 @@ export default function Probe3Page() {
     return [];
   }, [data]);
   const sessionGuideBrief = useMemo(() => (
-    sessionGuide ? buildSessionGuide({ condition: 'probe3', projectStats: sessionGuide }) : null
+    sessionGuide ? buildSessionGuide({ condition: 'probe2b', projectStats: sessionGuide }) : null
   ), [sessionGuide]);
 
+  // Track play/pause state
   useEffect(() => {
     if (phase !== 'active') return;
     const interval = setInterval(() => {
@@ -132,6 +126,7 @@ export default function Probe3Page() {
   const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
   const handleQuestion = useCallback((question) => setPendingQuestion(question), []);
 
+  // Library selection sync
   const handleSelectionChange = useCallback((videoId, isSelected) => {
     setLibrarySelection((prev) => {
       const next = new Set(prev);
@@ -139,9 +134,13 @@ export default function Probe3Page() {
       else next.delete(videoId);
       return next;
     });
-    wsRelayService.sendData({ type: 'VIDEO_SELECT', videoId, isSelected, actor: role === 'creator' ? 'CREATOR' : 'HELPER' });
+    wsRelayService.sendData({
+      type: 'VIDEO_SELECT', videoId, isSelected,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
   }, [role]);
 
+  // Video Import
   const handleImport = useCallback((videos) => {
     setSelectedVideos(videos);
     const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
@@ -153,10 +152,17 @@ export default function Probe3Page() {
       const segs = v.segments || [];
       if (segs.length > 0) {
         segs.forEach((seg) => {
-          clips.push({ id: seg.id, sourceId: v.id, name: seg.name, startTime: seg.start_time, endTime: seg.end_time, color: seg.color || color, trimStart: 0, trimEnd: 0 });
+          clips.push({
+            id: seg.id, sourceId: v.id, name: seg.name,
+            startTime: seg.start_time, endTime: seg.end_time,
+            color: seg.color || color, trimStart: 0, trimEnd: 0,
+          });
         });
       } else {
-        clips.push({ id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled', startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0 });
+        clips.push({
+          id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+          startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
+        });
       }
     });
     const nextEditState = { clips, captions: [], sources, textOverlays: [] };
@@ -173,6 +179,7 @@ export default function Probe3Page() {
     setPhase('active');
   }, [logEvent]);
 
+  // Edit state sync
   const editStateRef = useRef(editState);
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
@@ -206,11 +213,17 @@ export default function Probe3Page() {
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
     const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
     setEditState(newState);
-    wsRelayService.sendData({ type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary, actor: role === 'creator' ? 'CREATOR' : 'HELPER' });
+    wsRelayService.sendData({
+      type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
   }, [role, detectEditAction]);
 
+  // Task routing callbacks
   const handleHelperTaskStatus = useCallback((taskId, status) => {
-    setFeedItems((prev) => prev.map((item) => item.id === taskId ? { ...item, status } : item));
+    setFeedItems((prev) => prev.map((item) =>
+      item.id === taskId ? { ...item, status } : item
+    ));
     logEvent(EventTypes.HELPER_TASK_STATUS, Actors.HELPER, { taskId, status });
     wsRelayService.sendData({ type: 'TASK_STATUS_UPDATE', taskId, status, actor: 'HELPER' });
   }, [logEvent]);
@@ -221,114 +234,12 @@ export default function Probe3Page() {
   }, [logEvent]);
 
   const handleAIUndo = useCallback((item) => {
-    setFeedItems((prev) => prev.map((fi) => fi.id === item.id ? { ...fi, undone: true } : fi));
+    setFeedItems((prev) => prev.map((fi) =>
+      fi.id === item.id ? { ...fi, undone: true } : fi
+    ));
     logEvent(EventTypes.AI_EDIT_UNDONE, Actors.HELPER, { text: item.text });
     announce(`Undid AI edit: ${item.text}`);
   }, [logEvent]);
-
-  // --- Suggestion handlers (creator side) ---
-  const handleSuggestionDismiss = useCallback(() => {
-    if (!activeSuggestion) return;
-    const timeToRespond = Date.now() - (suggestionDeployTimeRef.current[activeSuggestion.id] || Date.now());
-    logEvent(EventTypes.SUGGESTION_DISMISSED, Actors.CREATOR, {
-      suggestionId: activeSuggestion.id,
-      timeToRespond,
-    });
-    setDeployedSuggestions((prev) => ({
-      ...prev,
-      [activeSuggestion.id]: { ...prev[activeSuggestion.id], response: 'dismissed' },
-    }));
-    setActiveSuggestion(null);
-  }, [activeSuggestion, logEvent]);
-
-  const handleSuggestionNote = useCallback(() => {
-    if (!activeSuggestion) return;
-    const timeToRespond = Date.now() - (suggestionDeployTimeRef.current[activeSuggestion.id] || Date.now());
-    logEvent(EventTypes.SUGGESTION_NOTED, Actors.CREATOR, {
-      suggestionId: activeSuggestion.id,
-      timeToRespond,
-    });
-    setNotedSuggestions((prev) => [...prev, activeSuggestion]);
-    setDeployedSuggestions((prev) => ({
-      ...prev,
-      [activeSuggestion.id]: { ...prev[activeSuggestion.id], response: 'noted' },
-    }));
-    setActiveSuggestion(null);
-  }, [activeSuggestion, logEvent]);
-
-  const handleSuggestionRouteToHelper = useCallback(() => {
-    if (!activeSuggestion) return;
-    const timeToRespond = Date.now() - (suggestionDeployTimeRef.current[activeSuggestion.id] || Date.now());
-    logEvent(EventTypes.SUGGESTION_ROUTED, Actors.CREATOR, {
-      suggestionId: activeSuggestion.id,
-      timeToRespond,
-    });
-    // Send to helper via WebSocket
-    wsRelayService.sendData({
-      type: 'SUGGESTION_ROUTED_TO_HELPER',
-      suggestion: activeSuggestion,
-      actor: 'CREATOR',
-    });
-    setNotedSuggestions((prev) => [...prev, { ...activeSuggestion, routedToHelper: true }]);
-    setDeployedSuggestions((prev) => ({
-      ...prev,
-      [activeSuggestion.id]: { ...prev[activeSuggestion.id], response: 'routed' },
-    }));
-    setActiveSuggestion(null);
-  }, [activeSuggestion, logEvent]);
-
-  const deploySuggestion = useCallback((suggestion, actor, source) => {
-    const deployTime = Date.now();
-    suggestionDeployTimeRef.current[suggestion.id] = deployTime;
-
-    logEvent(EventTypes.SUGGESTION_DEPLOYED, actor, {
-      suggestionId: suggestion.id,
-      category: suggestion.category,
-      text: suggestion.text,
-      relatedScene: suggestion.relatedScene,
-      creatorCurrentScene: currentSegment?.id,
-      timestamp: deployTime,
-      source,
-    });
-
-    setDeployedSuggestions((prev) => ({
-      ...prev,
-      [suggestion.id]: { deployedAt: deployTime, response: null, source },
-    }));
-
-    setActiveSuggestion(suggestion);
-  }, [currentSegment, logEvent]);
-
-  // Researcher deploys a suggestion
-  const handleDeploySuggestion = useCallback((suggestion) => {
-    deploySuggestion(suggestion, Actors.RESEARCHER, 'researcher');
-  }, [deploySuggestion]);
-
-  useEffect(() => {
-    if (role !== 'creator' || phase !== 'active' || !currentSegment || activeSuggestion) return undefined;
-
-    const currentSceneNumber = segments.findIndex((segment) => segment.id === currentSegment.id) + 1;
-    if (currentSceneNumber <= 0) return undefined;
-
-    const nextSuggestion = videoSuggestions.find((suggestion) => {
-      if (deployedSuggestions[suggestion.id]) return false;
-      const relatedScenes = Array.isArray(suggestion.relatedScene)
-        ? suggestion.relatedScene
-        : [suggestion.relatedScene];
-      return relatedScenes.includes(currentSceneNumber);
-    });
-
-    if (!nextSuggestion) return undefined;
-
-    autoSuggestionTimeoutRef.current = setTimeout(() => {
-      deploySuggestion(nextSuggestion, Actors.AI, 'auto');
-    }, 1200);
-
-    return () => {
-      clearTimeout(autoSuggestionTimeoutRef.current);
-      autoSuggestionTimeoutRef.current = null;
-    };
-  }, [activeSuggestion, deployedSuggestions, currentSegment, deploySuggestion, phase, role, segments, videoSuggestions]);
 
   // WebSocket setup
   const unsubscribeRef = useRef({ data: null, connected: null, disconnected: null });
@@ -423,52 +334,14 @@ export default function Probe3Page() {
           announce(`AI edit: ${msg.text}`);
           break;
         }
-
-        // --- Suggestion system messages ---
-        case 'SUGGESTION_PUSH':
-          // Creator receives a deployed suggestion
-          if (currentRole === 'creator' && msg.suggestion) {
-            setActiveSuggestion(msg.suggestion);
+        case 'PROJECT_STATE_EXPORT': {
+          // Receive project state from Phase 2a via researcher transition
+          if (msg.projectState) {
+            if (msg.projectState.editState) setEditState(msg.projectState.editState);
+            announce('Project state received from Phase 2a');
           }
           break;
-
-        case 'SUGGESTION_ROUTED_TO_HELPER':
-          // Helper receives a routed suggestion
-          if (currentRole === 'helper' && msg.suggestion) {
-            const item = {
-              id: `sug-task-${Date.now()}`,
-              type: 'suggestion_task',
-              suggestion: msg.suggestion,
-              text: msg.suggestion.text,
-              status: 'pending',
-              timestamp: Date.now(),
-            };
-            setFeedItems((prev) => [item, ...prev]);
-            announce(`AI observation routed from Creator: ${msg.suggestion.text}`);
-          }
-          break;
-
-        case 'HELPER_SUGGESTION_RESPONSE':
-          // Creator receives helper's response to a suggestion
-          if (currentRole === 'creator') {
-            const { suggestionId, response } = msg;
-            setNotedSuggestions((prev) => prev.map((s) =>
-              s.id === suggestionId ? { ...s, helperResponse: response } : s
-            ));
-            logEvent(EventTypes.HELPER_SUGGESTION_RESPONSE, Actors.HELPER, { suggestionId, response });
-            announce(`Helper responded to suggestion: ${response}`);
-
-            // Log chain complete
-            const deployTime = suggestionDeployTimeRef.current[suggestionId];
-            if (deployTime) {
-              logEvent(EventTypes.SUGGESTION_CHAIN_COMPLETE, Actors.SYSTEM, {
-                suggestionId,
-                totalDuration: Date.now() - deployTime,
-              });
-            }
-          }
-          break;
-
+        }
         default:
           break;
       }
@@ -506,10 +379,17 @@ export default function Probe3Page() {
             const segs = v.segments || [];
             if (segs.length > 0) {
               segs.forEach((seg) => {
-                clips.push({ id: seg.id, sourceId: v.id, name: seg.name, startTime: seg.start_time, endTime: seg.end_time, color: seg.color || color, trimStart: 0, trimEnd: 0 });
+                clips.push({
+                  id: seg.id, sourceId: v.id, name: seg.name,
+                  startTime: seg.start_time, endTime: seg.end_time,
+                  color: seg.color || color, trimStart: 0, trimEnd: 0,
+                });
               });
             } else {
-              clips.push({ id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled', startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0 });
+              clips.push({
+                id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+                startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
+              });
             }
           });
           const nextEditState = {
@@ -536,7 +416,7 @@ export default function Probe3Page() {
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);
     setPhase('waiting');
-    logEvent(EventTypes.SESSION_START, Actors.SYSTEM, { role: selectedRole, probe: 'probe3' });
+    logEvent(EventTypes.SESSION_START, Actors.SYSTEM, { role: selectedRole, probe: 'probe2b' });
     setupHandlers(selectedRole);
     wsRelayService.connect(selectedRole);
   }, [logEvent, setupHandlers]);
@@ -555,6 +435,7 @@ export default function Probe3Page() {
     wsRelayService.disconnect();
   }, [clearSubscriptions]);
 
+  // WoZ AI edit callbacks
   useEffect(() => {
     window.__aiEditReceive = (request) => setPendingAIRequest(request);
     return () => { delete window.__aiEditReceive; };
@@ -571,32 +452,6 @@ export default function Probe3Page() {
     logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
   }, [logEvent]);
 
-  const handleManualSync = useCallback((action) => {
-    if (!playerRef.current) return;
-    switch (action) {
-      case 'play': playerRef.current.play(); break;
-      case 'pause': playerRef.current.pause(); break;
-      case 'sync_time':
-        wsRelayService.sendData({ type: 'SEEK', time: currentTime, actor: 'RESEARCHER' });
-        break;
-    }
-  }, [currentTime]);
-
-  // Helper suggestion response handler
-  const handleHelperSuggestionResponse = useCallback((suggestionId, response) => {
-    logEvent(EventTypes.HELPER_SUGGESTION_RESPONSE, Actors.HELPER, { suggestionId, response });
-    wsRelayService.sendData({
-      type: 'HELPER_SUGGESTION_RESPONSE',
-      suggestionId,
-      response,
-      actor: 'HELPER',
-    });
-    // Update feed item status
-    setFeedItems((prev) => prev.map((item) =>
-      item.suggestion?.id === suggestionId ? { ...item, status: response } : item
-    ));
-  }, [logEvent]);
-
   const modeLabel = role
     ? `${role.charAt(0).toUpperCase() + role.slice(1)} Device${connected ? ' (Connected)' : ''}`
     : '';
@@ -605,8 +460,8 @@ export default function Probe3Page() {
   if (phase === 'roleSelect') {
     return (
       <DecoupledRoleSelector
-        condition="probe3"
-        accentColor={COLORS.purple}
+        condition="probe2b"
+        accentColor={COLORS.green}
         showOnboarding={showOnboarding}
         onDismissOnboarding={() => setShowOnboarding(false)}
         onRoleSelect={handleRoleSelect}
@@ -618,8 +473,8 @@ export default function Probe3Page() {
   if (phase === 'waiting') {
     return (
       <DecoupledWaitingScreen
-        condition="probe3"
-        accentColor={COLORS.purple}
+        condition="probe2b"
+        accentColor={COLORS.green}
         role={role}
         modeLabel={modeLabel}
         showOnboarding={showOnboarding}
@@ -633,7 +488,7 @@ export default function Probe3Page() {
     const isCreator = role === 'creator';
     return (
       <div className="min-h-screen bg-white">
-        <ConditionHeader condition="probe3" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
+        <ConditionHeader condition="probe2b" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
         <VideoLibrary
           videos={allVideos}
           onImport={handleImport}
@@ -651,16 +506,17 @@ export default function Probe3Page() {
     <div className="min-h-screen bg-white">
       {sessionGuideBrief && (
         <OnboardingBrief
-          condition="probe3"
+          condition="probe2b"
           guide={sessionGuideBrief}
           onDismiss={() => setSessionGuide(null)}
         />
       )}
-      <ConditionHeader condition="probe3" modeLabel={modeLabel} />
-
+      <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
       <div className="p-3 max-w-lg mx-auto">
         {role === 'creator' ? (
-          <CreatorDevice
+          <DecoupledCreatorDevice
+            condition="probe2b"
+            accentColor={COLORS.green}
             videoRef={playerRef}
             videoData={projectData}
             webrtcService={wsRelayService}
@@ -675,42 +531,11 @@ export default function Probe3Page() {
             onEditChange={handleEditChange}
             initialSources={initialSources}
             projectUpdate={projectUpdate}
-          >
-            {/* Suggestion UI injected into Creator Device */}
-            {activeSuggestion && (
-              <div className="mt-3">
-                <SuggestionCard
-                  suggestion={activeSuggestion}
-                  onDismiss={handleSuggestionDismiss}
-                  onNote={handleSuggestionNote}
-                  onRouteToHelper={handleSuggestionRouteToHelper}
-                />
-              </div>
-            )}
-
-            {/* Suggestion history toggle */}
-            {notedSuggestions.length > 0 && (
-              <div className="mt-2">
-                {showSuggestionHistory ? (
-                  <SuggestionHistory
-                    notedSuggestions={notedSuggestions}
-                    onClose={() => setShowSuggestionHistory(false)}
-                  />
-                ) : (
-                  <button
-                    onClick={() => setShowSuggestionHistory(true)}
-                    className="w-full py-2 rounded-xl text-sm font-medium text-[#2B579A] bg-[#EBF5FB] hover:bg-[#D6EAF8] transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                    style={{ minHeight: '44px' }}
-                    aria-label={`View ${notedSuggestions.length} saved suggestions`}
-                  >
-                    Saved Suggestions ({notedSuggestions.length})
-                  </button>
-                )}
-              </div>
-            )}
-          </CreatorDevice>
+          />
         ) : (
-          <HelperDevice
+          <DecoupledHelperDevice
+            condition="probe2b"
+            accentColor={COLORS.green}
             videoRef={playerRef}
             videoData={projectData}
             webrtcService={wsRelayService}
@@ -730,7 +555,6 @@ export default function Probe3Page() {
             onAIReview={handleAIReview}
             onAIUndo={handleAIUndo}
             peerEditNotification={peerEditNotification}
-            onSuggestionResponse={handleHelperSuggestionResponse}
           />
         )}
       </div>
@@ -745,24 +569,6 @@ export default function Probe3Page() {
             onSendResponse={handleAIEditResponse}
             onApplyEdit={handleApplyEdit}
           />
-          <ResearcherSuggestionPanel
-            suggestions={videoSuggestions}
-            deployedSuggestions={deployedSuggestions}
-            onDeploy={handleDeploySuggestion}
-          />
-          {/* Manual sync fallback */}
-          <div className="border-2 rounded-lg p-4 shadow-sm" style={{ borderColor: '#F0AD4E', backgroundColor: '#FFFBF0' }}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: '#F0AD4E' }} aria-hidden="true" />
-              <h3 className="font-bold text-sm" style={{ color: COLORS.navy }}>Sync Controls (Researcher)</h3>
-            </div>
-            <div className="flex gap-2 flex-wrap">
-              <button onClick={() => handleManualSync('play')} className="px-3 py-1.5 rounded text-sm font-medium text-white focus:outline-2 focus:outline-offset-2" style={{ backgroundColor: '#5CB85C' }} aria-label="Force play">Force Play</button>
-              <button onClick={() => handleManualSync('pause')} className="px-3 py-1.5 rounded text-sm font-medium text-white focus:outline-2 focus:outline-offset-2" style={{ backgroundColor: '#D9534F' }} aria-label="Force pause">Force Pause</button>
-              <button onClick={() => handleManualSync('sync_time')} className="px-3 py-1.5 rounded text-sm font-medium text-white focus:outline-2 focus:outline-offset-2" style={{ backgroundColor: COLORS.blue }} aria-label="Sync time to peer">Sync Time to Peer</button>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">Connection: {connected ? 'Active' : 'Not connected'} | Role: {role || 'none'}</p>
-          </div>
         </div>
       )}
     </div>

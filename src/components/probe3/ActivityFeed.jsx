@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 
-export default function ActivityFeed({ items, creatorActivities, onTaskStatus, onAIReview, onAIUndo }) {
+export default function ActivityFeed({ items, creatorActivities, onTaskStatus, onAIReview, onAIUndo, onSuggestionResponse }) {
   const handleStatus = useCallback((taskId, status) => {
     onTaskStatus?.(taskId, status);
   }, [onTaskStatus]);
@@ -58,6 +58,57 @@ export default function ActivityFeed({ items, creatorActivities, onTaskStatus, o
                       {item.status === 'done' ? 'Done' :
                        item.status === 'needs_discussion' ? 'Needs Discussion' :
                        "Can't Do"}
+                    </span>
+                  )}
+                </div>
+              ) : item.type === 'suggestion_task' ? (
+                /* AI suggestion routed from creator */
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-xs font-bold text-purple-600 uppercase">AI Observation (via Creator)</span>
+                  </div>
+                  <p className="text-sm text-gray-800 mb-1">{item.text}</p>
+                  {item.suggestion?.relatedScene && (
+                    <p className="text-xs text-gray-500 mb-2">
+                      Related scene: {Array.isArray(item.suggestion.relatedScene) ? item.suggestion.relatedScene.join(', ') : item.suggestion.relatedScene}
+                    </p>
+                  )}
+                  {item.status === 'pending' ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onSuggestionResponse?.(item.suggestion?.id, 'confirmed')}
+                        className="flex-1 py-2 rounded-lg bg-green-500 text-white text-xs font-semibold hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-1"
+                        style={{ minHeight: '48px' }}
+                        aria-label="Confirm this observation"
+                      >
+                        Confirmed
+                      </button>
+                      <button
+                        onClick={() => onSuggestionResponse?.(item.suggestion?.id, 'not-issue')}
+                        className="flex-1 py-2 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1"
+                        style={{ minHeight: '48px' }}
+                        aria-label="Not an issue"
+                      >
+                        Not an Issue
+                      </button>
+                      <button
+                        onClick={() => onSuggestionResponse?.(item.suggestion?.id, 'needs-discussion')}
+                        className="flex-1 py-2 rounded-lg bg-blue-500 text-white text-xs font-semibold hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                        style={{ minHeight: '48px' }}
+                        aria-label="Needs discussion"
+                      >
+                        Needs Discussion
+                      </button>
+                    </div>
+                  ) : (
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${
+                      item.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                      item.status === 'not-issue' ? 'bg-amber-100 text-amber-700' :
+                      'bg-blue-100 text-blue-700'
+                    }`}>
+                      {item.status === 'confirmed' ? 'Confirmed' :
+                       item.status === 'not-issue' ? 'Not an Issue' :
+                       'Needs Discussion'}
                     </span>
                   )}
                 </div>

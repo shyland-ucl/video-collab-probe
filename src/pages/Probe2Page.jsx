@@ -4,7 +4,8 @@ import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
-import { buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildAllSegments, buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildProjectStats, buildSessionGuide } from '../utils/projectOverview.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
@@ -45,13 +46,53 @@ export default function Probe2Page() {
   const [marks, setMarks] = useState([]);
 
   useEffect(() => {
-    setCondition('probe2');
-    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2' });
+    setCondition('probe2a');
+    logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2a' });
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 
+  useEffect(() => {
+    if (!data || editState) return;
+
+    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    const sources = buildInitialSources(data).map((source) => ({
+      id: source.id,
+      name: source.name,
+      src: source.src,
+      duration: source.duration,
+    }));
+    const clips = buildAllSegments(data).map((segment, index) => ({
+      id: segment.id,
+      sourceId: segment.sourceId || 'default',
+      name: segment.name,
+      startTime: segment.start_time,
+      endTime: segment.end_time,
+      color: segment.color || SOURCE_COLORS[index % SOURCE_COLORS.length],
+      trimStart: 0,
+      trimEnd: 0,
+    }));
+
+    setEditState({
+      clips,
+      captions: [],
+      sources,
+      textOverlays: [],
+    });
+  }, [data, editState]);
+
   const videoDuration = useMemo(() => getTotalDuration(data), [data]);
   const initialSources = useMemo(() => buildInitialSources(data), [data]);
+  const onboardingGuide = useMemo(() => {
+    if (!data) return null;
+    return buildSessionGuide({
+      condition: 'probe2',
+      projectStats: buildProjectStats({
+        projectData: data,
+        editState,
+        role: mode === 'helper' ? 'helper' : 'creator',
+      }),
+    });
+  }, [data, editState, mode]);
 
   const handleTimeUpdate = useCallback((time) => {
     setCurrentTime(time);
@@ -67,6 +108,15 @@ export default function Probe2Page() {
 
   const handleQuestion = useCallback((question) => {
     setPendingQuestion(question);
+  }, []);
+
+  const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    setEditState((prev) => ({
+      clips,
+      captions,
+      sources,
+      textOverlays: textOverlays ?? prev?.textOverlays ?? [],
+    }));
   }, []);
 
   // Track play/pause state and duration
@@ -124,6 +174,7 @@ export default function Probe2Page() {
     setIsTransitioning(false);
     if (transitionDirection === 'toHelper') {
       setMode('helper');
+      setShowOnboarding(true);
       logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'helper', handoverMode });
       announce('Switched to Helper mode');
     } else {
@@ -163,8 +214,12 @@ export default function Probe2Page() {
 
   return (
     <div className="min-h-screen bg-white">
-      {showOnboarding && (
-        <OnboardingBrief condition="probe2" onDismiss={() => setShowOnboarding(false)} />
+      {showOnboarding && onboardingGuide && (
+        <OnboardingBrief
+          condition="probe2"
+          guide={onboardingGuide}
+          onDismiss={() => setShowOnboarding(false)}
+        />
       )}
       <ConditionHeader condition="probe2" modeLabel={modeLabel} />
 
@@ -186,7 +241,7 @@ export default function Probe2Page() {
             onAddMark={handleAddMark}
             onDeleteMark={handleDeleteMark}
             editState={editState}
-            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
+            onEditChange={handleEditChange}
             initialSources={initialSources}
           />
         ) : (
@@ -205,7 +260,7 @@ export default function Probe2Page() {
             onReturnDevice={handleReturnDevice}
             onTaskComplete={handleTaskComplete}
             editState={editState}
-            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
+            onEditChange={handleEditChange}
             initialSources={initialSources}
           />
         )}

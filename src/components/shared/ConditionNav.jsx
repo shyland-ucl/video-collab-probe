@@ -3,46 +3,42 @@ import { useNavigate, Link } from 'react-router-dom';
 
 const ALL_CONDITIONS = {
   probe1: { label: 'Probe 1', path: '/probe1' },
-  probe2: { label: 'Probe 2', path: '/probe2' },
+  probe2a: { label: 'Probe 2a', path: '/probe2' },
+  probe2b: { label: 'Probe 2b', path: '/probe2b' },
   probe3: { label: 'Probe 3', path: '/probe3' },
 };
 
+const FIXED_ORDER = ['probe1', 'probe2a', 'probe2b', 'probe3'];
+
 /**
  * Bottom navigation bar for condition pages.
- * Shows all conditions as steps with previous/next buttons.
+ * Shows all four phases as steps with previous/next buttons.
  */
 export default function ConditionNav({ currentCondition }) {
   const navigate = useNavigate();
 
-  const { order, completedSet } = useMemo(() => {
-    let conditionOrder = ['probe1', 'probe2', 'probe3'];
-    let completed = [];
+  const completedSet = useMemo(() => {
     try {
       const stored = localStorage.getItem('sessionConfig');
       if (stored) {
         const config = JSON.parse(stored);
-        if (config.conditionOrder && config.conditionOrder.length === 3) {
-          conditionOrder = config.conditionOrder;
-        }
-        if (config.completedConditions) {
-          completed = config.completedConditions;
-        }
+        return new Set(config.completedConditions || []);
       }
     } catch {
       // ignore
     }
-    return { order: conditionOrder, completedSet: new Set(completed) };
+    return new Set();
   }, []);
 
-  const currentIndex = order.indexOf(currentCondition);
+  const currentIndex = FIXED_ORDER.indexOf(currentCondition);
   const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex < order.length - 1;
+  const hasNext = currentIndex < FIXED_ORDER.length - 1;
 
   const handlePrev = useCallback(() => {
     if (!hasPrev) return;
-    const prevCond = order[currentIndex - 1];
+    const prevCond = FIXED_ORDER[currentIndex - 1];
     navigate(ALL_CONDITIONS[prevCond].path);
-  }, [hasPrev, order, currentIndex, navigate]);
+  }, [hasPrev, currentIndex, navigate]);
 
   const handleNext = useCallback(() => {
     if (!hasNext) return;
@@ -60,9 +56,9 @@ export default function ConditionNav({ currentCondition }) {
     } catch {
       // ignore
     }
-    const nextCond = order[currentIndex + 1];
+    const nextCond = FIXED_ORDER[currentIndex + 1];
     navigate(ALL_CONDITIONS[nextCond].path);
-  }, [hasNext, order, currentIndex, navigate, currentCondition]);
+  }, [hasNext, currentIndex, navigate, currentCondition]);
 
   return (
     <nav
@@ -84,7 +80,7 @@ export default function ConditionNav({ currentCondition }) {
 
         {/* Condition steps */}
         <div className="flex items-center gap-1 overflow-x-auto">
-          {order.map((condKey, i) => {
+          {FIXED_ORDER.map((condKey) => {
             const info = ALL_CONDITIONS[condKey];
             if (!info) return null;
             const isCurrent = condKey === currentCondition;
