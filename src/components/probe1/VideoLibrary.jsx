@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { announce } from '../../utils/announcer.js';
+import VideoUpload from '../shared/VideoUpload.jsx';
 
 // Condensed summaries derived from each video's level_1 descriptions
 const VIDEO_SUMMARIES = {
@@ -41,9 +42,29 @@ export default function VideoLibrary({
   onSelectionChange,
   readOnly = false,
 }) {
+  // Uploaded videos added by the participant
+  const [uploadedVideos, setUploadedVideos] = useState([]);
+
+  // Combine sample + uploaded videos
+  const allVideos = [...videos, ...uploadedVideos];
+
   // Use internal state when not controlled, otherwise use controlled set
   const [internalSelected, setInternalSelected] = useState(new Set());
   const selected = controlledSelection || internalSelected;
+
+  const handleUpload = useCallback((newVideos) => {
+    setUploadedVideos((prev) => [...prev, ...newVideos]);
+    // Auto-select newly uploaded videos
+    if (!onSelectionChange) {
+      setInternalSelected((prev) => {
+        const next = new Set(prev);
+        newVideos.forEach((v) => next.add(v.id));
+        return next;
+      });
+    } else {
+      newVideos.forEach((v) => onSelectionChange(v.id, true));
+    }
+  }, [onSelectionChange]);
 
   const toggleSelect = useCallback((videoId) => {
     if (readOnly) return;
@@ -66,7 +87,7 @@ export default function VideoLibrary({
   }, [readOnly, onSelectionChange, selected]);
 
   const handleCreateProject = () => {
-    const selectedVideos = videos.filter((v) => selected.has(v.id));
+    const selectedVideos = allVideos.filter((v) => selected.has(v.id));
     if (selectedVideos.length === 0) {
       announce('No videos selected. Please select at least one video.');
       return;
@@ -84,11 +105,16 @@ export default function VideoLibrary({
           : 'Select the videos you want to explore and edit.'}
       </p>
 
+      {/* Upload button — only for non-readonly participants */}
+      {!readOnly && (
+        <VideoUpload onUpload={handleUpload} />
+      )}
+
       <div className="flex flex-col gap-3" role="listbox" aria-label="Available videos" aria-multiselectable="true">
-        {videos.map((video) => {
+        {allVideos.map((video) => {
           const isSelected = selected.has(video.id);
-          const summary = VIDEO_SUMMARIES[video.id] || '';
-          const dateTaken = MOCK_DATES[video.id] || '';
+          const summary = VIDEO_SUMMARIES[video.id] || (video._uploaded ? `Uploaded from your device (${(video._fileSize / (1024 * 1024)).toFixed(1)} MB)` : '');
+          const dateTaken = MOCK_DATES[video.id] || (video._uploaded ? 'Just now' : '');
           const durationText = formatDuration(video.duration);
 
           return (
