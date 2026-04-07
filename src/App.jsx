@@ -7,7 +7,7 @@ import SessionSetupPage from './pages/SessionSetupPage.jsx'
 import Probe1Page from './pages/Probe1Page.jsx'
 import Probe2Page from './pages/Probe2Page.jsx'
 import Probe2bPage from './pages/Probe2bPage.jsx'
-import Probe3Page from './pages/Probe3.jsx'
+import Probe3Page from './pages/Probe3Page.jsx'
 import ResearcherPage from './pages/ResearcherPage.jsx'
 
 const TEXT_SIZE_CLASSES = {
