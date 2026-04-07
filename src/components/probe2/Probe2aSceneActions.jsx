@@ -5,24 +5,10 @@ import { announce } from '../../utils/announcer.js';
 import InlineVQAComposer from '../shared/InlineVQAComposer.jsx';
 import DetailLevelSelector from '../shared/DetailLevelSelector.jsx';
 import useSpeechRecognition from '../../hooks/useSpeechRecognition.js';
+import { playEarcon } from '../../utils/earcon.js';
 
 const TASK_CATEGORIES = ['Trim', 'Colour', 'Framing', 'Audio', 'Caption', 'General Review'];
 const PRIORITIES = ['Must Do', 'Nice to Have', 'Just Check'];
-
-// Simple earcon using Web Audio API
-function playEarcon(freq = 660, duration = 150) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = freq;
-    gain.gain.value = 0.3;
-    osc.start();
-    osc.stop(ctx.currentTime + duration / 1000);
-  } catch { /* ignore audio errors */ }
-}
 
 export default function Probe2aSceneActions({
   scene,
