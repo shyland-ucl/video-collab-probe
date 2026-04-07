@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
+import { createContext, useContext, useReducer, useCallback, useEffect, useMemo } from 'react';
 
 const AccessibilityContext = createContext(null);
 
@@ -39,9 +39,12 @@ function reducer(state, action) {
 export function AccessibilityProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Persist to localStorage on every change
+  // Persist to localStorage with debounce to avoid thrashing on rapid changes
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const timer = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }, 500);
+    return () => clearTimeout(timer);
   }, [state]);
 
   const setTextSize = useCallback((size) => {
@@ -60,13 +63,13 @@ export function AccessibilityProvider({ children }) {
     dispatch({ type: 'SET_SPEECH_RATE', payload: rate });
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     ...state,
     setTextSize,
     toggleContrast,
     toggleAudio,
     setSpeechRate,
-  };
+  }), [state, setTextSize, toggleContrast, toggleAudio, setSpeechRate]);
 
   return (
     <AccessibilityContext.Provider value={value}>
