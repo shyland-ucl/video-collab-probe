@@ -1,0 +1,201 @@
+import { useEffect, useRef } from 'react';
+import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
+import ttsService from '../../services/ttsService.js';
+import { announce } from '../../utils/announcer.js';
+
+function formatDuration(seconds) {
+  const s = Math.round(seconds || 0);
+  if (s < 60) return `${s} seconds`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m} min ${rem} sec` : `${m} min`;
+}
+
+export default function SceneBlock({
+  scene,
+  index,
+  total,
+  currentLevel,
+  isExpanded,
+  onExpand,
+  onCollapse,
+  vqaHistory = [],
+  awareness,
+  children,
+  accentColor = '#2B579A',
+}) {
+  const actionsRef = useRef(null);
+  const { audioEnabled, speechRate } = useAccessibility();
+
+  const duration = (scene.end_time || 0) - (scene.start_time || 0);
+  const levelKey = `level_${currentLevel}`;
+  const description = scene.descriptions?.[levelKey] || '';
+
+  // Auto-focus actions area and announce on expand
+  useEffect(() => {
+    if (isExpanded && actionsRef.current) {
+      actionsRef.current.focus();
+      // Stop any in-progress TTS before announcing to avoid collision
+      ttsService.stop();
+      announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`);
+    }
+    if (!isExpanded) {
+      ttsService.stop();
+    }
+    // scene.name and index are stable for the lifecycle of this block
+  }, [isExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle browser back button when expanded
+  useEffect(() => {
+    if (!isExpanded) return;
+    const handlePopState = (e) => {
+      e.preventDefault();
+      onCollapse();
+    };
+    window.history.pushState({ sceneBlock: true }, '');
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [isExpanded, onCollapse]);
+
+  return (
+    <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+      {/* Collapsed header — always visible */}
+      <button
+        onClick={() => {
+          if (isExpanded) {
+            onCollapse();
+            return;
+          }
+          if (audioEnabled && description) {
+            ttsService.speak(description, { rate: speechRate });
+          }
+          onExpand(index);
+        }}
+        aria-label={`Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ${description}. ${isExpanded ? 'Tap to close actions.' : 'Tap to open actions.'}`}
+        aria-expanded={isExpanded}
+        className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
+          isExpanded ? 'border-b-2' : ''
+        }`}
+        style={isExpanded ? { borderBottomColor: accentColor, minHeight: '48px' } : { minHeight: '48px' }}
+      >
+        {/* Scene header row */}
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: scene.color || accentColor }}
+              aria-hidden="true"
+            />
+            <span className="font-medium text-sm truncate">{scene.name}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 text-xs text-gray-500">
+            {awareness?.taskSummary && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  awareness.helperStatus === 'working'
+                    ? 'bg-amber-100 text-amber-800'
+                    : awareness.helperStatus === 'done'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+                aria-label={awareness.taskSummary}
+              >
+                {awareness.taskSummary}
+              </span>
+            )}
+            <span aria-hidden="true">{Math.round(duration)}s</span>
+            <span aria-hidden="true" className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
+          </div>
+        </div>
+        {/* Description always visible */}
+        <p className="text-sm text-gray-600 leading-relaxed" aria-hidden="true">
+          {description || 'No description available.'}
+        </p>
+      </button>
+
+      {/* Expanded: inline actions below the collapsed header */}
+      {isExpanded && (
+        <div
+          ref={actionsRef}
+          tabIndex={-1}
+          className="px-4 py-3"
+          role="region"
+          aria-label={`Actions for scene ${index + 1}`}
+        >
+          {/* VQA Conversation History */}
+          {vqaHistory.length > 0 && (
+            <div className="mb-3 space-y-2" role="log" aria-label="Questions and answers">
+              {vqaHistory.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div
+                    className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
+                      msg.role === 'user'
+                        ? 'text-white'
+                        : 'bg-gray-100 text-gray-800'
+                    }`}
+                    style={msg.role === 'user' ? { backgroundColor: accentColor } : undefined}
+                    aria-label={msg.role === 'user' ? `Your question: ${msg.text}` : `Answer: ${msg.text}`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Awareness section (Probe 2b/3) */}
+          {awareness?.actionLog?.length > 0 && (
+            <div className="mb-3 pb-3 border-b border-gray-100" aria-label="Activity on this scene">
+              {awareness.helperActivity && (
+                <p className="text-xs text-amber-700 font-medium mb-1" role="status">
+                  {awareness.helperActivity}
+                </p>
+              )}
+              <ul className="space-y-1">
+                {awareness.actionLog.map((entry, i) => (
+                  <li key={i} className="text-xs text-gray-500">
+                    <span className="font-medium">[{entry.actor}]</span> {entry.description}
+                  </li>
+                ))}
+              </ul>
+              {awareness.taskStatus && (
+                <p className="text-xs mt-1">
+                  <span className="font-medium">Task: </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-xs ${
+                      awareness.taskStatus === 'Done'
+                        ? 'bg-green-100 text-green-800'
+                        : awareness.taskStatus === 'In Progress'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}
+                  >
+                    {awareness.taskStatus}
+                  </span>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Probe-specific actions (children) */}
+          <div className="space-y-2">
+            {children}
+          </div>
+
+          {/* Back button */}
+          <button
+            onClick={onCollapse}
+            className="w-full mt-3 py-2 text-sm text-gray-600 hover:text-gray-900 font-medium rounded border border-gray-200 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+            style={{ minHeight: '44px' }}
+            aria-label="Close scene actions"
+          >
+            Close
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
