@@ -46,7 +46,7 @@ function AppShell() {
       </a>
 
       {/* Screen reader live announcer */}
-      <div id="sr-announcer" role="status" aria-live="assertive" className="sr-only" />
+      <div id="sr-announcer" role="status" aria-live="polite" className="sr-only" />
 
       <main id="main-content">
         <Routes>
