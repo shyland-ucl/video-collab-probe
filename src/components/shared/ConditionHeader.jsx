@@ -29,10 +29,9 @@ export default function ConditionHeader({ condition, modeLabel }) {
     <div
       className="w-full px-4 py-3 flex items-center gap-3"
       style={{ backgroundColor: config.color }}
-      role="banner"
-      aria-label={`Current condition: ${config.label}`}
+      aria-hidden="true"
     >
-      <h1 className="text-white font-bold text-lg">{config.label}</h1>
+      <span className="text-white font-bold text-lg">{config.label}</span>
       <span className="text-white/80 text-sm">{config.description}</span>
       {modeLabel && (
         <span className="ml-auto px-2 py-0.5 bg-white/20 text-white text-xs font-semibold rounded">

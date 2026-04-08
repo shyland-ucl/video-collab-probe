@@ -9,23 +9,19 @@ const COLORS = {
 export default function DecoupledRoleSelector({
   condition,
   accentColor = '#9B59B6',
-  showOnboarding,
-  onDismissOnboarding,
   onRoleSelect,
 }) {
   return (
     <div className="min-h-screen bg-white">
-      {showOnboarding && (
-        <OnboardingBrief condition={condition} onDismiss={onDismissOnboarding} />
-      )}
-      <ConditionHeader condition={condition} />
-      <div className="max-w-lg mx-auto mt-8 px-4">
-        <h2 className="text-2xl font-bold text-center mb-2" style={{ color: COLORS.navy }}>
+      <div className="max-w-lg mx-auto px-4">
+        <OnboardingBrief
+          pageTitle="Role Selection"
+          description="Each person uses their own phone. Choose whether this device is for the creator or the helper. The creator has an audio and text interface optimised for screen readers. The helper has a visual interface with video editing tools. After both people select a role, the session will begin."
+        />
+        <ConditionHeader condition={condition} />
+        <h2 className="text-2xl font-bold text-center mt-6 mb-2" aria-hidden="true" style={{ color: COLORS.navy }}>
           Select Your Role
         </h2>
-        <p className="text-gray-500 text-center mb-8">
-          Each person uses their own device. Choose which role this device is for.
-        </p>
         <div className="flex gap-4">
           <button
             onClick={() => onRoleSelect('creator')}

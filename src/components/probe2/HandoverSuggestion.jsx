@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
+import { announce } from '../../utils/announcer.js';
 
 export default function HandoverSuggestion({ suggestion, onAccept, onDismiss }) {
   const { logEvent } = useEventLogger();
@@ -34,6 +35,7 @@ export default function HandoverSuggestion({ suggestion, onAccept, onDismiss }) 
     if (timerRef.current) clearTimeout(timerRef.current);
     setExiting(true);
     logEvent(EventTypes.HANDOVER_SUGGESTION_DISMISSED, Actors.CREATOR, { suggestion });
+    announce('Suggestion dismissed.');
     setTimeout(() => {
       setVisible(false);
       setExiting(false);
@@ -79,15 +81,16 @@ export default function HandoverSuggestion({ suggestion, onAccept, onDismiss }) 
         <div className="flex gap-2 justify-end">
           <button
             onClick={handleDismiss}
-            className="px-3 py-1.5 rounded text-xs font-medium text-gray-600 border border-gray-300 hover:bg-gray-100 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-gray-400"
+            className="px-4 py-2.5 rounded text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-100 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-gray-400"
+            style={{ minHeight: '44px' }}
             aria-label="Dismiss suggestion"
           >
             Dismiss
           </button>
           <button
             onClick={handleAccept}
-            className="px-3 py-1.5 rounded text-xs font-bold text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-orange-400"
-            style={{ backgroundColor: '#E67E22' }}
+            className="px-4 py-2.5 rounded text-sm font-bold text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2 focus:outline-orange-400"
+            style={{ backgroundColor: '#E67E22', minHeight: '44px' }}
             aria-label="Accept suggestion and open intent locker"
           >
             Accept

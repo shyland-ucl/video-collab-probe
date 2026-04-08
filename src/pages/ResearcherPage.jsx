@@ -277,7 +277,7 @@ export default function ResearcherPage() {
           <div className="lg:col-span-2 space-y-4">
             {/* Condition Tabs */}
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
-              <div className="flex border-b border-gray-200">
+              <div className="flex border-b border-gray-200" role="tablist" aria-label="Condition tabs">
                 {CONDITIONS.map((cond) => (
                   <button
                     key={cond.key}

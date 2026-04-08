@@ -40,15 +40,15 @@ export default function FlagButton({ segmentId, level }) {
       aria-label={flagged ? 'Unflag this description (F)' : 'Flag this description (F)'}
       title={flagged ? 'Unflag description (F)' : 'Flag description (F)'}
       onClick={handleToggle}
-      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-sm font-medium transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-amber-500 ${
+      className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded text-sm font-medium transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-amber-500 ${
         flagged
           ? 'text-white'
           : 'bg-white border-2 text-amber-600 hover:bg-amber-50'
       }`}
       style={
         flagged
-          ? { backgroundColor: '#F0AD4E', borderColor: '#F0AD4E' }
-          : { borderColor: '#F0AD4E' }
+          ? { backgroundColor: '#F0AD4E', borderColor: '#F0AD4E', minHeight: '44px' }
+          : { borderColor: '#F0AD4E', minHeight: '44px' }
       }
     >
       <svg

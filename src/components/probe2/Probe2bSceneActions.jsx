@@ -111,7 +111,7 @@ export default function Probe2bSceneActions({
         style={{ minHeight: '48px' }}
         aria-label={isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
       >
-        {isSegmentPlaying ? 'Pause Segment' : 'Play Segment'}
+        {isSegmentPlaying ? 'Pause' : 'Play from here'}
       </button>
 
       {/* Ask AI (VQA) — toggle */}

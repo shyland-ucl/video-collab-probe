@@ -2,20 +2,25 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
+import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
-import { buildProjectStats, buildSessionGuide, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { captureFrame, askGemini } from '../services/geminiService.js';
+import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import { loadProjectState } from '../utils/projectState.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
+import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
+import SceneBlockList from '../components/shared/SceneBlockList.jsx';
+import Probe2bSceneActions from '../components/probe2/Probe2bSceneActions.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
-import DecoupledCreatorDevice from '../components/decoupled/DecoupledCreatorDevice.jsx';
 import DecoupledHelperDevice from '../components/decoupled/DecoupledHelperDevice.jsx';
 
 const COLORS = {
@@ -33,7 +38,6 @@ export default function Probe2bPage() {
 
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
-  const [showOnboarding, setShowOnboarding] = useState(true);
   const [sessionGuide, setSessionGuide] = useState(null);
 
   // Video state
@@ -55,6 +59,10 @@ export default function Probe2bPage() {
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
+  const [vqaHistories, setVqaHistories] = useState({});
+  const [awarenessData, setAwarenessData] = useState({});
+  const [keptScenes, setKeptScenes] = useState({});
+  const { audioEnabled, speechRate } = useAccessibility();
 
   useEffect(() => {
     setCondition('probe2b');
@@ -101,9 +109,6 @@ export default function Probe2bPage() {
     if (data.video) return [data.video];
     return [];
   }, [data]);
-  const sessionGuideBrief = useMemo(() => (
-    sessionGuide ? buildSessionGuide({ condition: 'probe2b', projectStats: sessionGuide }) : null
-  ), [sessionGuide]);
 
   // Track play/pause state
   useEffect(() => {
@@ -462,8 +467,6 @@ export default function Probe2bPage() {
       <DecoupledRoleSelector
         condition="probe2b"
         accentColor={COLORS.green}
-        showOnboarding={showOnboarding}
-        onDismissOnboarding={() => setShowOnboarding(false)}
         onRoleSelect={handleRoleSelect}
       />
     );
@@ -477,8 +480,6 @@ export default function Probe2bPage() {
         accentColor={COLORS.green}
         role={role}
         modeLabel={modeLabel}
-        showOnboarding={showOnboarding}
-        onDismissOnboarding={() => setShowOnboarding(false)}
       />
     );
   }
@@ -488,6 +489,10 @@ export default function Probe2bPage() {
     const isCreator = role === 'creator';
     return (
       <div className="min-h-screen bg-white">
+        <OnboardingBrief
+          pageTitle="Probe 2b: Two Devices — Video Library"
+          description="This is the video library. The creator selects the clips to work on. Once imported, both devices will load the same footage. Browse the list and tap Import when ready."
+        />
         <ConditionHeader condition="probe2b" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
         <VideoLibrary
           videos={allVideos}
@@ -504,35 +509,108 @@ export default function Probe2bPage() {
   // Active Session
   return (
     <div className="min-h-screen bg-white">
-      {sessionGuideBrief && (
-        <OnboardingBrief
-          condition="probe2b"
-          guide={sessionGuideBrief}
-          onDismiss={() => setSessionGuide(null)}
-        />
-      )}
-      <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
-      <div className="p-3 max-w-lg mx-auto">
-        {role === 'creator' ? (
-          <DecoupledCreatorDevice
-            condition="probe2b"
-            accentColor={COLORS.green}
-            videoRef={playerRef}
-            videoData={projectData}
-            webrtcService={wsRelayService}
-            currentTime={currentTime}
-            duration={duration}
-            isPlaying={isPlaying}
-            currentSegment={currentSegment}
-            onTimeUpdate={handleTimeUpdate}
-            onSegmentChange={handleSegmentChange}
-            onSeek={handleSeek}
-            editState={editState}
-            onEditChange={handleEditChange}
-            initialSources={initialSources}
-            projectUpdate={projectUpdate}
+      {role === 'creator' ? (
+        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+          <OnboardingBrief
+            pageTitle="Probe 2b: Two Devices — Creator"
+            description="You and your helper each have a phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you can edit by yourself, ask AI to edit, or send a task to your helper's device without handing over. Activity indicators show what your helper is working on. All changes sync between phones automatically."
           />
-        ) : (
+          <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
+          <div aria-hidden="true" className="px-3 pt-3">
+            <VideoPlayer
+              ref={playerRef}
+              src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
+              segments={segments}
+              onTimeUpdate={handleTimeUpdate}
+              onSegmentChange={handleSegmentChange}
+              editState={editState}
+            />
+          </div>
+          <SceneBlockList
+            scenes={segments}
+            playerRef={playerRef}
+            currentTime={currentTime}
+            isPlaying={isPlaying}
+            onSeek={handleSeek}
+            onPlay={() => {
+              playerRef.current?.play();
+              wsRelayService.sendData({ type: 'PLAY', time: currentTime, actor: 'CREATOR' });
+            }}
+            onPause={() => {
+              playerRef.current?.pause();
+              wsRelayService.sendData({ type: 'PAUSE', time: currentTime, actor: 'CREATOR' });
+            }}
+            accentColor={COLORS.green}
+            videoCount={selectedVideos?.length || 1}
+            vqaHistories={vqaHistories}
+            awarenessData={awarenessData}
+            renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
+              <Probe2bSceneActions
+                scene={scene}
+                index={index}
+                playerRef={playerRef}
+                currentTime={ct}
+                isPlaying={ip}
+                onSeek={os}
+                onPlay={op}
+                onPause={opp}
+                currentLevel={currentLevel}
+                onLevelChange={onLevelChange}
+                onAskAI={async (question, s) => {
+                  setVqaHistories((prev) => ({
+                    ...prev,
+                    [s.id]: [...(prev[s.id] || []), { role: 'user', text: question }],
+                  }));
+                  const videoEl = playerRef.current?.video;
+                  if (videoEl) {
+                    try {
+                      const frame = captureFrame(videoEl);
+                      const answer = await askGemini(frame, question, { segmentDescription: s.descriptions?.level_1 || '' });
+                      setVqaHistories((prev) => ({
+                        ...prev,
+                        [s.id]: [...(prev[s.id] || []), { role: 'ai', text: answer, source: 'gemini' }],
+                      }));
+                      logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
+                      if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
+                    } catch { /* WoZ fallback */ }
+                  }
+                }}
+                onAskAIEdit={async (instruction, s) => {
+                  const prepared = s.ai_edits_prepared;
+                  if (prepared) {
+                    for (const [key, val] of Object.entries(prepared)) {
+                      if (instruction.toLowerCase().includes(key.replace('_', ' '))) {
+                        return { description: val.response || val.partial, operation: key, text: val.response };
+                      }
+                    }
+                  }
+                  return { description: `I can't do "${instruction}" directly. Send to helper?`, text: instruction };
+                }}
+                onSendToHelper={(task) => {
+                  wsRelayService.sendData({
+                    type: 'TASK_TO_HELPER',
+                    taskId: `task-${Date.now()}`,
+                    text: task.instruction,
+                    segment: task.segmentName,
+                    segmentId: task.segmentId,
+                    category: task.category,
+                    priority: task.priority,
+                    actor: 'CREATOR',
+                  });
+                }}
+                onEditSelf={(s, action) => {
+                  logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action, segmentId: s.id });
+                }}
+                isKept={keptScenes[scene.id] !== false}
+                onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
+                helperName="helper"
+                accentColor={COLORS.green}
+              />
+            )}
+          />
+        </div>
+      ) : (
+        <div className="p-3 max-w-lg mx-auto">
           <DecoupledHelperDevice
             condition="probe2b"
             accentColor={COLORS.green}
@@ -556,8 +634,8 @@ export default function Probe2bPage() {
             onAIUndo={handleAIUndo}
             peerEditNotification={peerEditNotification}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Researcher WoZ panels */}
       {isResearcher && (
