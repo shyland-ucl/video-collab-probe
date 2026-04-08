@@ -1,61 +1,22 @@
 import { useState, useRef, useCallback } from 'react';
 import { announce } from '../../utils/announcer.js';
-import { analyzeVideo } from '../../services/videoAnalysisService.js';
-
-/**
- * Extracts duration from a video file using a hidden video element.
- * Returns a Promise that resolves with the duration in seconds.
- */
-function getVideoDuration(file) {
-  return new Promise((resolve, reject) => {
-    const video = document.createElement('video');
-    video.preload = 'metadata';
-    video.onloadedmetadata = () => {
-      const duration = video.duration;
-      URL.revokeObjectURL(video.src);
-      resolve(isFinite(duration) ? duration : 0);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(video.src);
-      reject(new Error('Could not read video file'));
-    };
-    video.src = URL.createObjectURL(file);
-  });
-}
+import { uploadAndProcess } from '../../services/pipelineApi.js';
 
 let uploadCounter = 0;
-function generateVideoId() {
-  return `upload-${Date.now()}-${++uploadCounter}`;
-}
 
 /**
  * VideoUpload — lets participants upload video files from their phone.
- * After upload, sends frames to Gemini to generate 3-level scene descriptions.
+ * Uses the pipeline backend for FFmpeg segmentation + Gemini descriptions.
  *
  * Props:
  *   onUpload(videos)  — called with array of processed video objects
  *   disabled          — disables the upload button
  */
 export default function VideoUpload({ onUpload, disabled = false }) {
-  const [status, setStatus] = useState('idle'); // idle | processing | analyzing | done | error
+  const [status, setStatus] = useState('idle');
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState('');
   const fileInputRef = useRef(null);
-
-  const handleProgress = useCallback((stage, percent) => {
-    setProgress(percent);
-    if (stage === 'capturing') {
-      setStatus('processing');
-      setStatusText('Capturing video frames...');
-    } else if (stage === 'analyzing') {
-      setStatus('analyzing');
-      setStatusText('AI is analyzing scenes...');
-    } else if (stage === 'finalizing') {
-      setStatusText('Generating descriptions...');
-    } else if (stage === 'done') {
-      setStatus('done');
-    }
-  }, []);
 
   const handleFiles = useCallback(async (files) => {
     if (!files || files.length === 0) return;
@@ -73,51 +34,53 @@ export default function VideoUpload({ onUpload, disabled = false }) {
         continue;
       }
 
+      const title = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+
       try {
-        const objectUrl = URL.createObjectURL(file);
-        const duration = await getVideoDuration(file);
-        const id = generateVideoId();
-        const title = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+        setStatusText(`Uploading and segmenting "${title}"...`);
+        announce(`Processing video: ${title}. Segmenting and generating AI descriptions.`);
 
-        setStatusText(`Analyzing "${title}"...`);
-        announce(`Analyzing video: ${title}. AI is generating scene descriptions.`);
-
-        // Run Gemini analysis to get segments with 3-level descriptions
-        let segments;
-        try {
-          segments = await analyzeVideo(objectUrl, duration, id, title, handleProgress);
-          announce(`Finished analyzing ${title}. Found ${segments.length} scene${segments.length !== 1 ? 's' : ''}.`);
-        } catch (analysisErr) {
-          console.warn('AI analysis failed, using fallback:', analysisErr);
-          announce(`AI analysis unavailable for ${title}. Using basic description.`);
-          // Fallback: single segment with placeholder descriptions
-          segments = [{
-            id: `${id}-seg-1`,
-            start_time: 0,
-            end_time: duration,
-            name: title,
-            color: '#6366F1',
-            descriptions: {
-              level_1: 'AI description could not be generated.',
-              level_2: 'AI description could not be generated. Try asking a question about the scene using the Ask button.',
-              level_3: 'AI description could not be generated. The video was uploaded but the AI analysis service was unavailable. You can still use the Ask button to get live descriptions of individual frames.',
-            },
-          }];
-        }
-
-        processed.push({
-          id,
-          title,
-          src: objectUrl,
-          duration,
-          segments,
-          _uploaded: true,
-          _fileName: file.name,
-          _fileSize: file.size,
+        const video = await uploadAndProcess(file, 3, (stage, pct) => {
+          setProgress(pct);
+          if (stage === 'uploading') setStatusText(`Uploading and segmenting "${title}"...`);
+          else if (stage === 'generating') setStatusText(`Generating AI descriptions for "${title}"...`);
+          else if (stage === 'finalizing') setStatusText(`Finishing up "${title}"...`);
         });
+
+        announce(`Finished processing ${title}. Found ${video.segments.length} scene${video.segments.length !== 1 ? 's' : ''}.`);
+        processed.push(video);
       } catch (err) {
-        console.error('Failed to process video:', file.name, err);
-        announce(`Could not process ${file.name}.`);
+        console.error('Pipeline processing failed:', file.name, err);
+        announce(`Could not process ${file.name}: ${err.message}`);
+
+        // Fallback: create a basic video entry with object URL
+        try {
+          const objectUrl = URL.createObjectURL(file);
+          const duration = await getVideoDuration(file);
+          processed.push({
+            id: `upload-${Date.now()}-${++uploadCounter}`,
+            title,
+            src: objectUrl,
+            duration,
+            _uploaded: true,
+            _fileName: file.name,
+            _fileSize: file.size,
+            segments: [{
+              id: `fallback-seg-1`,
+              start_time: 0,
+              end_time: duration,
+              name: title,
+              color: '#6366F1',
+              descriptions: {
+                level_1: 'Pipeline processing failed. Use Ask AI to describe this scene.',
+                level_2: 'Pipeline processing failed. The video was uploaded but could not be segmented or described automatically. You can still use the Ask button to get live descriptions.',
+                level_3: 'Pipeline processing failed. The video was uploaded but the segmentation or description generation service encountered an error. You can use the Ask button for live frame descriptions.',
+              },
+            }],
+          });
+        } catch {
+          // Skip entirely
+        }
       }
     }
 
@@ -130,7 +93,7 @@ export default function VideoUpload({ onUpload, disabled = false }) {
     setStatus('idle');
     setProgress(0);
     setStatusText('');
-  }, [onUpload, handleProgress]);
+  }, [onUpload]);
 
   const handleInputChange = useCallback((e) => {
     handleFiles(Array.from(e.target.files));
@@ -169,7 +132,6 @@ export default function VideoUpload({ onUpload, disabled = false }) {
               </svg>
               {statusText}
             </span>
-            {/* Progress bar */}
             <div className="w-full bg-gray-200 rounded-full h-2" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
@@ -189,4 +151,21 @@ export default function VideoUpload({ onUpload, disabled = false }) {
       </button>
     </div>
   );
+}
+
+function getVideoDuration(file) {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const duration = video.duration;
+      URL.revokeObjectURL(video.src);
+      resolve(isFinite(duration) ? duration : 0);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(video.src);
+      reject(new Error('Could not read video file'));
+    };
+    video.src = URL.createObjectURL(file);
+  });
 }

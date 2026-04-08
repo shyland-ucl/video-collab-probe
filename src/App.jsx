@@ -9,6 +9,8 @@ import Probe2Page from './pages/Probe2Page.jsx'
 import Probe2bPage from './pages/Probe2bPage.jsx'
 import Probe3Page from './pages/Probe3Page.jsx'
 import ResearcherPage from './pages/ResearcherPage.jsx'
+import PipelineUploadPage from './pages/pipeline/PipelineUploadPage.jsx'
+import PipelineReviewPage from './pages/pipeline/PipelineReviewPage.jsx'
 
 const TEXT_SIZE_CLASSES = {
   small: 'text-sm',
@@ -56,6 +58,8 @@ function AppShell() {
           <Route path="/probe2b" element={<Probe2bPage />} />
           <Route path="/probe3" element={<Probe3Page />} />
           <Route path="/researcher" element={<ResearcherPage />} />
+          <Route path="/pipeline" element={<PipelineUploadPage />} />
+          <Route path="/pipeline/review/:projectId" element={<PipelineReviewPage />} />
         </Routes>
       </main>
     </div>

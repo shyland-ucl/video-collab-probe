@@ -7,6 +7,7 @@ import { wsRelayService } from '../services/wsRelayService.js';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
+import ResearcherMaterialsPanel from '../components/shared/ResearcherMaterialsPanel.jsx';
 import DataExportButton from '../components/shared/DataExportButton.jsx';
 
 const COLORS = {
@@ -19,6 +20,7 @@ const COLORS = {
 };
 
 const CONDITIONS = [
+  { key: 'materials', label: 'Materials', color: COLORS.amber },
   { key: 'probe1', label: 'Probe 1', color: COLORS.blue },
   { key: 'probe2a', label: 'Probe 2a', color: COLORS.green },
   { key: 'probe2b', label: 'Probe 2b', color: COLORS.green },
@@ -47,7 +49,7 @@ export default function ResearcherPage() {
 
   const [elapsed, setElapsed] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
-  const [selectedTab, setSelectedTab] = useState('probe1');
+  const [selectedTab, setSelectedTab] = useState('materials');
 
   // Probe 1 state
   const [data, setData] = useState(null);
@@ -303,7 +305,8 @@ export default function ResearcherPage() {
               </div>
 
               <div className="p-4" role="tabpanel">
-                {/* Condition start/end button */}
+                {/* Condition start/end button (not for Materials tab) */}
+                {selectedTab !== 'materials' && (
                 <div className="mb-4 flex items-center gap-3">
                   <button
                     onClick={() => handleConditionToggle(selectedTab)}
@@ -319,6 +322,12 @@ export default function ResearcherPage() {
                     <span className="text-xs text-green-600 font-medium">Condition is active</span>
                   )}
                 </div>
+                )}
+
+                {/* Materials tab */}
+                {selectedTab === 'materials' && (
+                  <ResearcherMaterialsPanel />
+                )}
 
                 {/* Probe 1 tab */}
                 {selectedTab === 'probe1' && (
