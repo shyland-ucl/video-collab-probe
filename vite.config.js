@@ -10,4 +10,7 @@ export default defineConfig({
     tailwindcss(),
     wsRelayPlugin(),
   ],
+  server: {
+    host: true, // expose on LAN (0.0.0.0)
+  },
 })
