@@ -8,9 +8,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev       # Start Vite dev server
 npm run build     # Production build (output: dist/)
 npm run preview   # Preview production build
+npm run pipeline  # Start footage pipeline server (port 3001)
 ```
 
 No test runner is configured. No linter is configured.
+
+### Footage Pipeline (pre-session video processing)
+
+```bash
+# Prerequisites: FFmpeg installed and on PATH, GEMINI_API_KEY set
+npm run pipeline                    # Start pipeline server on port 3001
+
+# CLI usage:
+node scripts/import_footage.js --file <path.mp4> --project-id <id> --segment-length 3
+node scripts/generate_descriptions.js --project-id <id>
+```
+
+**Environment variables:**
+- `GEMINI_API_KEY` — Required for description generation
+- `GEMINI_MODEL` — Optional (default: `gemini-2.5-pro`)
+- `FOOTAGE_WORKSPACE` — Optional (default: `./footage_workspace`)
+- `MAX_UPLOAD_SIZE_MB` — Optional (default: `500`)
+- `PIPELINE_PORT` — Optional (default: `3001`)
 
 ## Project Overview
 
@@ -27,7 +46,7 @@ The study has **three conditions** in fixed order:
 ## Architecture
 
 ### Routing (`App.jsx`)
-Five routes: `/` (session setup), `/probe1`, `/probe2`, `/probe3`, `/researcher`. Each condition route wraps its page in `StudyLayout` which provides the `ConditionNav` footer. The researcher route is a standalone dashboard.
+Five routes: `/` (session setup), `/probe1`, `/probe2`, `/probe3`, `/researcher`. Each condition route wraps its page in `StudyLayout` which provides the `ConditionNav` footer. The researcher route is a standalone dashboard. Pipeline routes: `/pipeline` (upload), `/pipeline/review/:projectId` (review/edit/generate/export).
 
 ### State Management (Contexts)
 - **EventLoggerContext** — Central event bus. Reducer-based (`LOG_EVENT`, `SET_CONDITION`, `CLEAR_EVENTS`, `RESET_SESSION`). Every user/system action is logged with timestamp, actor, event type, video time, and condition. This data drives the researcher dashboard and ZIP export.
@@ -47,6 +66,19 @@ src/components/
 - **wsRelayService.js** — WebSocket relay for Probe 3 dual-device sync.
 - **ttsService.js** — Web Speech API wrapper for reading descriptions aloud.
 - **dataExport.js** — Creates ZIP with per-condition event logs (uses `jszip` + `file-saver`).
+- **pipelineApi.js** — Client-side API wrapper for the pipeline backend (port 3001).
+
+### Pipeline Backend (`pipeline/`)
+Separate Express server for pre-session video processing:
+- **server.js** — Express app on port 3001
+- **routes/upload.js** — `POST /api/upload` (multipart, triggers FFmpeg segmentation)
+- **routes/projects.js** — `GET/PUT` project and segment CRUD
+- **routes/descriptions.js** — `POST` Gemini description generation, `PUT` manual edits
+- **routes/export.js** — `GET` export in probe app format
+- **services/segmentation.js** — FFmpeg video splitting + keyframe extraction
+- **services/geminiDescriptions.js** — Gemini API integration for 3-level descriptions
+- **services/projectStore.js** — project.json read/write
+- **prompts/description_generation.txt** — VideoA11y-adapted prompt (26 guidelines)
 
 ### Key Patterns
 - **VideoPlayer** uses `forwardRef` to expose `.play()`, `.pause()`, `.seek()`, `.getCurrentTime()` imperatively.

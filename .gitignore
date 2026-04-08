@@ -36,3 +36,6 @@ dist-ssr
 
 # Research documents
 *.docx
+
+# Footage pipeline workspace
+footage_workspace/

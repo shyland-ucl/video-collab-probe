@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
+import { loadPipelineVideos } from '../services/pipelineApi.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -35,19 +36,20 @@ export default function Probe1Page() {
   const [selectedVideos, setSelectedVideos] = useState(null);
   const [vqaHistories, setVqaHistories] = useState({});
 
+  const [pipelineVideos, setPipelineVideos] = useState([]);
+
   useEffect(() => {
     setCondition('probe1');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe1' });
     loadDescriptions().then(setData).catch(console.error);
+    loadPipelineVideos().then(setPipelineVideos).catch(() => {});
   }, [setCondition, logEvent]);
 
   const projectData = useMemo(() => {
-    if (selectedVideos && data) {
-      return {
-        videos: data.videos
-          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
-          : [data.video],
-      };
+    if (selectedVideos) {
+      // Use selectedVideos directly — they already contain segments + descriptions
+      // (works for both sample and pipeline videos)
+      return { videos: selectedVideos };
     }
     return data;
   }, [data, selectedVideos]);
@@ -61,10 +63,37 @@ export default function Probe1Page() {
     return projectData.video?.title || 'Untitled Video';
   }, [projectData]);
 
+  // Get dyad ID from session config for filtering assigned videos
+  const sessionDyadId = useMemo(() => {
+    try {
+      const stored = localStorage.getItem('sessionConfig');
+      return stored ? JSON.parse(stored).dyadId : null;
+    } catch { return null; }
+  }, []);
+
+  // Get researcher-assigned project IDs for this dyad
+  const assignedProjectIds = useMemo(() => {
+    try {
+      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+      return assignments[sessionDyadId] || [];
+    } catch { return []; }
+  }, [sessionDyadId]);
+
   const allVideos = useMemo(() => {
-    if (!data) return [];
-    return data.videos || (data.video ? [data.video] : []);
-  }, [data]);
+    const sampleVideos = data
+      ? (data.videos || (data.video ? [data.video] : []))
+      : [];
+
+    // If researcher has assigned specific videos to this dyad, filter pipeline videos
+    let filteredPipeline = pipelineVideos;
+    if (sessionDyadId && assignedProjectIds.length > 0) {
+      filteredPipeline = pipelineVideos.filter(
+        (v) => assignedProjectIds.includes(v._projectId) || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+      );
+    }
+
+    return [...filteredPipeline, ...sampleVideos];
+  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);

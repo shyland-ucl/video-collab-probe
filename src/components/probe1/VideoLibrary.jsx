@@ -9,6 +9,12 @@ const VIDEO_SUMMARIES = {
   'video-sample3': 'You open a backpack by a window, walk along a lake, then visit a gas station.',
 };
 
+function getPipelineSummary(video) {
+  const segCount = video.segments?.length || 0;
+  const hasDescs = video._status?.descriptions_generated;
+  return `Your uploaded footage. ${segCount} segments${hasDescs ? ' with AI descriptions' : ''}.`;
+}
+
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
@@ -113,8 +119,10 @@ export default function VideoLibrary({
       <div className="flex flex-col gap-3" role="listbox" aria-label="Available videos" aria-multiselectable="true">
         {allVideos.map((video) => {
           const isSelected = selected.has(video.id);
-          const summary = VIDEO_SUMMARIES[video.id] || (video._uploaded ? `Uploaded from your device (${(video._fileSize / (1024 * 1024)).toFixed(1)} MB)` : '');
-          const dateTaken = MOCK_DATES[video.id] || (video._uploaded ? 'Just now' : '');
+          const summary = video._pipeline
+            ? getPipelineSummary(video)
+            : VIDEO_SUMMARIES[video.id] || (video._uploaded ? `Uploaded from your device (${(video._fileSize / (1024 * 1024)).toFixed(1)} MB)` : '');
+          const dateTaken = MOCK_DATES[video.id] || (video._uploaded ? 'Just now' : (video._pipeline ? 'Pipeline' : ''));
           const durationText = formatDuration(video.duration);
 
           return (
@@ -162,7 +170,14 @@ export default function VideoLibrary({
                 )}
 
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 text-base">{video.title}</h3>
+                  <h3 className="font-semibold text-gray-900 text-base">
+                    {video.title}
+                    {video._pipeline && (
+                      <span className="ml-2 inline-block px-2 py-0.5 text-xs font-medium bg-purple-100 text-purple-700 rounded-full align-middle">
+                        Your Footage
+                      </span>
+                    )}
+                  </h3>
                   <p className="text-sm text-gray-600 mt-0.5 leading-snug">{summary}</p>
                   <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
                     <span>{durationText}</span>
