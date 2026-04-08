@@ -37,9 +37,14 @@ export default function useSpeechRecognition({
 
     recognition.onerror = (event) => {
       setIsListening(false);
-      if (event.error === 'not-allowed') {
-        announce('Microphone access denied. Please allow microphone permissions.');
-      }
+      const messages = {
+        'not-allowed': 'Microphone access denied. Please allow microphone permissions.',
+        'no-speech': 'No speech detected. Please try again.',
+        'audio-capture': 'No microphone found. Please check your audio device.',
+        'network': 'Network error during speech recognition. Please check your connection.',
+      };
+      const msg = messages[event.error];
+      if (msg) announce(msg);
     };
 
     recognition.onend = () => setIsListening(false);

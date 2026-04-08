@@ -22,7 +22,7 @@ export default function SuggestionHistory({ notedSuggestions = [], onClose }) {
           <button
             onClick={onClose}
             className="text-xs text-gray-500 hover:text-gray-700 focus:outline-2 focus:outline-blue-500"
-            style={{ minHeight: '32px', minWidth: '32px' }}
+            style={{ minHeight: '44px', minWidth: '44px' }}
             aria-label="Close suggestion history"
           >
             Close

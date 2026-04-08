@@ -26,6 +26,7 @@ export default function FlagButton({ segmentId, level }) {
     function handleKeyDown(e) {
       const tag = e.target.tagName.toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.target.isContentEditable || e.target.getAttribute('role') === 'textbox') return;
       if (e.key === 'f' || e.key === 'F') {
         handleToggle();
       }

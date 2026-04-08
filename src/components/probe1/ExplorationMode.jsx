@@ -95,6 +95,7 @@ export default function ExplorationMode({
   const hasAnnouncedSummary = useRef(false);
   const speakingTimerRef = useRef(null);
   const modalRef = useRef(null);
+  const preModalFocusRef = useRef(null);
   const descriptionRef = useRef(null);
   const { logEvent } = useEventLogger();
   const { textSize, audioEnabled, speechRate } = useAccessibility();
@@ -113,6 +114,9 @@ export default function ExplorationMode({
     }, 100);
     return () => {
       if (root) root.removeAttribute('inert');
+      // Restore focus to the element that triggered the modal
+      preModalFocusRef.current?.focus();
+      preModalFocusRef.current = null;
     };
   }, [isModalOpen]);
 
@@ -272,6 +276,7 @@ export default function ExplorationMode({
   }, [currentLevel, segment, announceDescription, logEvent]);
 
   const handleAskQuestion = useCallback(() => {
+    preModalFocusRef.current = document.activeElement;
     setShowVQA(true);
     announce('Ask a question about this scene.');
   }, []);
@@ -281,6 +286,7 @@ export default function ExplorationMode({
   }, [segment, onMark]);
 
   const handleEditOpen = useCallback(() => {
+    preModalFocusRef.current = document.activeElement;
     setShowEditPanel(true);
     announce('Edit panel opened.');
     onEdit?.(segment);  // pass segment so parent knows which clip
@@ -415,7 +421,8 @@ export default function ExplorationMode({
 
     function onKeyDown(e) {
       const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.target.isContentEditable || e.target.getAttribute('role') === 'textbox') return;
 
       switch (e.key) {
         case 'ArrowLeft':

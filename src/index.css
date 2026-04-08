@@ -23,6 +23,54 @@
   border-color: #FFFFFF !important;
 }
 
+/* Focus rings — cyan for visibility on dark backgrounds */
+.high-contrast *:focus {
+  outline-color: #00FFFF !important;
+}
+.high-contrast *:focus-visible {
+  outline: 2px solid #00FFFF !important;
+  outline-offset: 2px !important;
+}
+
+/* Override colored backgrounds */
+.high-contrast .bg-blue-50,
+.high-contrast .bg-blue-100,
+.high-contrast .bg-blue-500,
+.high-contrast .bg-blue-600,
+.high-contrast .bg-red-50,
+.high-contrast .bg-red-100,
+.high-contrast .bg-red-500,
+.high-contrast .bg-green-100,
+.high-contrast .bg-green-500,
+.high-contrast .bg-amber-100,
+.high-contrast .bg-amber-500,
+.high-contrast .bg-orange-100,
+.high-contrast .bg-purple-100 {
+  background-color: #000000 !important;
+  color: #FFFFFF !important;
+}
+
+/* Gray text → white */
+.high-contrast .text-gray-400,
+.high-contrast .text-gray-500,
+.high-contrast .text-gray-600,
+.high-contrast .text-gray-700,
+.high-contrast .text-gray-800 {
+  color: #FFFFFF !important;
+}
+
+/* Gray borders → white */
+.high-contrast .border-gray-100,
+.high-contrast .border-gray-200,
+.high-contrast .border-gray-300 {
+  border-color: #FFFFFF !important;
+}
+
+/* Dividers */
+.high-contrast .divide-gray-100 > * + * {
+  border-color: #FFFFFF !important;
+}
+
 /* Toast slide-down animation for peer edit notifications */
 @keyframes slideDown {
   from { opacity: 0; transform: translate(-50%, -100%); }
