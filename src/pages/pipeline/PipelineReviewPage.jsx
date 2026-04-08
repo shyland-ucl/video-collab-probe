@@ -216,8 +216,8 @@ export default function PipelineReviewPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || 'Project not found.'}</p>
-          <button onClick={() => navigate('/pipeline')} className="text-blue-600 underline">
-            Back to upload
+          <button onClick={() => navigate('/researcher')} className="text-blue-600 underline">
+            Back to dashboard
           </button>
         </div>
       </div>
@@ -231,8 +231,8 @@ export default function PipelineReviewPage() {
       {/* Header bar */}
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm px-6 py-3 flex items-center justify-between">
         <div>
-          <button onClick={() => navigate('/pipeline')} className="text-sm text-blue-600 hover:underline mr-4">
-            &larr; Back
+          <button onClick={() => navigate('/researcher')} className="text-sm text-blue-600 hover:underline mr-4">
+            &larr; Back to dashboard
           </button>
           <span className="font-bold text-gray-900">{projectId}</span>
           <span className="ml-3 text-sm text-gray-500">{segments.length} segments</span>

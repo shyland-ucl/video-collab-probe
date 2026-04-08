@@ -128,6 +128,10 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
   if (onProgress) onProgress('generating', 50);
   await generateDescriptions(projectId);
 
+  // Auto-save for probe
+  if (onProgress) onProgress('finalizing', 85);
+  try { await exportForProbe(projectId); } catch { /* non-critical */ }
+
   if (onProgress) onProgress('finalizing', 90);
   const project = await getProject(projectId);
 
@@ -138,9 +142,11 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
     '#337AB7', '#9B59B6', '#E67E22', '#1ABC9C', '#34495E',
   ];
 
+  const fallbackTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+
   return {
     id: `pipeline-${projectId}`,
-    title: file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
+    title: project.ai_title || fallbackTitle,
     src: `/pipeline-workspace/${projectId}/original/source.mp4`,
     duration: project.source.duration_seconds,
     _pipeline: true,
@@ -148,6 +154,10 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
     _uploaded: true,
     _fileName: file.name,
     _fileSize: file.size,
+    _summary: project.ai_summary || null,
+    _creationTime: project.source.creation_time || null,
+    _uploadedAt: project.uploaded_at || null,
+    _status: project.status,
     segments: project.segments.map((seg, i) => ({
       id: seg.id.replace('_', '-'),
       start_time: seg.start_seconds,
