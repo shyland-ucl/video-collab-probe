@@ -6,7 +6,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { createProject, readProject, writeProject, listProjects, deleteProject } from './pipeline/services/projectStore.js';
 import { getVideoMeta, segmentVideo, resegment } from './pipeline/services/segmentation.js';
-import { generateDescriptions } from './pipeline/services/geminiDescriptions.js';
+import { generateDescriptions, generateVideoMeta } from './pipeline/services/geminiDescriptions.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,11 +73,17 @@ export default function pipelinePlugin() {
       // ── Upload + segment ──
       app.post('/upload', upload.single('file'), async (req, res) => {
         try {
-          const { project_id, segment_length } = req.body;
+          // Auto-generate project ID from filename if not provided
+          let project_id = req.body.project_id;
           if (!project_id || !isValidProjectId(project_id)) {
-            return res.status(400).json({ error: 'Invalid project_id.' });
+            const baseName = (req.file?.originalname || 'video')
+              .replace(/\.[^/.]+$/, '')          // strip extension
+              .replace(/[^a-zA-Z0-9_-]/g, '_')  // sanitise
+              .replace(/_+/g, '_')               // collapse multiple underscores
+              .slice(0, 40);                     // limit length
+            project_id = `${baseName}_${Date.now().toString(36)}`;
           }
-          const segLen = parseInt(segment_length || '3', 10);
+          const segLen = parseInt(req.body.segment_length || '3', 10);
           if (segLen !== 3 && segLen !== 5) {
             return res.status(400).json({ error: 'segment_length must be 3 or 5.' });
           }
@@ -103,6 +109,9 @@ export default function pipelinePlugin() {
             fps: meta.fps,
             size_bytes: meta.size,
           });
+          // Store creation date and upload timestamp
+          project.source.creation_time = meta.creation_time || null;
+          project.uploaded_at = new Date().toISOString();
           project.status.uploaded = true;
           await writeProject(WORKSPACE, project_id, project);
 
@@ -218,6 +227,17 @@ export default function pipelinePlugin() {
           if (result.failed === 0 && project.status.reviewed) {
             project.status.ready_for_probe = true;
           }
+
+          // Generate AI title and summary from descriptions
+          try {
+            const videoMeta = await generateVideoMeta(project.segments);
+            project.ai_title = videoMeta.title;
+            project.ai_summary = videoMeta.summary;
+            console.log(`[pipeline] ${id}: AI title = "${videoMeta.title}"`);
+          } catch (metaErr) {
+            console.error(`[pipeline] ${id}: Failed to generate title/summary:`, metaErr.message);
+          }
+
           await writeProject(WORKSPACE, id, project);
           res.json(result);
         } catch (err) {
@@ -280,6 +300,11 @@ export default function pipelinePlugin() {
 
           const exportPath = path.join(WORKSPACE, id, 'export_for_probe.json');
           await fs.writeFile(exportPath, JSON.stringify(probeData, null, 2));
+
+          // Mark project as ready for probe
+          project.status.ready_for_probe = true;
+          await writeProject(WORKSPACE, id, project);
+
           res.json(probeData);
         } catch (err) {
           res.status(500).json({ error: err.message });

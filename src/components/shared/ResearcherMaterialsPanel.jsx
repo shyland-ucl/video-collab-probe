@@ -1,5 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { listProjects, generateDescriptions, deleteProject, getWorkspaceUrl } from '../../services/pipelineApi.js';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  listProjects,
+  uploadFootage,
+  generateDescriptions,
+  deleteProject,
+  exportForProbe,
+  getProject,
+} from '../../services/pipelineApi.js';
 
 const STATUS_LABELS = {
   uploaded: { label: 'Uploaded', color: 'bg-gray-200 text-gray-700' },
@@ -21,8 +28,20 @@ function saveAssignments(assignments) {
   localStorage.setItem('pipelineAssignments', JSON.stringify(assignments));
 }
 
+function formatDate(isoString) {
+  if (!isoString) return null;
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch {
+    return null;
+  }
+}
+
 /**
- * ResearcherMaterialsPanel — manage pipeline projects and assign to dyads.
+ * ResearcherMaterialsPanel — upload footage, manage projects, assign to dyads.
+ * Everything is inline — no separate pipeline pages needed.
  */
 export default function ResearcherMaterialsPanel() {
   const [projects, setProjects] = useState([]);
@@ -33,6 +52,12 @@ export default function ResearcherMaterialsPanel() {
   const [deleting, setDeleting] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [error, setError] = useState('');
+
+  // Upload state
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
+  const [segmentLength, setSegmentLength] = useState(3);
+  const fileInputRef = useRef(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -45,77 +70,139 @@ export default function ResearcherMaterialsPanel() {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
-
-  // Assign a project to a dyad
-  const handleAssign = useCallback((projectId, dyadId) => {
-    if (!dyadId.trim()) return;
-    const updated = { ...assignments };
-    if (!updated[dyadId]) updated[dyadId] = [];
-    if (!updated[dyadId].includes(projectId)) {
-      updated[dyadId].push(projectId);
-    }
-    setAssignments(updated);
-    saveAssignments(updated);
-    setAssigningDyad((prev) => ({ ...prev, [projectId]: '' }));
-  }, [assignments]);
-
-  // Remove assignment
-  const handleUnassign = useCallback((projectId, dyadId) => {
-    const updated = { ...assignments };
-    if (updated[dyadId]) {
-      updated[dyadId] = updated[dyadId].filter((id) => id !== projectId);
-      if (updated[dyadId].length === 0) delete updated[dyadId];
-    }
-    setAssignments(updated);
-    saveAssignments(updated);
-  }, [assignments]);
-
-  // Get dyads assigned to a project
-  const getDyadsForProject = useCallback((projectId) => {
-    const dyads = [];
-    for (const [dyadId, projectIds] of Object.entries(assignments)) {
-      if (projectIds.includes(projectId)) dyads.push(dyadId);
-    }
-    return dyads;
-  }, [assignments]);
-
-  // Generate descriptions for a project
-  const handleGenerate = useCallback(async (projectId) => {
-    setGenerating((prev) => ({ ...prev, [projectId]: true }));
-    setError('');
-    try {
-      await generateDescriptions(projectId);
-      await refresh();
-    } catch (err) {
-      setError(`${projectId}: ${err.message}`);
-    } finally {
-      setGenerating((prev) => ({ ...prev, [projectId]: false }));
-    }
+  useEffect(() => {
+    refresh();
   }, [refresh]);
 
-  // Delete a project
-  const handleDelete = useCallback(async (projectId) => {
-    setDeleting((prev) => ({ ...prev, [projectId]: true }));
-    setError('');
-    try {
-      await deleteProject(projectId);
-      // Remove from all dyad assignments
+  // ── Upload handler ──
+  const handleUpload = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      setUploading(true);
+      setUploadProgress('Uploading and segmenting...');
+      setError('');
+
+      try {
+        const result = await uploadFootage(file, segmentLength);
+        setUploadProgress(`Segmented into ${result.segments_count} segments. Generating descriptions...`);
+
+        try {
+          await generateDescriptions(result.project_id);
+          setUploadProgress('');
+
+          // Auto-save for probe
+          try {
+            await exportForProbe(result.project_id);
+          } catch {
+            /* non-critical */
+          }
+        } catch (descErr) {
+          setUploadProgress('');
+          setError(`Descriptions failed: ${descErr.message}. You can retry from the project card.`);
+        }
+
+        await refresh();
+      } catch (err) {
+        setError(`Upload failed: ${err.message}`);
+        setUploadProgress('');
+      } finally {
+        setUploading(false);
+        // Reset file input so the same file can be re-selected
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    },
+    [segmentLength, refresh]
+  );
+
+  // ── Assign / unassign ──
+  const handleAssign = useCallback(
+    (projectId, dyadId) => {
+      if (!dyadId.trim()) return;
       const updated = { ...assignments };
-      for (const dyadId of Object.keys(updated)) {
+      if (!updated[dyadId]) updated[dyadId] = [];
+      if (!updated[dyadId].includes(projectId)) {
+        updated[dyadId].push(projectId);
+      }
+      setAssignments(updated);
+      saveAssignments(updated);
+      setAssigningDyad((prev) => ({ ...prev, [projectId]: '' }));
+    },
+    [assignments]
+  );
+
+  const handleUnassign = useCallback(
+    (projectId, dyadId) => {
+      const updated = { ...assignments };
+      if (updated[dyadId]) {
         updated[dyadId] = updated[dyadId].filter((id) => id !== projectId);
         if (updated[dyadId].length === 0) delete updated[dyadId];
       }
       setAssignments(updated);
       saveAssignments(updated);
-      setConfirmDelete(null);
-      await refresh();
-    } catch (err) {
-      setError(`Delete ${projectId}: ${err.message}`);
-    } finally {
-      setDeleting((prev) => ({ ...prev, [projectId]: false }));
-    }
-  }, [assignments, refresh]);
+    },
+    [assignments]
+  );
+
+  const getDyadsForProject = useCallback(
+    (projectId) => {
+      const dyads = [];
+      for (const [dyadId, projectIds] of Object.entries(assignments)) {
+        if (projectIds.includes(projectId)) dyads.push(dyadId);
+      }
+      return dyads;
+    },
+    [assignments]
+  );
+
+  // ── Generate descriptions ──
+  const handleGenerate = useCallback(
+    async (projectId) => {
+      setGenerating((prev) => ({ ...prev, [projectId]: true }));
+      setError('');
+      try {
+        await generateDescriptions(projectId);
+        // Auto-save for probe after generating
+        try {
+          await exportForProbe(projectId);
+        } catch {
+          /* non-critical */
+        }
+        await refresh();
+      } catch (err) {
+        setError(`${projectId}: ${err.message}`);
+      } finally {
+        setGenerating((prev) => ({ ...prev, [projectId]: false }));
+      }
+    },
+    [refresh]
+  );
+
+  // ── Delete ──
+  const handleDelete = useCallback(
+    async (projectId) => {
+      setDeleting((prev) => ({ ...prev, [projectId]: true }));
+      setError('');
+      try {
+        await deleteProject(projectId);
+        const updated = { ...assignments };
+        for (const dyadId of Object.keys(updated)) {
+          updated[dyadId] = updated[dyadId].filter((id) => id !== projectId);
+          if (updated[dyadId].length === 0) delete updated[dyadId];
+        }
+        setAssignments(updated);
+        saveAssignments(updated);
+        setConfirmDelete(null);
+        await refresh();
+      } catch (err) {
+        setError(`Delete ${projectId}: ${err.message}`);
+      } finally {
+        setDeleting((prev) => ({ ...prev, [projectId]: false }));
+      }
+    },
+    [assignments, refresh]
+  );
 
   if (loading) {
     return <p className="text-sm text-gray-500 py-4">Loading projects...</p>;
@@ -123,36 +210,66 @@ export default function ResearcherMaterialsPanel() {
 
   return (
     <div className="space-y-4">
+      {/* ── Upload Section ── */}
+      <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-sm text-gray-900">Upload Footage</h3>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500">Segment length:</label>
+            <select
+              value={segmentLength}
+              onChange={(e) => setSegmentLength(Number(e.target.value))}
+              className="px-2 py-1 border rounded text-xs focus:outline-2 focus:outline-blue-500"
+              disabled={uploading}
+            >
+              <option value={3}>3 sec</option>
+              <option value={5}>5 sec</option>
+            </select>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          Upload an .mp4 video. It will be automatically segmented, described by AI, and made available for study sessions.
+        </p>
+        <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".mp4,video/mp4"
+            onChange={handleUpload}
+            disabled={uploading}
+            className="text-sm file:mr-3 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-purple-600 file:text-white hover:file:bg-purple-700 file:cursor-pointer file:disabled:opacity-50"
+          />
+          {uploading && (
+            <span className="text-xs text-purple-600 font-medium animate-pulse">{uploadProgress}</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Project List Header ── */}
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-sm text-gray-900">
           Footage Projects ({projects.length})
         </h3>
-        <div className="flex gap-2">
-          <button
-            onClick={refresh}
-            className="px-3 py-1.5 text-xs border rounded-md hover:bg-gray-50 transition-colors"
-          >
-            Refresh
-          </button>
-          <a
-            href="/pipeline"
-            className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
-          >
-            Upload New
-          </a>
-        </div>
+        <button
+          onClick={refresh}
+          className="px-3 py-1.5 text-xs border rounded-md hover:bg-gray-50 transition-colors"
+        >
+          Refresh
+        </button>
       </div>
 
       {error && (
         <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
           {error}
-          <button onClick={() => setError('')} className="ml-2 underline">dismiss</button>
+          <button onClick={() => setError('')} className="ml-2 underline">
+            dismiss
+          </button>
         </div>
       )}
 
       {projects.length === 0 ? (
-        <div className="py-8 text-center text-sm text-gray-400 border-2 border-dashed rounded-lg">
-          No footage projects yet. <a href="/pipeline" className="text-purple-600 underline">Upload footage</a> to get started.
+        <div className="py-6 text-center text-sm text-gray-400">
+          No footage yet. Upload a video above to get started.
         </div>
       ) : (
         <div className="space-y-3">
@@ -162,26 +279,28 @@ export default function ResearcherMaterialsPanel() {
             const isGenerating = generating[project.project_id];
             const hasDescriptions = project.status.descriptions_generated;
             const segCount = project.segments.length;
-            const descCount = project.segments.filter(
-              (s) => s.descriptions?.level_1
-            ).length;
+            const descCount = project.segments.filter((s) => s.descriptions?.level_1).length;
+            const displayTitle = project.ai_title || project.project_id.replace(/[_-]/g, ' ');
+            const displayDate =
+              formatDate(project.source?.creation_time) ||
+              formatDate(project.uploaded_at) ||
+              formatDate(project.created_at);
 
             return (
-              <div
-                key={project.project_id}
-                className="bg-white border rounded-lg p-4 space-y-3"
-              >
+              <div key={project.project_id} className="bg-white border rounded-lg p-4 space-y-3">
                 {/* Header */}
                 <div className="flex items-start justify-between">
                   <div>
-                    <h4 className="font-semibold text-sm text-gray-900">
-                      {project.project_id}
-                    </h4>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {project.source.duration_seconds?.toFixed(1)}s
-                      &middot; {segCount} segments
+                    <h4 className="font-semibold text-sm text-gray-900">{displayTitle}</h4>
+                    {project.ai_summary && (
+                      <p className="text-xs text-gray-600 mt-0.5 leading-snug">{project.ai_summary}</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {project.source.duration_seconds?.toFixed(1)}s &middot; {segCount} segments
                       {hasDescriptions && ` \u00b7 ${descCount}/${segCount} described`}
+                      {displayDate && ` \u00b7 ${displayDate}`}
                     </p>
+                    <p className="text-xs text-gray-400 font-mono">{project.project_id}</p>
                   </div>
                   <div className="flex gap-1 flex-wrap justify-end">
                     {Object.entries(STATUS_LABELS).map(([key, { label, color }]) => (

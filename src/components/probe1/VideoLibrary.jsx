@@ -10,9 +10,19 @@ const VIDEO_SUMMARIES = {
 };
 
 function getPipelineSummary(video) {
+  if (video._summary) return video._summary;
   const segCount = video.segments?.length || 0;
   const hasDescs = video._status?.descriptions_generated;
   return `Your uploaded footage. ${segCount} segments${hasDescs ? ' with AI descriptions' : ''}.`;
+}
+
+function formatDate(isoString) {
+  if (!isoString) return null;
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  } catch { return null; }
 }
 
 function formatDuration(seconds) {
@@ -122,7 +132,9 @@ export default function VideoLibrary({
           const summary = video._pipeline
             ? getPipelineSummary(video)
             : VIDEO_SUMMARIES[video.id] || (video._uploaded ? `Uploaded from your device (${(video._fileSize / (1024 * 1024)).toFixed(1)} MB)` : '');
-          const dateTaken = MOCK_DATES[video.id] || (video._uploaded ? 'Just now' : (video._pipeline ? 'Pipeline' : ''));
+          const dateTaken = MOCK_DATES[video.id]
+            || (video._pipeline && (formatDate(video._creationTime) || formatDate(video._uploadedAt)))
+            || (video._uploaded ? 'Just now' : '');
           const durationText = formatDuration(video.duration);
 
           return (

@@ -26,12 +26,17 @@ export async function getVideoMeta(filePath) {
   const [num, den] = fpsRatio.split('/').map(Number);
   const stat = await fs.stat(filePath);
 
+  // Try to extract creation date from metadata
+  const tags = info.format.tags || {};
+  const creationTime = tags.creation_time || tags.date || null;
+
   return {
     duration: parseFloat(info.format.duration),
     width: videoStream.width || 0,
     height: videoStream.height || 0,
     fps: Math.round(num / (den || 1)),
     size: stat.size,
+    creation_time: creationTime,
   };
 }
 

@@ -174,20 +174,19 @@ export default function PipelineReviewPage() {
     }
   }
 
-  // Export
-  async function handleExport() {
+  // Finalise — mark project as ready for probe (saves export data in project folder)
+  const [finalising, setFinalising] = useState(false);
+  async function handleFinalise() {
+    setFinalising(true);
+    setError('');
     try {
-      const data = await exportForProbe(projectId);
-      // Download as file
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${projectId}_probe_export.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await exportForProbe(projectId);
+      const updated = await getProject(projectId);
+      setProject(updated);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setFinalising(false);
     }
   }
 
@@ -265,13 +264,19 @@ export default function PipelineReviewPage() {
             {generating ? 'Generating...' : 'Generate Descriptions'}
           </button>
 
-          {project.status.descriptions_generated && (
+          {project.status.descriptions_generated && !project.status.ready_for_probe && (
             <button
-              onClick={handleExport}
-              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
+              onClick={handleFinalise}
+              disabled={finalising}
+              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 disabled:opacity-50"
             >
-              Export for Probe
+              {finalising ? 'Saving...' : 'Save for Study'}
             </button>
+          )}
+          {project.status.ready_for_probe && (
+            <span className="px-4 py-2 bg-green-100 text-green-700 text-sm rounded-md font-medium">
+              Ready for Study
+            </span>
           )}
         </div>
       </div>
