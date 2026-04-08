@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useCallback, useRef } from 'react';
+import { createContext, useContext, useReducer, useCallback, useRef, useMemo } from 'react';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 
 const EventLoggerContext = createContext(null);
@@ -27,18 +27,22 @@ function reducer(state, action) {
 export function EventLoggerProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const videoTimeRef = useRef(0);
+  const sessionStartRef = useRef(state.sessionStart);
+  const conditionRef = useRef(state.currentCondition);
+  sessionStartRef.current = state.sessionStart;
+  conditionRef.current = state.currentCondition;
 
   const logEvent = useCallback((eventType, actor, data = {}) => {
     const event = {
-      timestamp: Date.now() - state.sessionStart,
+      timestamp: Date.now() - sessionStartRef.current,
       eventType,
       actor,
       data,
       videoTimestamp: videoTimeRef.current,
-      condition: state.currentCondition,
+      condition: conditionRef.current,
     };
     dispatch({ type: 'LOG_EVENT', payload: event });
-  }, [state.sessionStart, state.currentCondition]);
+  }, []);
 
   const setCondition = useCallback((condition) => {
     dispatch({ type: 'SET_CONDITION', payload: condition });
@@ -57,7 +61,7 @@ export function EventLoggerProvider({ children }) {
     dispatch({ type: 'CLEAR_EVENTS' });
   }, []);
 
-  const value = {
+  const value = useMemo(() => ({
     events: state.events,
     currentCondition: state.currentCondition,
     sessionStart: state.sessionStart,
@@ -66,7 +70,7 @@ export function EventLoggerProvider({ children }) {
     setVideoTime,
     getEvents,
     clearEvents,
-  };
+  }), [state.events, state.currentCondition, state.sessionStart, logEvent, setCondition, setVideoTime, getEvents, clearEvents]);
 
   return (
     <EventLoggerContext.Provider value={value}>

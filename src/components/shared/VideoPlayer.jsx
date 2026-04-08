@@ -160,64 +160,8 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
     }
   }, []);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    function handleKeyDown(e) {
-      const tag = e.target.tagName.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-
-      // For single-source, use singleVideoRef; for multi-source, check any video
-      const video = singleVideoRef.current;
-      const hasVideo = video || (hasMultiSource && sources.length > 0);
-      if (!hasVideo) return;
-
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault();
-          if (isEngineActive) {
-            // Check if any video is playing
-            const activeVideo = hasMultiSource && engine.activeSourceId
-              ? videoRefs[engine.activeSourceId]?.current
-              : video;
-            if (activeVideo?.paused) {
-              engine.play();
-            } else {
-              engine.pause();
-            }
-          } else {
-            if (video?.paused) {
-              video.play();
-            } else {
-              video?.pause();
-            }
-          }
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          if (isEngineActive) {
-            engine.seekEdl(Math.max(0, engine.edlTime - 5));
-          } else if (video) {
-            video.currentTime = Math.max(0, video.currentTime - 5);
-          }
-          logEvent(EventTypes.SEEK, Actors.CREATOR, { time: isEngineActive ? engine.edlTime : video?.currentTime, method: 'keyboard' });
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          if (isEngineActive) {
-            engine.seekEdl(Math.min(engine.totalDuration, engine.edlTime + 5));
-          } else if (video) {
-            video.currentTime = Math.min(video.duration || 0, video.currentTime + 5);
-          }
-          logEvent(EventTypes.SEEK, Actors.CREATOR, { time: isEngineActive ? engine.edlTime : video?.currentTime, method: 'keyboard' });
-          break;
-        default:
-          break;
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [logEvent, isEngineActive, engine, hasMultiSource, sources, videoRefs]);
+  // Keyboard shortcuts removed — SceneBlockList handles Space (play/pause)
+  // and the VideoPlayer is aria-hidden on creator pages.
 
   // Caption font size based on accessibility settings
   const captionFontSize = a11y.textSize === 'large' ? '1.25rem' : a11y.textSize === 'small' ? '0.75rem' : '1rem';

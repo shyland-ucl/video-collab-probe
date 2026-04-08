@@ -7,6 +7,8 @@ import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
+import MockColourControls from '../shared/MockColourControls.jsx';
+import MockFramingControls from '../shared/MockFramingControls.jsx';
 import TaskQueue from './TaskQueue.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
@@ -109,10 +111,35 @@ export default function HelperMode({
             style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '44px' }}
             aria-label="Return device to creator"
           >
-            ↩ Return Device
+            <span aria-hidden="true">↩ </span>Return Device
           </button>
         </div>
       </div>
+
+      {/* Creator Intent Banner — shows most recent unfinished task */}
+      {tasks && tasks.length > 0 && (() => {
+        const activeTask = [...tasks].reverse().find((t) => !t.status || t.status === 'pending');
+        if (!activeTask) return null;
+        return (
+          <div
+            role="region"
+            aria-label="Creator's current request"
+            className="rounded-xl px-4 py-3 mb-4 border-l-4"
+            style={{ borderColor: '#E67E22', backgroundColor: '#FFF8F1' }}
+          >
+            <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-1">Creator's Intent</p>
+            <p className="text-sm text-gray-800 font-medium">{activeTask.instruction || activeTask.segmentName || 'Task from creator'}</p>
+            {activeTask.category && (
+              <div className="flex gap-2 mt-1">
+                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">{activeTask.category}</span>
+                {activeTask.priority && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{activeTask.priority}</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Task Queue Card */}
       {handoverMode === 'tasks' && tasks && tasks.length > 0 && (
@@ -123,9 +150,9 @@ export default function HelperMode({
           style={{ border: '1px solid rgba(230,126,34,0.2)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
         >
           <div className="px-4 py-2.5" style={{ background: '#fff8f1', borderBottom: '1px solid #fde8d0' }}>
-            <span className="text-xs font-bold tracking-wider text-[#c2410c] uppercase">
+            <h2 className="text-xs font-bold tracking-wider text-[#c2410c] uppercase">
               Creator's Tasks ({tasks.length})
-            </span>
+            </h2>
           </div>
           <div className="p-4 bg-white">
             <TaskQueue
@@ -146,7 +173,7 @@ export default function HelperMode({
           style={{ border: '1px solid rgba(43,87,154,0.15)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
         >
           <div className="px-4 py-2.5" style={{ background: '#f0f6ff', borderBottom: '1px solid #dbe9fe' }}>
-            <span className="text-xs font-bold tracking-wider text-[#2B579A] uppercase">Live Collaboration</span>
+            <h2 className="text-xs font-bold tracking-wider text-[#2B579A] uppercase">Live Collaboration</h2>
           </div>
           <div className="p-4 bg-white">
             <div className="flex items-center gap-2.5">
@@ -162,7 +189,7 @@ export default function HelperMode({
       {/* Video Editor Card */}
       <div role="region" aria-label="Video editor" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
         <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
-          <span className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</span>
+          <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</h2>
         </div>
         <div className="flex flex-col">
           <div className="relative">
@@ -214,6 +241,22 @@ export default function HelperMode({
         />
       )}
 
+      {/* Colour & Framing Controls */}
+      <div
+        role="region"
+        aria-label="Visual adjustments"
+        className="rounded-2xl overflow-hidden mt-4 mb-4"
+        style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+      >
+        <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
+          <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Visual Adjustments</h2>
+        </div>
+        <div className="p-4 bg-white space-y-4">
+          <MockColourControls />
+          <MockFramingControls />
+        </div>
+      </div>
+
       {/* Return Device Modal */}
       {showReturnModal && (
         <div
@@ -227,6 +270,19 @@ export default function HelperMode({
               e.preventDefault();
               setShowReturnModal(false);
               setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
+            }
+            if (e.key === 'Tab') {
+              const focusable = e.currentTarget.querySelectorAll('textarea, button, [tabindex]:not([tabindex="-1"])');
+              if (focusable.length === 0) return;
+              const first = focusable[0];
+              const last = focusable[focusable.length - 1];
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+              }
             }
           }}
         >

@@ -2,21 +2,24 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
+import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
-import { buildProjectStats, buildSessionGuide, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { captureFrame, askGemini } from '../services/geminiService.js';
+import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
+import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
-import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
-import CreatorDevice from '../components/probe3/CreatorDevice.jsx';
+import SceneBlockList from '../components/shared/SceneBlockList.jsx';
+import Probe3SceneActions from '../components/probe3/Probe3SceneActions.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
+import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
-import SuggestionCard from '../components/probe3/SuggestionCard.jsx';
-import SuggestionHistory from '../components/probe3/SuggestionHistory.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
 
@@ -35,7 +38,6 @@ export default function Probe3Page() {
 
   const [phase, setPhase] = useState(validRoleParam ? 'waiting' : 'roleSelect');
   const [role, setRole] = useState(validRoleParam || null);
-  const [showOnboarding, setShowOnboarding] = useState(true);
   const [sessionGuide, setSessionGuide] = useState(null);
 
   // Video state
@@ -57,6 +59,10 @@ export default function Probe3Page() {
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
+  const [vqaHistories, setVqaHistories] = useState({});
+  const [awarenessData, setAwarenessData] = useState({});
+  const [keptScenes, setKeptScenes] = useState({});
+  const { audioEnabled, speechRate } = useAccessibility();
 
   // Suggestion system state
   const [activeSuggestion, setActiveSuggestion] = useState(null);
@@ -108,9 +114,6 @@ export default function Probe3Page() {
     if (data.video) return [data.video];
     return [];
   }, [data]);
-  const sessionGuideBrief = useMemo(() => (
-    sessionGuide ? buildSessionGuide({ condition: 'probe3', projectStats: sessionGuide }) : null
-  ), [sessionGuide]);
 
   useEffect(() => {
     if (phase !== 'active') return;
@@ -607,8 +610,6 @@ export default function Probe3Page() {
       <DecoupledRoleSelector
         condition="probe3"
         accentColor={COLORS.purple}
-        showOnboarding={showOnboarding}
-        onDismissOnboarding={() => setShowOnboarding(false)}
         onRoleSelect={handleRoleSelect}
       />
     );
@@ -622,8 +623,6 @@ export default function Probe3Page() {
         accentColor={COLORS.purple}
         role={role}
         modeLabel={modeLabel}
-        showOnboarding={showOnboarding}
-        onDismissOnboarding={() => setShowOnboarding(false)}
       />
     );
   }
@@ -633,6 +632,10 @@ export default function Probe3Page() {
     const isCreator = role === 'creator';
     return (
       <div className="min-h-screen bg-white">
+        <OnboardingBrief
+          pageTitle="Probe 3: Proactive AI — Video Library"
+          description="This is the video library. The creator selects the clips to work on. Once imported, both devices will load the same footage. Browse the list and tap Import when ready."
+        />
         <ConditionHeader condition="probe3" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
         <VideoLibrary
           videos={allVideos}
@@ -649,67 +652,132 @@ export default function Probe3Page() {
   // Active Session
   return (
     <div className="min-h-screen bg-white">
-      {sessionGuideBrief && (
-        <OnboardingBrief
-          condition="probe3"
-          guide={sessionGuideBrief}
-          onDismiss={() => setSessionGuide(null)}
-        />
-      )}
-      <ConditionHeader condition="probe3" modeLabel={modeLabel} />
-
-      <div className="p-3 max-w-lg mx-auto">
-        {role === 'creator' ? (
-          <CreatorDevice
-            videoRef={playerRef}
-            videoData={projectData}
-            webrtcService={wsRelayService}
+      {role === 'creator' ? (
+        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+          <OnboardingBrief
+            pageTitle="Probe 3: Proactive AI — Creator"
+            description="This works like the previous two-phone setup, but now AI will suggest improvements inside relevant scenes as you edit. When a suggestion appears, you must choose who handles it: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
+          />
+          <ConditionHeader condition="probe3" modeLabel={modeLabel} />
+          <div aria-hidden="true" className="px-3 pt-3">
+            <VideoPlayer
+              ref={playerRef}
+              src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
+              segments={segments}
+              onTimeUpdate={handleTimeUpdate}
+              onSegmentChange={handleSegmentChange}
+              editState={editState}
+            />
+          </div>
+          <SceneBlockList
+            scenes={segments}
+            playerRef={playerRef}
             currentTime={currentTime}
-            duration={duration}
             isPlaying={isPlaying}
-            currentSegment={currentSegment}
-            onTimeUpdate={handleTimeUpdate}
-            onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
-            editState={editState}
-            onEditChange={handleEditChange}
-            initialSources={initialSources}
-            projectUpdate={projectUpdate}
-          >
-            {/* Suggestion UI injected into Creator Device */}
-            {activeSuggestion && (
-              <div className="mt-3">
-                <SuggestionCard
-                  suggestion={activeSuggestion}
-                  onDismiss={handleSuggestionDismiss}
-                  onNote={handleSuggestionNote}
-                  onRouteToHelper={handleSuggestionRouteToHelper}
-                />
-              </div>
-            )}
-
-            {/* Suggestion history toggle */}
-            {notedSuggestions.length > 0 && (
-              <div className="mt-2">
-                {showSuggestionHistory ? (
-                  <SuggestionHistory
-                    notedSuggestions={notedSuggestions}
-                    onClose={() => setShowSuggestionHistory(false)}
-                  />
-                ) : (
-                  <button
-                    onClick={() => setShowSuggestionHistory(true)}
-                    className="w-full py-2 rounded-xl text-sm font-medium text-[#2B579A] bg-[#EBF5FB] hover:bg-[#D6EAF8] transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                    style={{ minHeight: '44px' }}
-                    aria-label={`View ${notedSuggestions.length} saved suggestions`}
-                  >
-                    Saved Suggestions ({notedSuggestions.length})
-                  </button>
+            onPlay={() => {
+              playerRef.current?.play();
+              wsRelayService.sendData({ type: 'PLAY', time: currentTime, actor: 'CREATOR' });
+            }}
+            onPause={() => {
+              playerRef.current?.pause();
+              wsRelayService.sendData({ type: 'PAUSE', time: currentTime, actor: 'CREATOR' });
+            }}
+            accentColor={COLORS.purple}
+            videoCount={selectedVideos?.length || 1}
+            vqaHistories={vqaHistories}
+            awarenessData={awarenessData}
+            renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
+              <Probe3SceneActions
+                scene={scene}
+                index={index}
+                playerRef={playerRef}
+                currentTime={ct}
+                isPlaying={ip}
+                onSeek={os}
+                onPlay={op}
+                onPause={opp}
+                currentLevel={currentLevel}
+                onLevelChange={onLevelChange}
+                suggestions={videoSuggestions.filter(
+                  (s) => deployedSuggestions[s.id] && !deployedSuggestions[s.id].response
                 )}
-              </div>
+                helperName="helper"
+                onSuggestionRoute={(suggestion, channel) => {
+                  const timeToRespond = Date.now() - (suggestionDeployTimeRef.current[suggestion.id] || Date.now());
+                  if (channel === 'self') {
+                    logEvent(EventTypes.SUGGESTION_ROUTE_SELF, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
+                    setNotedSuggestions((prev) => [...prev, suggestion]);
+                  } else if (channel === 'ai') {
+                    logEvent(EventTypes.SUGGESTION_ROUTE_AI, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
+                  } else if (channel === 'helper') {
+                    logEvent(EventTypes.SUGGESTION_ROUTED, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
+                    wsRelayService.sendData({ type: 'SUGGESTION_ROUTED_TO_HELPER', suggestion, actor: 'CREATOR' });
+                    setNotedSuggestions((prev) => [...prev, { ...suggestion, routedToHelper: true }]);
+                  }
+                  setDeployedSuggestions((prev) => ({
+                    ...prev,
+                    [suggestion.id]: { ...prev[suggestion.id], response: channel },
+                  }));
+                  setActiveSuggestion(null);
+                }}
+                onSuggestionDismiss={(suggestion) => {
+                  handleSuggestionDismiss();
+                }}
+                onAskAI={async (question, s) => {
+                  setVqaHistories((prev) => ({
+                    ...prev,
+                    [s.id]: [...(prev[s.id] || []), { role: 'user', text: question }],
+                  }));
+                  const videoEl = playerRef.current?.video;
+                  if (videoEl) {
+                    try {
+                      const frame = captureFrame(videoEl);
+                      const answer = await askGemini(frame, question, { segmentDescription: s.descriptions?.level_1 || '' });
+                      setVqaHistories((prev) => ({
+                        ...prev,
+                        [s.id]: [...(prev[s.id] || []), { role: 'ai', text: answer, source: 'gemini' }],
+                      }));
+                      logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
+                      if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
+                    } catch { /* WoZ fallback */ }
+                  }
+                }}
+                onAskAIEdit={async (instruction, s) => {
+                  const prepared = s.ai_edits_prepared;
+                  if (prepared) {
+                    for (const [key, val] of Object.entries(prepared)) {
+                      if (instruction.toLowerCase().includes(key.replace('_', ' '))) {
+                        return { description: val.response || val.partial, operation: key, text: val.response };
+                      }
+                    }
+                  }
+                  return { description: `I can't do "${instruction}" directly. Send to helper?`, text: instruction };
+                }}
+                onSendToHelper={(task) => {
+                  wsRelayService.sendData({
+                    type: 'TASK_TO_HELPER',
+                    taskId: `task-${Date.now()}`,
+                    text: task.instruction,
+                    segment: task.segmentName,
+                    segmentId: task.segmentId,
+                    category: task.category,
+                    priority: task.priority,
+                    actor: 'CREATOR',
+                  });
+                }}
+                onEditSelf={(s, action) => {
+                  logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action, segmentId: s.id });
+                }}
+                isKept={keptScenes[scene.id] !== false}
+                onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
+                accentColor={COLORS.purple}
+              />
             )}
-          </CreatorDevice>
-        ) : (
+          />
+        </div>
+      ) : (
+        <div className="p-3 max-w-lg mx-auto">
           <HelperDevice
             videoRef={playerRef}
             videoData={projectData}
@@ -732,8 +800,8 @@ export default function Probe3Page() {
             peerEditNotification={peerEditNotification}
             onSuggestionResponse={handleHelperSuggestionResponse}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Researcher WoZ panels */}
       {isResearcher && (

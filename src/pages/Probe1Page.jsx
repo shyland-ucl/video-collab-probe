@@ -2,36 +2,38 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
+import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
-import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { captureFrame, askGemini } from '../services/geminiService.js';
+import ttsService from '../services/ttsService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
-import ExplorationMode from '../components/probe1/ExplorationMode.jsx';
+import SceneBlockList from '../components/shared/SceneBlockList.jsx';
+import Probe1SceneActions from '../components/probe1/Probe1SceneActions.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 
 export default function Probe1Page() {
   const { setCondition, logEvent } = useEventLogger();
+  const { audioEnabled, speechRate } = useAccessibility();
   const playerRef = useRef(null);
   const [searchParams] = useSearchParams();
   const isResearcher = searchParams.get('mode') === 'researcher';
 
   const [data, setData] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
-  const [showOnboarding, setShowOnboarding] = useState(true);
-  const [editingGuide, setEditingGuide] = useState(null);
 
   // Phase: 'library' → 'exploring'
   const [phase, setPhase] = useState('library');
   const [selectedVideos, setSelectedVideos] = useState(null);
-  const [marks, setMarks] = useState([]);
+  const [vqaHistories, setVqaHistories] = useState({});
 
   useEffect(() => {
     setCondition('probe1');
@@ -39,10 +41,8 @@ export default function Probe1Page() {
     loadDescriptions().then(setData).catch(console.error);
   }, [setCondition, logEvent]);
 
-  // Build segments/sources from selected videos or full data
   const projectData = useMemo(() => {
     if (selectedVideos && data) {
-      // Build a filtered data object with only selected videos
       return {
         videos: data.videos
           ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
@@ -54,163 +54,137 @@ export default function Probe1Page() {
 
   const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
   const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
-  const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
 
   const projectTitle = useMemo(() => {
     if (!projectData) return 'Untitled Video';
-    if (projectData.videos && projectData.videos.length > 0) {
-      return projectData.videos.map((v) => v.title).join(' + ');
-    }
+    if (projectData.videos?.length > 0) return projectData.videos.map((v) => v.title).join(' + ');
     return projectData.video?.title || 'Untitled Video';
   }, [projectData]);
 
-  // All videos for the library
   const allVideos = useMemo(() => {
     if (!data) return [];
-    if (data.videos) return data.videos;
-    if (data.video) return [data.video];
-    return [];
+    return data.videos || (data.video ? [data.video] : []);
   }, [data]);
 
-  const handleTimeUpdate = useCallback((time) => {
-    setCurrentTime(time);
-  }, []);
-
-  const handleSegmentChange = useCallback((seg) => {
-    setCurrentSegment(seg);
-  }, []);
-
-  const handleSeek = useCallback((time) => {
-    playerRef.current?.seek(time);
-  }, []);
+  const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
+  const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
+  const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
+  const handlePlay = useCallback(() => playerRef.current?.play(), []);
+  const handlePause = useCallback(() => playerRef.current?.pause(), []);
 
   const handleImport = useCallback((videos) => {
     setSelectedVideos(videos);
-    // Seed editState with sources and clips so VideoPlayer loads all videos immediately
-    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16'];
+    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899'];
     const sources = [];
     const clips = [];
-    const clipDurations = [];
     videos.forEach((v, srcIdx) => {
       const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
-      sources.push({
-        id: v.id,
-        name: v.title || v.src?.split('/').pop() || 'Untitled',
-        src: v.src,
-        duration: v.duration,
-      });
+      sources.push({ id: v.id, name: v.title || 'Untitled', src: v.src, duration: v.duration });
       const segs = v.segments || [];
       if (segs.length > 0) {
         segs.forEach((seg) => {
-          const segmentDuration = (seg.end_time || 0) - (seg.start_time || 0);
-          if (segmentDuration > 0) {
-            clipDurations.push(segmentDuration);
-          }
           clips.push({
-            id: seg.id,
-            sourceId: v.id,
-            name: seg.name,
-            startTime: seg.start_time,
-            endTime: seg.end_time,
-            color: seg.color || color,
-            trimStart: 0,
-            trimEnd: 0,
+            id: seg.id, sourceId: v.id, name: seg.name,
+            startTime: seg.start_time, endTime: seg.end_time,
+            color: seg.color || color, trimStart: 0, trimEnd: 0,
           });
         });
       } else {
-        const videoDuration = v.duration || 0;
-        if (videoDuration > 0) {
-          clipDurations.push(videoDuration);
-        }
         clips.push({
-          id: `clip-${v.id}`,
-          sourceId: v.id,
-          name: v.title || 'Untitled',
-          startTime: 0,
-          endTime: v.duration || 0,
-          color,
-          trimStart: 0,
-          trimEnd: 0,
+          id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+          startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
         });
       }
     });
-
-    const totalDuration = videos.reduce((sum, video) => sum + (video.duration || 0), 0);
-    const firstClipDuration = clipDurations[0] ?? null;
-    const clipLengthSeconds = firstClipDuration && clipDurations.every((clipDuration) => Math.abs(clipDuration - firstClipDuration) < 0.01)
-      ? Math.round(firstClipDuration)
-      : null;
-
     setEditState({ clips, captions: [], sources });
-    setEditingGuide({
-      videoCount: videos.length,
-      totalDuration,
-      clipCount: clips.length,
-      clipLengthSeconds,
-    });
     setPhase('exploring');
-    logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, {
-      videoIds: videos.map((v) => v.id),
-      count: videos.length,
-    });
-    announce('Project created. Opening editing guide.');
+    logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, { videoIds: videos.map((v) => v.id), count: videos.length });
+    announce('Project created. Explore scenes below.');
   }, [logEvent]);
 
-  const handleMark = useCallback((segmentId, segmentName) => {
-    setMarks((prev) => {
-      if (prev.some((m) => m.segmentId === segmentId)) {
-        announce(`Mark removed from ${segmentName}`);
-        return prev.filter((m) => m.segmentId !== segmentId);
+  // VQA handler — Gemini + WoZ override
+  const answeredRef = useRef(false);
+  useEffect(() => {
+    window.__vqaReceiveAnswer = (answer) => {
+      if (answeredRef.current) return;
+      answeredRef.current = true;
+      // Find which scene is expanded — append to its VQA history
+      if (currentSegment) {
+        setVqaHistories((prev) => ({
+          ...prev,
+          [currentSegment.id]: [...(prev[currentSegment.id] || []), { role: 'ai', text: answer, source: 'researcher' }],
+        }));
       }
-      announce(`Marked ${segmentName}`);
-      return [...prev, { segmentId, segmentName, timestamp: Date.now() }];
-    });
-  }, []);
+      logEvent(EventTypes.VQA_ANSWER, Actors.RESEARCHER, { answer, source: 'researcher_override' });
+      if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
+    };
+    return () => { delete window.__vqaReceiveAnswer; };
+  }, [currentSegment, logEvent, audioEnabled, speechRate]);
 
-  // Track play/pause state and duration from video element
+  const handleAskAI = useCallback(async (question, scene) => {
+    answeredRef.current = false;
+    setPendingQuestion(question);
+    // Add user question to VQA history
+    setVqaHistories((prev) => ({
+      ...prev,
+      [scene.id]: [...(prev[scene.id] || []), { role: 'user', text: question }],
+    }));
+
+    // Try Gemini
+    const videoEl = playerRef.current?.video;
+    if (videoEl) {
+      try {
+        const frame = captureFrame(videoEl);
+        const segDesc = scene.descriptions?.level_1 || '';
+        const answer = await askGemini(frame, question, { segmentDescription: segDesc });
+        if (!answeredRef.current) {
+          answeredRef.current = true;
+          setVqaHistories((prev) => ({
+            ...prev,
+            [scene.id]: [...(prev[scene.id] || []), { role: 'ai', text: answer, source: 'gemini' }],
+          }));
+          logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
+          if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
+        }
+      } catch {
+        // Fall back to WoZ
+      }
+    }
+    setPendingQuestion(null);
+  }, [logEvent, audioEnabled, speechRate]);
+
+  // Track play/pause state
   useEffect(() => {
     if (phase !== 'exploring') return;
     const interval = setInterval(() => {
-      const player = playerRef.current;
-      if (!player) return;
-      const video = player.video;
-      if (video) {
-        setIsPlaying(!video.paused);
-      }
-      const edlDur = player.edlDuration;
-      if (edlDur && edlDur > 0) {
-        setDuration(edlDur);
-      } else if (video?.duration && isFinite(video.duration)) {
-        setDuration(video.duration);
-      } else if (videoDuration) {
-        setDuration(videoDuration);
-      }
+      const video = playerRef.current?.video;
+      if (video) setIsPlaying(!video.paused);
     }, 250);
     return () => clearInterval(interval);
-  }, [phase, videoDuration]);
+  }, [phase]);
 
   return (
-    <div className="min-h-screen bg-white">
-      {showOnboarding && phase === 'library' && (
-        <OnboardingBrief condition="probe1" onDismiss={() => setShowOnboarding(false)} />
-      )}
-      {editingGuide && phase === 'exploring' && (
-        <OnboardingBrief
-          condition="probe1"
-          projectStats={editingGuide}
-          onDismiss={() => setEditingGuide(null)}
-        />
-      )}
-      <ConditionHeader condition="probe1" />
-
+    <div className="min-h-screen bg-white flex flex-col">
       {phase === 'library' && (
-        <VideoLibrary videos={allVideos} onImport={handleImport} />
+        <>
+          <OnboardingBrief
+            pageTitle="Probe 1: Solo Creator — Video Library"
+            description="This is the video library. Browse the available clips, select one or more that you want to explore, then tap Import to begin. You can select multiple clips if you want to combine them."
+          />
+          <ConditionHeader condition="probe1" />
+          <VideoLibrary videos={allVideos} onImport={handleImport} />
+        </>
       )}
 
       {phase === 'exploring' && (
-        <div className="flex flex-col gap-3 p-3 max-w-lg mx-auto">
-          {/* Video player — visual reference only, not navigable */}
-          <div aria-hidden="true">
+        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+          <OnboardingBrief
+            pageTitle="Probe 1: Solo Creator — Scene Explorer"
+            description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also ask AI a question about what is happening in a scene, or flag a description if it seems wrong. Use the Play All button to listen to every scene description in order."
+          />
+          <ConditionHeader condition="probe1" />
+          {/* Video player — visual reference, hidden from screen readers */}
+          <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
               src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
@@ -221,23 +195,34 @@ export default function Probe1Page() {
             />
           </div>
 
-          {/* Exploration Mode — always active */}
-          <ExplorationMode
-            active={!editingGuide}
-            segments={segments}
-            videoTitle={projectTitle}
-            onExit={() => {}} // No exit in new flow
-            onMark={handleMark}
-            onEdit={() => {
-              logEvent(EventTypes.OPEN_EDITOR, Actors.CREATOR);
-            }}
-            isPlaying={isPlaying}
+          {/* Linear Scene Block List */}
+          <SceneBlockList
+            scenes={segments}
             playerRef={playerRef}
-            editState={editState}
             currentTime={currentTime}
+            isPlaying={isPlaying}
             onSeek={handleSeek}
-            onEditChange={(clips, captions, sources) => setEditState({ clips, captions, sources })}
-            actionMode="probe1"
+            onPlay={handlePlay}
+            onPause={handlePause}
+            accentColor="#2B579A"
+            videoCount={selectedVideos?.length || 1}
+            vqaHistories={vqaHistories}
+            renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
+              <Probe1SceneActions
+                scene={scene}
+                index={index}
+                playerRef={playerRef}
+                currentTime={ct}
+                isPlaying={ip}
+                onSeek={os}
+                onPlay={op}
+                onPause={opp}
+                onAskAI={handleAskAI}
+                currentLevel={currentLevel}
+                onLevelChange={onLevelChange}
+                accentColor="#2B579A"
+              />
+            )}
           />
         </div>
       )}
@@ -245,10 +230,7 @@ export default function Probe1Page() {
       {/* Researcher WoZ panel */}
       {isResearcher && (
         <div className="max-w-7xl mx-auto px-4 pb-4">
-          <ResearcherVQAPanel
-            segment={currentSegment}
-            pendingQuestion={pendingQuestion}
-          />
+          <ResearcherVQAPanel segment={currentSegment} pendingQuestion={pendingQuestion} />
         </div>
       )}
     </div>
