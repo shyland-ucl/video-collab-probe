@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { announce } from '../../utils/announcer.js';
 import ttsService from '../../services/ttsService.js';
+import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 
 const CATEGORY_COLORS = {
   issue: '#D9534F',
@@ -9,6 +10,8 @@ const CATEGORY_COLORS = {
 };
 
 export default function SuggestionCard({ suggestion, onDismiss, onNote, onRouteToHelper }) {
+  const { audioEnabled, speechRate } = useAccessibility();
+
   if (!suggestion) return null;
 
   const relatedScenes = Array.isArray(suggestion.relatedScene)
@@ -17,14 +20,23 @@ export default function SuggestionCard({ suggestion, onDismiss, onNote, onRouteT
 
   const catColor = CATEGORY_COLORS[suggestion.category] || '#9B59B6';
 
-  // Announce and read aloud when suggestion appears
+  // Announce and optionally read aloud when suggestion appears
   useEffect(() => {
     const text = `AI observation: ${suggestion.text}. Related scene ${relatedScenes}.`;
     announce(text);
-    ttsService.speak(suggestion.text);
+    // Delay TTS slightly so the live region announcement fires first
+    let ttsTimer;
+    if (audioEnabled) {
+      ttsTimer = setTimeout(() => {
+        ttsService.speak(suggestion.text, { rate: speechRate });
+      }, 150);
+    }
 
     // Keyboard shortcut: S to dismiss
     const handleKeyDown = (e) => {
+      const tag = e.target.tagName.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if (e.target.isContentEditable || e.target.getAttribute('role') === 'textbox') return;
       if (e.key === 's' || e.key === 'S') {
         if (!e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault();
@@ -35,9 +47,10 @@ export default function SuggestionCard({ suggestion, onDismiss, onNote, onRouteT
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(ttsTimer);
       ttsService.stop();
     };
-  }, [suggestion.id]);
+  }, [suggestion.id, audioEnabled, speechRate]);
 
   return (
     <div

@@ -4,6 +4,7 @@ import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import ttsService from '../../services/ttsService.js';
 import { captureFrame, askGemini } from '../../services/geminiService.js';
+import { announce } from '../../utils/announcer.js';
 
 export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
   const [messages, setMessages] = useState([]);
@@ -13,6 +14,7 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
   const scrollRef = useRef(null);
   const recognitionRef = useRef(null);
   const answeredRef = useRef(false);
+  const timeoutRef = useRef(null);
   const inputRef = useRef(null);
   const { logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
@@ -22,6 +24,7 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
     window.__vqaReceiveAnswer = (answer) => {
       if (answeredRef.current) return;
       answeredRef.current = true;
+      clearTimeout(timeoutRef.current);
       setThinking(false);
       setMessages((prev) => [...prev, { role: 'ai', text: answer, source: 'researcher' }]);
       logEvent(EventTypes.VQA_ANSWER, Actors.RESEARCHER, { answer, source: 'researcher_override' });
@@ -31,6 +34,7 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
     };
     return () => {
       delete window.__vqaReceiveAnswer;
+      clearTimeout(timeoutRef.current);
     };
   }, [logEvent, audioEnabled, speechRate]);
 
@@ -54,6 +58,18 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
       onQuestion(text);
     }
 
+    // Start a 15s timeout — if no answer arrives, show error
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      if (!answeredRef.current) {
+        answeredRef.current = true;
+        setThinking(false);
+        const errMsg = 'Could not get an answer. A researcher may respond shortly.';
+        setMessages((prev) => [...prev, { role: 'ai', text: errMsg, source: 'error' }]);
+        announce(errMsg);
+      }
+    }, 15000);
+
     // Try Gemini VLM first, fall back to WoZ
     const videoEl = playerRef?.current?.video;
     if (videoEl) {
@@ -63,6 +79,7 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
         .then((answer) => {
           if (answeredRef.current) return;
           answeredRef.current = true;
+          clearTimeout(timeoutRef.current);
           setThinking(false);
           setMessages((prev) => [...prev, { role: 'ai', text: answer, source: 'gemini' }]);
           logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
@@ -71,7 +88,7 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
           }
         })
         .catch((err) => {
-          console.warn('Gemini VQA failed, waiting for WoZ:', err.message);
+          announce('AI could not answer. Waiting for researcher.');
         });
     }
   }, [logEvent, onQuestion, playerRef, currentSegment, audioEnabled, speechRate]);
@@ -84,6 +101,8 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
+    } else if (e.key === 'Escape') {
+      e.target.blur();
     }
   }, [handleSubmit]);
 
