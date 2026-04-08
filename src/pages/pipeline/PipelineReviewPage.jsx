@@ -174,20 +174,19 @@ export default function PipelineReviewPage() {
     }
   }
 
-  // Export
-  async function handleExport() {
+  // Finalise — mark project as ready for probe (saves export data in project folder)
+  const [finalising, setFinalising] = useState(false);
+  async function handleFinalise() {
+    setFinalising(true);
+    setError('');
     try {
-      const data = await exportForProbe(projectId);
-      // Download as file
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${projectId}_probe_export.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await exportForProbe(projectId);
+      const updated = await getProject(projectId);
+      setProject(updated);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setFinalising(false);
     }
   }
 
@@ -217,8 +216,8 @@ export default function PipelineReviewPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || 'Project not found.'}</p>
-          <button onClick={() => navigate('/pipeline')} className="text-blue-600 underline">
-            Back to upload
+          <button onClick={() => navigate('/researcher')} className="text-blue-600 underline">
+            Back to dashboard
           </button>
         </div>
       </div>
@@ -232,8 +231,8 @@ export default function PipelineReviewPage() {
       {/* Header bar */}
       <div className="sticky top-0 z-10 bg-white border-b shadow-sm px-6 py-3 flex items-center justify-between">
         <div>
-          <button onClick={() => navigate('/pipeline')} className="text-sm text-blue-600 hover:underline mr-4">
-            &larr; Back
+          <button onClick={() => navigate('/researcher')} className="text-sm text-blue-600 hover:underline mr-4">
+            &larr; Back to dashboard
           </button>
           <span className="font-bold text-gray-900">{projectId}</span>
           <span className="ml-3 text-sm text-gray-500">{segments.length} segments</span>
@@ -265,13 +264,19 @@ export default function PipelineReviewPage() {
             {generating ? 'Generating...' : 'Generate Descriptions'}
           </button>
 
-          {project.status.descriptions_generated && (
+          {project.status.descriptions_generated && !project.status.ready_for_probe && (
             <button
-              onClick={handleExport}
-              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700"
+              onClick={handleFinalise}
+              disabled={finalising}
+              className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-md hover:bg-emerald-700 disabled:opacity-50"
             >
-              Export for Probe
+              {finalising ? 'Saving...' : 'Save for Study'}
             </button>
+          )}
+          {project.status.ready_for_probe && (
+            <span className="px-4 py-2 bg-green-100 text-green-700 text-sm rounded-md font-medium">
+              Ready for Study
+            </span>
           )}
         </div>
       </div>

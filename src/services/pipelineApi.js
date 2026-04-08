@@ -23,11 +23,11 @@ export async function getProject(projectId) {
   return request(`/api/pipeline/projects/${projectId}`);
 }
 
-export async function uploadFootage(file, projectId, segmentLength) {
+export async function uploadFootage(file, segmentLength) {
   const form = new FormData();
   form.append('file', file);
-  form.append('project_id', projectId);
   form.append('segment_length', String(segmentLength));
+  // project_id is auto-generated from filename on the server
 
   const res = await fetch('/api/pipeline/upload', { method: 'POST', body: form });
   if (!res.ok) {
@@ -87,12 +87,15 @@ export async function loadPipelineVideos() {
       .filter((p) => p.status.segmented)
       .map((p) => ({
         id: `pipeline-${p.project_id}`,
-        title: p.project_id.replace(/[_-]/g, ' '),
+        title: p.ai_title || p.project_id.replace(/[_-]/g, ' '),
         src: `/pipeline-workspace/${p.project_id}/original/source.mp4`,
         duration: p.source.duration_seconds,
         _pipeline: true,
         _projectId: p.project_id,
         _status: p.status,
+        _summary: p.ai_summary || null,
+        _creationTime: p.source.creation_time || null,
+        _uploadedAt: p.uploaded_at || null,
         segments: p.segments.map((seg, i) => ({
           id: seg.id.replace('_', '-'),
           start_time: seg.start_seconds,
@@ -118,13 +121,16 @@ export async function loadPipelineVideos() {
  * generate descriptions. Returns a probe-compatible video object.
  */
 export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
-  const projectId = `upload_${Date.now()}`;
-
   if (onProgress) onProgress('uploading', 10);
-  await uploadFootage(file, projectId, segmentLength);
+  const uploadResult = await uploadFootage(file, segmentLength);
+  const projectId = uploadResult.project_id;
 
   if (onProgress) onProgress('generating', 50);
   await generateDescriptions(projectId);
+
+  // Auto-save for probe
+  if (onProgress) onProgress('finalizing', 85);
+  try { await exportForProbe(projectId); } catch { /* non-critical */ }
 
   if (onProgress) onProgress('finalizing', 90);
   const project = await getProject(projectId);
@@ -136,9 +142,11 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
     '#337AB7', '#9B59B6', '#E67E22', '#1ABC9C', '#34495E',
   ];
 
+  const fallbackTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ');
+
   return {
     id: `pipeline-${projectId}`,
-    title: file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
+    title: project.ai_title || fallbackTitle,
     src: `/pipeline-workspace/${projectId}/original/source.mp4`,
     duration: project.source.duration_seconds,
     _pipeline: true,
@@ -146,6 +154,10 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
     _uploaded: true,
     _fileName: file.name,
     _fileSize: file.size,
+    _summary: project.ai_summary || null,
+    _creationTime: project.source.creation_time || null,
+    _uploadedAt: project.uploaded_at || null,
+    _status: project.status,
     segments: project.segments.map((seg, i) => ({
       id: seg.id.replace('_', '-'),
       start_time: seg.start_seconds,

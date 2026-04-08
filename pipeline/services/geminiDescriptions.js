@@ -121,3 +121,58 @@ export async function generateDescriptions(projectDir, segments, promptTemplate,
 
   return { generated, failed, failed_segment_ids: failedIds };
 }
+
+/**
+ * Generate a short title and summary for a video based on its segment descriptions.
+ * @param {object[]} segments - array of segment objects with descriptions
+ * @returns {Promise<{title: string, summary: string}>}
+ */
+export async function generateVideoMeta(segments) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY environment variable is not set.');
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: MODEL });
+
+  // Collect all level_1 descriptions as input
+  const sceneList = segments
+    .filter((s) => s.descriptions?.level_1)
+    .map((s, i) => `Scene ${i + 1}: ${s.descriptions.level_1}`)
+    .join('\n');
+
+  if (!sceneList) {
+    return { title: 'Untitled Video', summary: 'No descriptions available.' };
+  }
+
+  const prompt = `You are naming a video for a blind/low-vision content creator who filmed it.
+
+Given these scene descriptions from the video:
+${sceneList}
+
+Generate:
+1. A short, natural title (3-6 words) that captures what the video is about. Write it like a file name the creator would recognise, e.g. "Morning Coffee Routine", "Market Visit with Friends", "Cooking Chapati at Home". Do not use generic titles like "A Day in the Life".
+2. A one-sentence summary (15-25 words) describing what happens in the video from the creator's perspective, e.g. "You walk to the kitchen, make instant coffee, and take a sip by the window."
+
+Respond with valid JSON only:
+{"title": "string", "summary": "string"}
+
+No markdown fences. No explanation.`;
+
+  const result = await model.generateContent([{ text: prompt }]);
+  let text = result.response.text().trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return {
+      title: parsed.title || 'Untitled Video',
+      summary: parsed.summary || '',
+    };
+  } catch {
+    return { title: 'Untitled Video', summary: '' };
+  }
+}

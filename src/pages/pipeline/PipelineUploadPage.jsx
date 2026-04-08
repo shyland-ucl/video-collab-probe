@@ -4,15 +4,12 @@ import { uploadFootage, listProjects } from '../../services/pipelineApi.js';
 
 export default function PipelineUploadPage() {
   const navigate = useNavigate();
-  const [projectId, setProjectId] = useState('');
   const [segmentLength, setSegmentLength] = useState(3);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [projects, setProjects] = useState(null);
-
-  const isValidId = /^[a-zA-Z0-9_-]{1,64}$/.test(projectId);
 
   async function loadProjects() {
     try {
@@ -25,17 +22,16 @@ export default function PipelineUploadPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!file || !isValidId) return;
+    if (!file) return;
 
     setUploading(true);
     setError('');
-    setProgress('Uploading...');
+    setProgress('Uploading and segmenting...');
 
     try {
-      setProgress('Uploading and segmenting...');
-      const result = await uploadFootage(file, projectId, segmentLength);
+      const result = await uploadFootage(file, segmentLength);
       setProgress(`Done! ${result.segments_count} segments created.`);
-      setTimeout(() => navigate(`/pipeline/review/${projectId}`), 1000);
+      setTimeout(() => navigate(`/pipeline/review/${result.project_id}`), 1000);
     } catch (err) {
       setError(err.message);
       setProgress('');
@@ -53,30 +49,6 @@ export default function PipelineUploadPage() {
         </p>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-sm border p-6 space-y-6">
-          {/* Project ID */}
-          <div>
-            <label htmlFor="project-id" className="block text-sm font-medium text-gray-700 mb-1">
-              Project ID
-            </label>
-            <input
-              id="project-id"
-              type="text"
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-              placeholder="e.g. P03_dyad_market_video"
-              className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              maxLength={64}
-              required
-              aria-describedby="project-id-help"
-            />
-            <p id="project-id-help" className="mt-1 text-xs text-gray-500">
-              Alphanumeric, underscores, hyphens. Max 64 characters.
-            </p>
-            {projectId && !isValidId && (
-              <p className="mt-1 text-xs text-red-600">Invalid project ID format.</p>
-            )}
-          </div>
-
           {/* Segment Length */}
           <fieldset>
             <legend className="block text-sm font-medium text-gray-700 mb-2">
@@ -163,7 +135,7 @@ export default function PipelineUploadPage() {
           {/* Submit */}
           <button
             type="submit"
-            disabled={uploading || !file || !isValidId}
+            disabled={uploading || !file}
             className="w-full py-3 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {uploading ? 'Processing...' : 'Upload and Segment'}
