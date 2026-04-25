@@ -127,7 +127,7 @@ export default function Probe2bSceneActions({
         {showAskAI && (
           <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
             <InlineVQAComposer onSubmit={handleAskAI} disabled={thinking} accentColor={accentColor} />
-            {thinking && <p className="text-xs text-gray-400 italic mt-1" role="status">Thinking...</p>}
+            {thinking && <p className="text-sm text-gray-700 italic mt-1" role="status">Thinking...</p>}
           </div>
         )}
       </div>
@@ -183,7 +183,7 @@ export default function Probe2bSceneActions({
         {showAskAIEdit && (
           <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
             <InlineVQAComposer onSubmit={handleAskAIEdit} disabled={aiEditPending} accentColor={accentColor} />
-            {aiEditPending && <p className="text-xs text-gray-400 italic mt-1" role="status">AI is working...</p>}
+            {aiEditPending && <p className="text-sm text-gray-700 italic mt-1" role="status">AI is working...</p>}
             {aiProposal && (
               <div className="mt-2 p-3 border-2 rounded-lg bg-yellow-50 border-yellow-300" role="alert">
                 <p className="text-sm font-medium text-yellow-800 mb-2">

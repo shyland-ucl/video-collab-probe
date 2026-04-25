@@ -26,13 +26,17 @@ function playReturnSound(audioCtx) {
   osc.stop(audioCtx.currentTime + 0.4);
 }
 
-export default function HandoverTransition({ direction, onComplete }) {
+export default function HandoverTransition({ direction, onComplete, onCancel }) {
   const audioCtxRef = useRef(null);
 
   const isToHelper = direction === 'toHelper';
   const fromColor = isToHelper ? '#2B579A' : '#E67E22';
   const toColor = isToHelper ? '#E67E22' : '#2B579A';
   const text = isToHelper ? 'Handing over to Helper...' : 'Returning to Creator...';
+  // m12: only the toHelper transition is cancellable. The toCreator transition
+  // is the helper *returning* the device, which they've already committed to
+  // by tapping Return Device — undoing that mid-flight is a different feature.
+  const canCancel = isToHelper && typeof onCancel === 'function';
 
   useEffect(() => {
     // Play earcon
@@ -47,10 +51,14 @@ export default function HandoverTransition({ direction, onComplete }) {
       // Audio not supported, continue silently
     }
 
-    // Complete after 1 second
+    // m12: 1 second was too short for a creator who realised mid-handover
+    // they'd picked the wrong scene or task to react. Extended to 2.5 s so
+    // a Cancel tap is feasible. The transition still feels snappy because
+    // the visual fade happens in the first 1 s; the remaining time is
+    // a "are you sure?" buffer with the Cancel button on screen.
     const timer = setTimeout(() => {
       onComplete();
-    }, 1000);
+    }, 2500);
 
     return () => {
       clearTimeout(timer);
@@ -105,6 +113,16 @@ export default function HandoverTransition({ direction, onComplete }) {
           )}
         </div>
         <p className="text-white text-2xl font-semibold">{text}</p>
+        {canCancel && (
+          <button
+            onClick={onCancel}
+            className="mt-6 px-6 py-3 bg-white/20 hover:bg-white/30 text-white text-base font-bold rounded-lg border-2 border-white/40 focus:outline-2 focus:outline-offset-2 focus:outline-white"
+            style={{ minHeight: '48px' }}
+            aria-label="Cancel handover and return to creator mode"
+          >
+            Cancel handover
+          </button>
+        )}
       </div>
     </div>
   );

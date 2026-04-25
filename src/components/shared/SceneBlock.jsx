@@ -131,27 +131,47 @@ export default function SceneBlock({
           role="region"
           aria-label={`Actions for scene ${index + 1}`}
         >
-          {/* VQA Conversation History */}
+          {/* VQA Conversation History — supports three roles:
+                user    : participant's question (right-aligned, accent colour)
+                ai      : AI / researcher answer (left-aligned, gray)
+                system  : status message such as "AI could not answer,
+                          researcher is checking" (left-aligned, amber, M7)
+          */}
           {vqaHistory.length > 0 && (
             <div className="mb-3 space-y-2" role="log" aria-label="Questions and answers">
-              {vqaHistory.map((msg, i) => (
+              {vqaHistory.map((msg, i) => {
+                const isUser = msg.role === 'user';
+                const isSystem = msg.role === 'system';
+                let bubbleClasses = 'max-w-[85%] px-3 py-2 rounded-lg text-base ';
+                let bubbleStyle;
+                let label;
+                if (isUser) {
+                  bubbleClasses += 'text-white';
+                  bubbleStyle = { backgroundColor: accentColor };
+                  label = `Your question: ${msg.text}`;
+                } else if (isSystem) {
+                  bubbleClasses += 'bg-amber-50 text-amber-900 border border-amber-200';
+                  label = `Status: ${msg.text}`;
+                } else {
+                  bubbleClasses += 'bg-gray-100 text-gray-800';
+                  label = `Answer: ${msg.text}`;
+                }
+                return (
                 <div
                   key={i}
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                 >
                   <div
-                    className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${
-                      msg.role === 'user'
-                        ? 'text-white'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}
-                    style={msg.role === 'user' ? { backgroundColor: accentColor } : undefined}
-                    aria-label={msg.role === 'user' ? `Your question: ${msg.text}` : `Answer: ${msg.text}`}
+                    className={bubbleClasses}
+                    style={bubbleStyle}
+                    role={isSystem ? 'status' : undefined}
+                    aria-label={label}
                   >
                     {msg.text}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
 

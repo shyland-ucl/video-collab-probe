@@ -195,7 +195,24 @@ export default function Probe2Page() {
           logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
           if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
         }
-      } catch { /* WoZ fallback */ }
+      } catch (err) {
+        // M7: surface a visible "researcher is checking" status when Gemini
+        // fails so the question doesn't appear to vanish into the void.
+        if (!answeredRef.current) {
+          setVqaHistories((prev) => ({
+            ...prev,
+            [scene.id]: [...(prev[scene.id] || []), {
+              role: 'system',
+              text: 'AI could not answer right now. Researcher is checking your question.',
+            }],
+          }));
+          logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, {
+            error: err?.message || 'gemini_failure',
+            source: 'fallback_pending_woz',
+          });
+          announce('AI could not answer. Researcher is checking your question.');
+        }
+      }
     }
     setPendingQuestion(null);
   }, [logEvent, audioEnabled, speechRate]);
@@ -250,6 +267,19 @@ export default function Probe2Page() {
     logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary });
     setTransitionDirection('toCreator');
     setIsTransitioning(true);
+  }, [logEvent]);
+
+  // m12: cancel a toHelper handover during the transition window. Reverts
+  // mode/handoverMode/tasks to the pre-handover state so the creator stays
+  // in control. The most recently queued task is removed because that's the
+  // one the creator just changed their mind about.
+  const handleCancelHandover = useCallback(() => {
+    setIsTransitioning(false);
+    setTransitionDirection(null);
+    setHandoverMode(null);
+    setTasks((prev) => prev.slice(0, -1));
+    logEvent(EventTypes.HANDOVER_CANCELLED, Actors.CREATOR, {});
+    announce('Handover cancelled. You are still the creator.');
   }, [logEvent]);
 
   // WoZ suggestion
@@ -324,6 +354,8 @@ export default function Probe2Page() {
                 currentLevel={currentLevel}
                 onLevelChange={onLevelChange}
                 accentColor="#5CB85C"
+                editState={editState}
+                onEditChange={handleEditChange}
               />
             )}
           />
@@ -367,7 +399,11 @@ export default function Probe2Page() {
 
       {/* Transition animation */}
       {isTransitioning && transitionDirection && (
-        <HandoverTransition direction={transitionDirection} onComplete={handleTransitionComplete} />
+        <HandoverTransition
+          direction={transitionDirection}
+          onComplete={handleTransitionComplete}
+          onCancel={transitionDirection === 'toHelper' ? handleCancelHandover : undefined}
+        />
       )}
 
       {/* Researcher WoZ panels */}

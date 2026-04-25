@@ -88,7 +88,7 @@ export default function Probe1SceneActions({
               accentColor={accentColor}
             />
             {thinking && (
-              <p className="text-xs text-gray-400 italic mt-1" role="status">Thinking...</p>
+              <p className="text-sm text-gray-700 italic mt-1" role="status">Thinking...</p>
             )}
           </div>
         )}

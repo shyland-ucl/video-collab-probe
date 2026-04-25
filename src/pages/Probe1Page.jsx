@@ -175,8 +175,26 @@ export default function Probe1Page() {
           logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
           if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
         }
-      } catch {
-        // Fall back to WoZ
+      } catch (err) {
+        // Gemini failed — surface a visible "researcher is checking" status
+        // so the participant knows their question wasn't dropped. The
+        // researcher's WoZ override (window.__vqaReceiveAnswer) appends the
+        // real answer later. Without this cue, the user previously saw the
+        // Thinking spinner vanish with nothing replacing it (M7).
+        if (!answeredRef.current) {
+          setVqaHistories((prev) => ({
+            ...prev,
+            [scene.id]: [...(prev[scene.id] || []), {
+              role: 'system',
+              text: 'AI could not answer right now. Researcher is checking your question.',
+            }],
+          }));
+          logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, {
+            error: err?.message || 'gemini_failure',
+            source: 'fallback_pending_woz',
+          });
+          announce('AI could not answer. Researcher is checking your question.');
+        }
       }
     }
     setPendingQuestion(null);

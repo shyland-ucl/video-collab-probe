@@ -127,7 +127,12 @@ export default function VideoLibrary({
         <VideoUpload onUpload={handleUpload} />
       )}
 
-      <div className="flex flex-col gap-3" role="listbox" aria-label="Available videos" aria-multiselectable="true">
+      {/* m3 fix: previously role="listbox" with role="option" button
+          children, an ARIA antipattern — listboxes expect arrow-key keyboard
+          navigation that we don't implement. role="group" with aria-pressed
+          buttons is the idiomatic toggle-selection pattern and works
+          correctly with vanilla Tab navigation. */}
+      <div className="flex flex-col gap-3" role="group" aria-label="Available videos">
         {allVideos.map((video) => {
           const isSelected = selected.has(video.id);
           const summary = video._pipeline
@@ -141,8 +146,8 @@ export default function VideoLibrary({
           return (
             <button
               key={video.id}
-              role="option"
-              aria-selected={isSelected}
+              type="button"
+              aria-pressed={isSelected}
               aria-label={`${video.title}. ${summary}. ${durationText}.${readOnly ? ' Selected by creator.' : ''}`}
               onClick={() => toggleSelect(video.id)}
               disabled={readOnly}

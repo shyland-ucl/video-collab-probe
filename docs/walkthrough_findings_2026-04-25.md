@@ -100,13 +100,17 @@ Recommend: only auto-advance if the user explicitly enabled "follow-along" mode;
 
 Files: `src/components/shared/SceneBlockList.jsx` lines 69–78.
 
-### M3. `OnboardingBrief` is permanent inline text, not a dismissible overlay
+### ~~M3. `OnboardingBrief` is permanent inline text, not a dismissible overlay~~ — RESOLVED AS INTENTIONAL (2026-04-25)
 
-`STUDY_PLAN.md` and `CLAUDE.md` describe an onboarding overlay "Dismissible with 'Got it, let's start.'" The actual `OnboardingBrief.jsx` is a non-dismissible `<section>` that sits at the top of every page taking ~25 % of mobile vertical real estate. It auto-focuses on mount, which is correct for screen readers but means the user starts at "instructions focus" every page transition.
+**Status: not a bug. Re-scoped as deliberate accessibility decision.**
 
-The actual usability problem: on every probe screen the participant sees a wall of text indefinitely; cumulatively over 15-scene Probe 2a, this pushes content below the fold and forces extra scrolling.
+After discussion with Lan, the inline-and-permanent pattern is the *better* a11y default for this study population. A dismissible overlay introduces an extra interaction layer ("find dismiss button → tap → remember the overlay is gone") which is exactly the kind of multi-layer information design that hurts TalkBack users. Keeping the brief inline and always-visible means:
 
-Files: `src/components/shared/OnboardingBrief.jsx`.
+- The brief is auto-focused on mount, so screen readers read it immediately on page entry (already the current behaviour).
+- It can be re-read at any time via swipe — no hidden dismissed state to recall.
+- There is no risk of a stale dismissed overlay covering content the user thinks they can reach.
+
+`STUDY_PLAN.md` and `CLAUDE.md` should be updated to drop the "Dismissible with 'Got it, let's start.'" copy so the spec matches the (correct) implementation. Future walkthroughs should not flag this. Vertical real estate cost is a real trade-off but secondary to predictability for the study population.
 
 ### M4. Heading hierarchy is broken visually
 

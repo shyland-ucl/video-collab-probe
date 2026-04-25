@@ -23,6 +23,7 @@ import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.js
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
+import ControlLockBanner from '../components/decoupled/ControlLockBanner.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -64,6 +65,8 @@ export default function Probe3Page() {
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
   const [pipelineVideos, setPipelineVideos] = useState([]);
+  // M6: see Probe2bPage for rationale.
+  const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
 
   // Suggestion system state
@@ -211,8 +214,14 @@ export default function Probe3Page() {
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
 
-  // M14: see Probe2bPage.jsx for rationale.
+  // M14 + M6: see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    if (role && controlOwner !== role) {
+      announce(
+        `You don't have control of the edits right now. Tap Take control to start editing.`
+      );
+      return;
+    }
     const newState = {
       clips,
       captions,
@@ -229,7 +238,20 @@ export default function Probe3Page() {
       changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role]);
+  }, [role, controlOwner]);
+
+  const handleTakeControl = useCallback(() => {
+    if (!role) return;
+    if (controlOwner === role) return;
+    setControlOwner(role);
+    wsRelayService.sendData({
+      type: 'CONTROL_TAKEN',
+      newOwner: role,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+    logEvent(EventTypes.CONTROL_TAKEN, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { newOwner: role });
+    announce('You now have control of the edits.');
+  }, [role, controlOwner, logEvent]);
 
   const handleHelperTaskStatus = useCallback((taskId, status) => {
     setFeedItems((prev) => prev.map((item) => item.id === taskId ? { ...item, status } : item));
@@ -409,6 +431,14 @@ export default function Probe3Page() {
           break;
         case 'PROJECT_CREATED':
           setSelectedVideos(msg.videoIds);
+          break;
+        case 'CONTROL_TAKEN':
+          if (msg.newOwner) {
+            setControlOwner(msg.newOwner);
+            if (msg.newOwner !== currentRole) {
+              announce(`${msg.newOwner.charAt(0).toUpperCase() + msg.newOwner.slice(1)} now has control of the edits.`);
+            }
+          }
           break;
         case 'TASK_TO_HELPER': {
           const item = {
@@ -675,6 +705,12 @@ export default function Probe3Page() {
             description="This works like the previous two-phone setup, but now AI will suggest improvements inside relevant scenes as you edit. When a suggestion appears, you must choose who handles it: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
           />
           <ConditionHeader condition="probe3" modeLabel={modeLabel} />
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.purple}
+          />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
@@ -794,6 +830,12 @@ export default function Probe3Page() {
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto">
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.purple}
+          />
           <HelperDevice
             videoRef={playerRef}
             videoData={projectData}
