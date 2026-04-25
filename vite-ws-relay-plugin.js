@@ -12,7 +12,27 @@ import { WebSocketServer } from 'ws';
  *   Server → Client:  { type: 'PEER_DISCONNECTED' } — when the other peer drops
  *   After pairing, every message from one peer is relayed to the other.
  *   Researcher messages are broadcast to all connected clients.
+ *
+ * Liveness:
+ *   The server pings every connected socket every PING_INTERVAL_MS.
+ *   Sockets that don't respond within PING_INTERVAL_MS are terminated and
+ *   their slot is freed, so a zombie WebSocket (e.g. a tab the OS killed
+ *   without firing 'close' cleanly) can't permanently occupy the creator
+ *   or helper slot. See docs/walkthrough_findings_2026-04-25_spotcheck.md
+ *   NF1 for the failure mode this prevents.
+ *
+ * Diagnostics:
+ *   Server prints `[ws-relay]` lines on JOIN, CLOSE, EVICT, and tryPair so a
+ *   researcher running back-to-back dyads can see pairing health without
+ *   leaving their terminal.
  */
+
+const PING_INTERVAL_MS = 15000;
+
+function logRelay(...args) {
+  console.log('[ws-relay]', ...args);
+}
+
 export default function wsRelayPlugin() {
   return {
     name: 'ws-relay',
@@ -24,16 +44,41 @@ export default function wsRelayPlugin() {
       let researcher = null;
       const participants = new Set();
 
+      function pairState() {
+        return `creator=${creator ? 'present' : 'empty'} helper=${helper ? 'present' : 'empty'} researcher=${researcher ? 'present' : 'empty'} participants=${participants.size}`;
+      }
+
       function tryPair() {
         if (creator && helper) {
           const msg = JSON.stringify({ type: 'PAIRED' });
           creator.send(msg);
           helper.send(msg);
+          logRelay('PAIRED creator+helper');
+        } else {
+          logRelay(`tryPair: ${pairState()}`);
+        }
+      }
+
+      function clearSlot(role, ws) {
+        // Only clear the slot if it's still pointing at the same socket — this
+        // protects against the scenario where a new client overwrote the slot
+        // between the old client's close/timeout and our cleanup running.
+        if (role === 'researcher' && researcher === ws) {
+          researcher = null;
+        } else if (role === 'participant') {
+          participants.delete(ws);
+        } else if (role === 'creator' && creator === ws) {
+          creator = null;
+        } else if (role === 'helper' && helper === ws) {
+          helper = null;
         }
       }
 
       wss.on('connection', (ws) => {
         let role = null;
+        // Heartbeat liveness state — ws.isAlive flips to true on every pong.
+        ws.isAlive = true;
+        ws.on('pong', () => { ws.isAlive = true; });
 
         ws.on('message', (raw) => {
           let msg;
@@ -54,6 +99,7 @@ export default function wsRelayPlugin() {
             } else if (role === 'participant') {
               participants.add(ws);
             }
+            logRelay(`JOIN role=${role} | ${pairState()}`);
             tryPair();
             return;
           }
@@ -77,20 +123,35 @@ export default function wsRelayPlugin() {
         });
 
         ws.on('close', () => {
-          if (role === 'researcher') {
-            researcher = null;
-          } else if (role === 'participant') {
-            participants.delete(ws);
-          } else {
-            const peer = role === 'creator' ? helper : creator;
-            if (role === 'creator') creator = null;
-            if (role === 'helper') helper = null;
-            if (peer && peer.readyState === 1) {
-              peer.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
-            }
+          if (!role) {
+            // Disconnected before sending JOIN — nothing to clean up.
+            return;
+          }
+          const peer = role === 'creator' ? helper : creator;
+          clearSlot(role, ws);
+          logRelay(`CLOSE role=${role} | ${pairState()}`);
+          if ((role === 'creator' || role === 'helper') && peer && peer.readyState === 1) {
+            peer.send(JSON.stringify({ type: 'PEER_DISCONNECTED' }));
           }
         });
       });
+
+      // Heartbeat: every interval, terminate sockets that didn't pong since
+      // last tick, then ping all surviving sockets. terminate() fires the
+      // 'close' handler, which clears the slot — so pairing recovers
+      // automatically on the next JOIN.
+      const heartbeat = setInterval(() => {
+        wss.clients.forEach((ws) => {
+          if (ws.isAlive === false) {
+            logRelay(`EVICT (no pong) | ${pairState()}`);
+            return ws.terminate();
+          }
+          ws.isAlive = false;
+          try { ws.ping(); } catch { /* socket may be closing */ }
+        });
+      }, PING_INTERVAL_MS);
+
+      wss.on('close', () => clearInterval(heartbeat));
 
       // Intercept HTTP upgrade requests on the /__ws_relay path
       server.httpServer.on('upgrade', (req, socket, head) => {
@@ -100,6 +161,8 @@ export default function wsRelayPlugin() {
           });
         }
       });
+
+      logRelay(`plugin attached, heartbeat=${PING_INTERVAL_MS}ms`);
     },
   };
 }
