@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
+import { loadPipelineVideos } from '../services/pipelineApi.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -11,6 +12,7 @@ import ttsService from '../services/ttsService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
+import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import SceneBlockList from '../components/shared/SceneBlockList.jsx';
 import Probe2aSceneActions from '../components/probe2/Probe2aSceneActions.jsx';
 import HelperMode from '../components/probe2/HelperMode.jsx';
@@ -27,10 +29,17 @@ export default function Probe2Page() {
   const isResearcher = searchParams.get('mode') === 'researcher';
 
   const [data, setData] = useState(null);
+  const [pipelineVideos, setPipelineVideos] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
   const [pendingQuestion, setPendingQuestion] = useState(null);
+
+  // Phase: 'library' (creator picks footage) → 'exploring' (rest of probe)
+  // Library phase mirrors Probes 1 / 2b / 3 so the dyad chooses what to edit
+  // before the handover flow begins. B3-with-library / M5 fix.
+  const [phase, setPhase] = useState('library');
+  const [selectedVideos, setSelectedVideos] = useState(null);
 
   // Handover state
   const [mode, setMode] = useState('creator');
@@ -47,29 +56,86 @@ export default function Probe2Page() {
     setCondition('probe2a');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2a' });
     loadDescriptions().then(setData).catch(console.error);
+    loadPipelineVideos().then(setPipelineVideos).catch(() => {});
   }, [setCondition, logEvent]);
 
-  // Initialize edit state from data
-  useEffect(() => {
-    if (!data || editState) return;
-    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899'];
-    const sources = buildInitialSources(data).map((s) => ({ id: s.id, name: s.name, src: s.src, duration: s.duration }));
-    const clips = buildAllSegments(data).map((seg, i) => ({
-      id: seg.id, sourceId: seg.sourceId || 'default', name: seg.name,
-      startTime: seg.start_time, endTime: seg.end_time,
-      color: seg.color || SOURCE_COLORS[i % SOURCE_COLORS.length], trimStart: 0, trimEnd: 0,
-    }));
-    setEditState({ clips, captions: [], sources, textOverlays: [] });
-  }, [data, editState]);
+  // Pipeline-video assignment filter for the current dyad — same convention
+  // as Probes 1, 2b, 3.
+  const sessionDyadId = useMemo(() => {
+    try {
+      const stored = localStorage.getItem('sessionConfig');
+      return stored ? JSON.parse(stored).dyadId : null;
+    } catch { return null; }
+  }, []);
 
-  const segments = useMemo(() => buildAllSegments(data), [data]);
-  const initialSources = useMemo(() => buildInitialSources(data), [data]);
-  const videoDuration = useMemo(() => getTotalDuration(data), [data]);
+  const assignedProjectIds = useMemo(() => {
+    try {
+      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+      return assignments[sessionDyadId] || [];
+    } catch { return []; }
+  }, [sessionDyadId]);
+
+  // Library candidates: pipeline (filtered by assignment) + sample.
+  const libraryVideos = useMemo(() => {
+    const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
+    let filteredPipeline = pipelineVideos;
+    if (sessionDyadId && assignedProjectIds.length > 0) {
+      filteredPipeline = pipelineVideos.filter(
+        (v) => assignedProjectIds.includes(v._projectId)
+          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+      );
+    }
+    return [...filteredPipeline, ...sampleVideos];
+  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+
+  // The "active" project data — once a selection has been imported, narrow
+  // to it; otherwise use the full sample dataset (used during the library
+  // phase for thumbnails and metadata).
+  const projectData = useMemo(() => {
+    if (selectedVideos) return { videos: selectedVideos };
+    return data;
+  }, [data, selectedVideos]);
+
+  const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
+  const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
+  const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
   const projectTitle = useMemo(() => {
-    if (!data) return 'Untitled Video';
-    if (data.videos?.length > 0) return data.videos.map((v) => v.title).join(' + ');
-    return data.video?.title || 'Untitled Video';
-  }, [data]);
+    if (!projectData) return 'Untitled Video';
+    if (projectData.videos?.length > 0) return projectData.videos.map((v) => v.title).join(' + ');
+    return projectData.video?.title || 'Untitled Video';
+  }, [projectData]);
+
+  // Build editState from the imported selection. Runs once when selectedVideos
+  // is first set; subsequent edits flow through handleEditChange.
+  const handleImport = useCallback((videos) => {
+    const SOURCE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899'];
+    const sources = [];
+    const clips = [];
+    videos.forEach((v, srcIdx) => {
+      const color = SOURCE_COLORS[srcIdx % SOURCE_COLORS.length];
+      sources.push({ id: v.id, name: v.title || 'Untitled', src: v.src, duration: v.duration });
+      const segs = v.segments || [];
+      if (segs.length > 0) {
+        segs.forEach((seg) => {
+          clips.push({
+            id: seg.id, sourceId: v.id, name: seg.name,
+            startTime: seg.start_time, endTime: seg.end_time,
+            color: seg.color || color, trimStart: 0, trimEnd: 0,
+          });
+        });
+      } else {
+        clips.push({
+          id: `clip-${v.id}`, sourceId: v.id, name: v.title || 'Untitled',
+          startTime: 0, endTime: v.duration || 0, color, trimStart: 0, trimEnd: 0,
+        });
+      }
+    });
+    setSelectedVideos(videos);
+    setEditState({ clips, captions: [], sources, textOverlays: [] });
+    setPhase('exploring');
+    logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, { videoIds: videos.map((v) => v.id), count: videos.length });
+    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Explore scenes below.`);
+  }, [logEvent]);
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
@@ -199,7 +265,16 @@ export default function Probe2Page() {
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
-      {mode === 'creator' ? (
+      {phase === 'library' ? (
+        <>
+          <OnboardingBrief
+            pageTitle="Probe 2a: Shared Device — Video Library"
+            description="You and your helper will share one phone. First, choose the video you want to work on together. Tap one or more videos and then tap Create Project to start. After that, you'll explore scenes and decide which ones to keep, discard, edit yourself, ask AI to edit, or hand over to your helper."
+          />
+          <ConditionHeader condition="probe2" modeLabel="Creator — Select Videos" />
+          <VideoLibrary videos={libraryVideos} onImport={handleImport} />
+        </>
+      ) : mode === 'creator' ? (
         <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
           <OnboardingBrief
             pageTitle="Probe 2a: Shared Device — Creator"
@@ -210,7 +285,7 @@ export default function Probe2Page() {
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
-              src={data?.video?.src || data?.videos?.[0]?.src || null}
+              src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
               segments={segments}
               onTimeUpdate={handleTimeUpdate}
               onSegmentChange={handleSegmentChange}
@@ -228,6 +303,7 @@ export default function Probe2Page() {
             onPlay={handlePlay}
             onPause={handlePause}
             accentColor="#5CB85C"
+            videoCount={selectedVideos?.length || 1}
             vqaHistories={vqaHistories}
             renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
               <Probe2aSceneActions
@@ -261,7 +337,7 @@ export default function Probe2Page() {
           <ConditionHeader condition="probe2" modeLabel={modeLabel} />
           <HelperMode
             playerRef={playerRef}
-            videoData={data}
+            videoData={projectData}
             currentTime={currentTime}
             duration={videoDuration}
             isPlaying={isPlaying}
