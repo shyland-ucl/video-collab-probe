@@ -57,6 +57,7 @@ export default function VideoLibrary({
   controlledSelection,
   onSelectionChange,
   readOnly = false,
+  selectionPrompt = 'Select the videos you want to explore and edit.',
 }) {
   // Uploaded videos added by the participant
   const [uploadedVideos, setUploadedVideos] = useState([]);
@@ -119,7 +120,7 @@ export default function VideoLibrary({
       <p className="text-sm text-gray-600">
         {readOnly
           ? 'Creator is selecting videos. Selections will appear here.'
-          : 'Select the videos you want to explore and edit.'}
+          : selectionPrompt}
       </p>
 
       {/* Upload button — only for non-readonly participants */}

@@ -36,13 +36,20 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   useEffect(() => { onEditChangeRef.current = onEditChange; }, [onEditChange]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
 
-  // Guard: when true, suppress the next onEditChange broadcast (it came from props, not user)
-  const syncFromPropsRef = useRef(false);
+  // Guard: suppress edit broadcasts caused by prop/initial hydration, not user edits.
+  const suppressEditBroadcastUntilRef = useRef(0);
+  const didNotifyMountRef = useRef(false);
+  const suppressEditBroadcast = useCallback(() => {
+    suppressEditBroadcastUntilRef.current = Date.now() + 250;
+  }, []);
 
   // Notify parent whenever clips, captions, or sources change
   useEffect(() => {
-    if (syncFromPropsRef.current) {
-      syncFromPropsRef.current = false;
+    if (!didNotifyMountRef.current) {
+      didNotifyMountRef.current = true;
+      return;
+    }
+    if (Date.now() < suppressEditBroadcastUntilRef.current) {
       return;
     }
     if (onEditChangeRef.current) {
@@ -56,11 +63,11 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     if (!editState) return;
     if (editState === prevEditStateRef.current) return;
     prevEditStateRef.current = editState;
-    syncFromPropsRef.current = true;
+    suppressEditBroadcast();
     if (editState.clips) setClips(editState.clips);
     if (editState.captions) setCaptions(editState.captions);
     if (editState.sources) setSources(editState.sources);
-  }, [editState]);
+  }, [editState, suppressEditBroadcast]);
 
   // Initialize clips + sources when initialSources arrives (async data load)
   const didInit = useRef(false);
@@ -77,6 +84,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
         src: src.src,
         duration: src.duration,
       }));
+      suppressEditBroadcast();
       setSources(sourcesWithoutSegments);
 
       const allClips = [];
@@ -117,6 +125,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
 
     // Legacy fallback: single source from segments prop
     if (segments.length > 0) {
+      suppressEditBroadcast();
       setClips(
         segments.map((seg) => ({
           id: seg.id,

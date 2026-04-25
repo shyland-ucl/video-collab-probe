@@ -7,6 +7,7 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { filterAssignedPipelineVideos, getAssignedPipelineProjectIds, getSessionDyadId } from '../utils/pipelineAssignments.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
@@ -65,18 +66,12 @@ export default function Probe1Page() {
 
   // Get dyad ID from session config for filtering assigned videos
   const sessionDyadId = useMemo(() => {
-    try {
-      const stored = localStorage.getItem('sessionConfig');
-      return stored ? JSON.parse(stored).dyadId : null;
-    } catch { return null; }
+    return getSessionDyadId();
   }, []);
 
   // Get researcher-assigned project IDs for this dyad
   const assignedProjectIds = useMemo(() => {
-    try {
-      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
-      return assignments[sessionDyadId] || [];
-    } catch { return []; }
+    return getAssignedPipelineProjectIds(sessionDyadId);
   }, [sessionDyadId]);
 
   const allVideos = useMemo(() => {
@@ -84,16 +79,10 @@ export default function Probe1Page() {
       ? (data.videos || (data.video ? [data.video] : []))
       : [];
 
-    // If researcher has assigned specific videos to this dyad, filter pipeline videos
-    let filteredPipeline = pipelineVideos;
-    if (sessionDyadId && assignedProjectIds.length > 0) {
-      filteredPipeline = pipelineVideos.filter(
-        (v) => assignedProjectIds.includes(v._projectId) || assignedProjectIds.includes(`pipeline-${v._projectId}`)
-      );
-    }
+    const filteredPipeline = filterAssignedPipelineVideos(pipelineVideos, assignedProjectIds);
 
     return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+  }, [data, pipelineVideos, assignedProjectIds]);
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
@@ -219,7 +208,11 @@ export default function Probe1Page() {
             description="This is the video library. Browse the available clips, select one or more that you want to explore, then tap Import to begin. You can select multiple clips if you want to combine them."
           />
           <ConditionHeader condition="probe1" />
-          <VideoLibrary videos={allVideos} onImport={handleImport} />
+          <VideoLibrary
+            videos={allVideos}
+            onImport={handleImport}
+            selectionPrompt="Select the videos you want to explore with AI descriptions."
+          />
         </>
       )}
 
@@ -227,7 +220,7 @@ export default function Probe1Page() {
         <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
           <OnboardingBrief
             pageTitle="Probe 1: Solo Creator — Scene Explorer"
-            description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also ask AI a question about what is happening in a scene, or flag a description if it seems wrong. Use the Play All button to listen to every scene description in order."
+            description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also play that scene or ask AI a question about what is happening."
           />
           <ConditionHeader condition="probe1" />
           {/* Video player — visual reference, hidden from screen readers */}

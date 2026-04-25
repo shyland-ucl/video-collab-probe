@@ -8,6 +8,7 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { filterAssignedPipelineVideos, getAssignedPipelineProjectIds, getSessionDyadId } from '../utils/pipelineAssignments.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -68,6 +69,10 @@ export default function Probe3Page() {
   // M6: see Probe2bPage for rationale.
   const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
+  const suppressNonOwnerEditWarningUntilRef = useRef(0);
+  const suppressNonOwnerEditWarning = useCallback(() => {
+    suppressNonOwnerEditWarningUntilRef.current = Date.now() + 1000;
+  }, []);
 
   // Suggestion system state
   const [activeSuggestion, setActiveSuggestion] = useState(null);
@@ -88,17 +93,11 @@ export default function Probe3Page() {
   // configures these via localStorage['pipelineAssignments'], same convention
   // as Probes 1 and 2b).
   const sessionDyadId = useMemo(() => {
-    try {
-      const stored = localStorage.getItem('sessionConfig');
-      return stored ? JSON.parse(stored).dyadId : null;
-    } catch { return null; }
+    return getSessionDyadId();
   }, []);
 
   const assignedProjectIds = useMemo(() => {
-    try {
-      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
-      return assignments[sessionDyadId] || [];
-    } catch { return []; }
+    return getAssignedPipelineProjectIds(sessionDyadId);
   }, [sessionDyadId]);
 
   // Aggregate pre-authored suggestions across every selected video.
@@ -121,12 +120,8 @@ export default function Probe3Page() {
   }, [selectedVideos]);
 
   const projectData = useMemo(() => {
-    if (selectedVideos && data) {
-      return {
-        videos: data.videos
-          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
-          : [data.video],
-      };
+    if (selectedVideos && Array.isArray(selectedVideos) && typeof selectedVideos[0] !== 'string') {
+      return { videos: selectedVideos };
     }
     return data;
   }, [data, selectedVideos]);
@@ -138,16 +133,10 @@ export default function Probe3Page() {
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
 
-    let filteredPipeline = pipelineVideos;
-    if (sessionDyadId && assignedProjectIds.length > 0) {
-      filteredPipeline = pipelineVideos.filter(
-        (v) => assignedProjectIds.includes(v._projectId)
-          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
-      );
-    }
+    const filteredPipeline = filterAssignedPipelineVideos(pipelineVideos, assignedProjectIds);
 
     return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+  }, [data, pipelineVideos, assignedProjectIds]);
 
   useEffect(() => {
     if (phase !== 'active') return;
@@ -217,6 +206,7 @@ export default function Probe3Page() {
   // M14 + M6: see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
     if (role && controlOwner !== role) {
+      if (Date.now() < suppressNonOwnerEditWarningUntilRef.current) return;
       announce(
         `You don't have control of the edits right now. Tap Take control to start editing.`
       );
@@ -410,6 +400,7 @@ export default function Probe3Page() {
           break;
         case 'EDIT_STATE_UPDATE': {
           const previousState = editStateRef.current;
+          suppressNonOwnerEditWarning();
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
@@ -537,7 +528,7 @@ export default function Probe3Page() {
       logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: currentRole });
       announce('Device connected');
     });
-  }, [clearSubscriptions, logEvent]);
+  }, [clearSubscriptions, logEvent, suppressNonOwnerEditWarning]);
 
   useEffect(() => {
     if (phase === 'waiting' && connected) setPhase('library');
@@ -570,6 +561,7 @@ export default function Probe3Page() {
             sources,
             textOverlays: editStateRef.current?.textOverlays || [],
           };
+          suppressNonOwnerEditWarning();
           setEditState(nextEditState);
           setSelectedVideos(resolved);
           setSessionGuide(buildProjectStats({
@@ -583,7 +575,7 @@ export default function Probe3Page() {
         }
       }
     }
-  }, [selectedVideos, allVideos, role]);
+  }, [selectedVideos, allVideos, role, suppressNonOwnerEditWarning]);
 
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);
