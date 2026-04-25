@@ -7,7 +7,6 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildAllSegments, buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
-import { filterAssignedPipelineVideos, getAssignedPipelineProjectIds, getSessionDyadId } from '../utils/pipelineAssignments.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
@@ -63,19 +62,31 @@ export default function Probe2Page() {
   // Pipeline-video assignment filter for the current dyad — same convention
   // as Probes 1, 2b, 3.
   const sessionDyadId = useMemo(() => {
-    return getSessionDyadId();
+    try {
+      const stored = localStorage.getItem('sessionConfig');
+      return stored ? JSON.parse(stored).dyadId : null;
+    } catch { return null; }
   }, []);
 
   const assignedProjectIds = useMemo(() => {
-    return getAssignedPipelineProjectIds(sessionDyadId);
+    try {
+      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+      return assignments[sessionDyadId] || [];
+    } catch { return []; }
   }, [sessionDyadId]);
 
   // Library candidates: pipeline (filtered by assignment) + sample.
   const libraryVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
-    const filteredPipeline = filterAssignedPipelineVideos(pipelineVideos, assignedProjectIds);
+    let filteredPipeline = pipelineVideos;
+    if (sessionDyadId && assignedProjectIds.length > 0) {
+      filteredPipeline = pipelineVideos.filter(
+        (v) => assignedProjectIds.includes(v._projectId)
+          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+      );
+    }
     return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, assignedProjectIds]);
+  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
 
   // The "active" project data — once a selection has been imported, narrow
   // to it; otherwise use the full sample dataset (used during the library

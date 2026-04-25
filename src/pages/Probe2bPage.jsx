@@ -8,7 +8,6 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
-import { filterAssignedPipelineVideos, getAssignedPipelineProjectIds, getSessionDyadId } from '../utils/pipelineAssignments.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -72,10 +71,6 @@ export default function Probe2bPage() {
   // the local role is not the owner).
   const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
-  const suppressNonOwnerEditWarningUntilRef = useRef(0);
-  const suppressNonOwnerEditWarning = useCallback(() => {
-    suppressNonOwnerEditWarningUntilRef.current = Date.now() + 1000;
-  }, []);
 
   useEffect(() => {
     setCondition('probe2b');
@@ -88,11 +83,17 @@ export default function Probe2bPage() {
   // configures these via localStorage['pipelineAssignments'], same convention
   // as Probe 1).
   const sessionDyadId = useMemo(() => {
-    return getSessionDyadId();
+    try {
+      const stored = localStorage.getItem('sessionConfig');
+      return stored ? JSON.parse(stored).dyadId : null;
+    } catch { return null; }
   }, []);
 
   const assignedProjectIds = useMemo(() => {
-    return getAssignedPipelineProjectIds(sessionDyadId);
+    try {
+      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+      return assignments[sessionDyadId] || [];
+    } catch { return []; }
   }, [sessionDyadId]);
 
   // Try loading project state from Phase 2a
@@ -101,7 +102,6 @@ export default function Probe2bPage() {
     if (savedState && data) {
       // Apply saved state
       if (savedState.editState) {
-        suppressNonOwnerEditWarning();
         setEditState(savedState.editState);
       }
       if (savedState.selectedVideoIds && data.videos) {
@@ -112,11 +112,15 @@ export default function Probe2bPage() {
       }
       announce('Project state loaded from Phase 2a');
     }
-  }, [data, suppressNonOwnerEditWarning]);
+  }, [data]);
 
   const projectData = useMemo(() => {
-    if (selectedVideos && Array.isArray(selectedVideos) && typeof selectedVideos[0] !== 'string') {
-      return { videos: selectedVideos };
+    if (selectedVideos && data) {
+      return {
+        videos: data.videos
+          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
+          : [data.video],
+      };
     }
     return data;
   }, [data, selectedVideos]);
@@ -128,10 +132,18 @@ export default function Probe2bPage() {
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
 
-    const filteredPipeline = filterAssignedPipelineVideos(pipelineVideos, assignedProjectIds);
+    // If the researcher has assigned specific pipeline projects to this dyad,
+    // narrow the pipeline list to those. If no assignments exist, show all.
+    let filteredPipeline = pipelineVideos;
+    if (sessionDyadId && assignedProjectIds.length > 0) {
+      filteredPipeline = pipelineVideos.filter(
+        (v) => assignedProjectIds.includes(v._projectId)
+          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+      );
+    }
 
     return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, assignedProjectIds]);
+  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
 
   // Track play/pause state
   useEffect(() => {
@@ -219,7 +231,6 @@ export default function Probe2bPage() {
   // update, so the user can immediately retry by taking control first.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
     if (role && controlOwner !== role) {
-      if (Date.now() < suppressNonOwnerEditWarningUntilRef.current) return;
       announce(
         `You don't have control of the edits right now. Tap Take control to start editing.`
       );
@@ -316,7 +327,6 @@ export default function Probe2bPage() {
           break;
         case 'EDIT_STATE_UPDATE': {
           const previousState = editStateRef.current;
-          suppressNonOwnerEditWarning();
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
@@ -386,10 +396,7 @@ export default function Probe2bPage() {
         case 'PROJECT_STATE_EXPORT': {
           // Receive project state from Phase 2a via researcher transition
           if (msg.projectState) {
-            if (msg.projectState.editState) {
-              suppressNonOwnerEditWarning();
-              setEditState(msg.projectState.editState);
-            }
+            if (msg.projectState.editState) setEditState(msg.projectState.editState);
             announce('Project state received from Phase 2a');
           }
           break;
@@ -410,7 +417,7 @@ export default function Probe2bPage() {
       logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: currentRole });
       announce('Device connected');
     });
-  }, [clearSubscriptions, logEvent, suppressNonOwnerEditWarning]);
+  }, [clearSubscriptions, logEvent]);
 
   useEffect(() => {
     if (phase === 'waiting' && connected) setPhase('library');
@@ -450,7 +457,6 @@ export default function Probe2bPage() {
             sources,
             textOverlays: editStateRef.current?.textOverlays || [],
           };
-          suppressNonOwnerEditWarning();
           setEditState(nextEditState);
           setSelectedVideos(resolved);
           setSessionGuide(buildProjectStats({
@@ -464,7 +470,7 @@ export default function Probe2bPage() {
         }
       }
     }
-  }, [selectedVideos, allVideos, role, suppressNonOwnerEditWarning]);
+  }, [selectedVideos, allVideos, role]);
 
   const handleRoleSelect = useCallback((selectedRole) => {
     setRole(selectedRole);

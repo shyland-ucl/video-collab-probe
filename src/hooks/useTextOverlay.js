@@ -15,7 +15,6 @@ export default function useTextOverlay({ initialOverlays = [], onOverlaysChange 
   const [activeOverlayId, setActiveOverlayId] = useState(null);
   const [textToolActive, setTextToolActive] = useState(false);
   const syncingFromPropsRef = useRef(false);
-  const didNotifyMountRef = useRef(false);
   const onOverlaysChangeRef = useRef(onOverlaysChange);
   const initialSignature = getOverlaySignature(initialOverlays);
 
@@ -37,10 +36,6 @@ export default function useTextOverlay({ initialOverlays = [], onOverlaysChange 
 
   useEffect(() => {
     if (!onOverlaysChangeRef.current) return;
-    if (!didNotifyMountRef.current) {
-      didNotifyMountRef.current = true;
-      return;
-    }
     if (syncingFromPropsRef.current) {
       syncingFromPropsRef.current = false;
       return;
