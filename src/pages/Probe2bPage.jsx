@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
+import { loadPipelineVideos } from '../services/pipelineApi.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -62,13 +63,32 @@ export default function Probe2bPage() {
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
+  const [pipelineVideos, setPipelineVideos] = useState([]);
   const { audioEnabled, speechRate } = useAccessibility();
 
   useEffect(() => {
     setCondition('probe2b');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2b' });
     loadDescriptions().then(setData).catch(console.error);
+    loadPipelineVideos().then(setPipelineVideos).catch(() => {});
   }, [setCondition, logEvent]);
+
+  // Resolve pipeline-video assignments for the current dyad (researcher
+  // configures these via localStorage['pipelineAssignments'], same convention
+  // as Probe 1).
+  const sessionDyadId = useMemo(() => {
+    try {
+      const stored = localStorage.getItem('sessionConfig');
+      return stored ? JSON.parse(stored).dyadId : null;
+    } catch { return null; }
+  }, []);
+
+  const assignedProjectIds = useMemo(() => {
+    try {
+      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+      return assignments[sessionDyadId] || [];
+    } catch { return []; }
+  }, [sessionDyadId]);
 
   // Try loading project state from Phase 2a
   useEffect(() => {
@@ -104,11 +124,20 @@ export default function Probe2bPage() {
   const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
 
   const allVideos = useMemo(() => {
-    if (!data) return [];
-    if (data.videos) return data.videos;
-    if (data.video) return [data.video];
-    return [];
-  }, [data]);
+    const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
+
+    // If the researcher has assigned specific pipeline projects to this dyad,
+    // narrow the pipeline list to those. If no assignments exist, show all.
+    let filteredPipeline = pipelineVideos;
+    if (sessionDyadId && assignedProjectIds.length > 0) {
+      filteredPipeline = pipelineVideos.filter(
+        (v) => assignedProjectIds.includes(v._projectId)
+          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+      );
+    }
+
+    return [...filteredPipeline, ...sampleVideos];
+  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
 
   // Track play/pause state
   useEffect(() => {

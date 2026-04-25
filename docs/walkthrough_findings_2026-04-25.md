@@ -16,15 +16,19 @@ The findings are organised by **severity** first, then by **probe / area**. Each
 
 ## 1. Blockers (B)
 
-### B1. Mark/Flag and Edit features missing from Probe 1
+### ~~B1. Mark/Flag and Edit features missing from Probe 1~~ — RESOLVED AS INTENTIONAL (2026-04-25)
 
-`STUDY_PLAN.md` describes Probe 1 actions including a Mark button (logs `DESCRIPTION_FLAGGED`) and an Edit slide-up panel (Split, Move Earlier, Move Later, Delete, Undo, Redo, Add Caption). The components exist on disk (`src/components/probe1/FlagButton.jsx`, `src/components/shared/MockEditor.jsx`) but are **not imported or rendered** anywhere in `Probe1Page.jsx` or `Probe1SceneActions.jsx`. The expanded scene actions only contain: Detail level / Play / Ask AI / Close.
+**Status: not a blocker. Re-scoped as intentional research-design choice.**
 
-Also: the Probe 1 onboarding text the participant reads aloud says "Use the Play All button to listen to every scene description in order" — there is no Play All button anywhere. `GlobalControlsBar.jsx` is just a stats line.
+The original finding observed that components for Mark/Flag, the Edit slide-up panel, and the Play All button exist on disk but aren't wired into Probe 1. After discussion with Lan, this is a deliberate scoping decision: Probe 1's research question is about **information access** (how BLV creators use AI-generated descriptions at varying granularity to understand video content), not about editing. Surfacing Mark/Flag and Edit affordances in Probe 1 would distract from the central interaction (granularity exploration + VQA) and confuse the comparison with Probe 2a, which is where editing actually belongs in the four-condition design.
 
-Files: `src/pages/Probe1Page.jsx`, `src/components/probe1/Probe1SceneActions.jsx`, `src/components/shared/GlobalControlsBar.jsx`.
+The unimported components (`src/components/probe1/FlagButton.jsx`, `src/components/shared/MockEditor.jsx`) and the "Play All" reference in the onboarding text are leftovers from earlier iterations of the protocol. They can either:
+- Be deleted to remove dead code (recommended), or
+- Be kept on disk for future use, with the onboarding text updated to drop the "Play All" mention so it doesn't promise something the UI doesn't offer.
 
-Why it matters: the study expects to capture flagging and editing behaviour in Probe 1; the data simply will not be generated.
+Future walkthroughs should not flag B1 as a blocker. The skill's regression-check table has been updated accordingly.
+
+STUDY_PLAN.md should be updated to remove the Mark/Edit description from Probe 1's section so the spec matches the implementation.
 
 ### B2. "Edit by Myself" buttons in Probe 2a are non-functional placeholders
 

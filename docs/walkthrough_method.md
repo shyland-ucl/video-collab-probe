@@ -90,8 +90,8 @@ Exploring phase (the critical surface):
 - Auto-expand-during-playback yanks reading focus (`SceneBlockList.jsx` lines 69–78).
 - `OnboardingBrief` is permanent inline, not the dismissible overlay the spec describes.
 - Heading hierarchy: only `<h1>` is `sr-only`.
-- Mark/Flag and Edit buttons are missing — components exist on disk (`FlagButton.jsx`, `MockEditor.jsx`) but unimported.
-- "Play All" button is mentioned in the onboarding text but never implemented.
+- ~~Mark/Flag and Edit buttons are missing~~ — resolved as intentional (2026-04-25). Probe 1 is scoped to information access only; editing belongs to Probes 2a/2b/3. Don't re-flag this.
+- ~~"Play All" button is mentioned in the onboarding text but never implemented~~ — same scoping. Onboarding text should be cleaned up to remove the mention.
 - Visible-vs-aria-label mismatch on Play button: "Play from here" / "Play scene N".
 - Pipeline videos: confirm `Probe1Page` calls `loadPipelineVideos` (it should — Probe 2a/2b/3 don't, which is a separate finding).
 
