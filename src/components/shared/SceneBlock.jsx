@@ -45,16 +45,25 @@ export default function SceneBlock({
     // scene.name and index are stable for the lifecycle of this block
   }, [isExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle browser back button when expanded
+  // Handle browser back button when expanded.
+  // Symmetric push/pop so collapse via Close button or onCollapse() also pops
+  // the history entry we pushed; otherwise expand/collapse cycles inflate the
+  // back-stack and force users to press back N+1 times to leave the probe.
   useEffect(() => {
     if (!isExpanded) return;
-    const handlePopState = (e) => {
-      e.preventDefault();
+    let triggeredByBack = false;
+    const handlePopState = () => {
+      triggeredByBack = true;
       onCollapse();
     };
     window.history.pushState({ sceneBlock: true }, '');
     window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (!triggeredByBack && window.history.state?.sceneBlock === true) {
+        window.history.back();
+      }
+    };
   }, [isExpanded, onCollapse]);
 
   return (
@@ -71,7 +80,7 @@ export default function SceneBlock({
           }
           onExpand(index);
         }}
-        aria-label={`Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ${description}. ${isExpanded ? 'Tap to close actions.' : 'Tap to open actions.'}`}
+        aria-label={`Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ${isExpanded ? 'Tap to close actions.' : 'Tap to open actions.'}`}
         aria-expanded={isExpanded}
         className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
           isExpanded ? 'border-b-2' : ''

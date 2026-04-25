@@ -80,6 +80,7 @@ export default function VideoLibrary({
     } else {
       newVideos.forEach((v) => onSelectionChange(v.id, true));
     }
+    announce(`${newVideos.length} video${newVideos.length === 1 ? '' : 's'} uploaded and added to your library.`);
   }, [onSelectionChange]);
 
   const toggleSelect = useCallback((videoId) => {
