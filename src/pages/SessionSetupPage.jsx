@@ -147,7 +147,7 @@ export default function SessionSetupPage() {
           </button>
         </div>
 
-        <div className="mt-4 text-center text-sm text-gray-400">
+        <div className="mt-4 text-center text-sm text-gray-600">
           <a
             href="/researcher"
             className="underline hover:text-gray-600 focus:outline-2 focus:outline-blue-500"

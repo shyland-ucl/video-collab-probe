@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import { wsRelayService } from './services/wsRelayService.js'
+import { announce } from './utils/announcer.js'
 import { EventLoggerProvider } from './contexts/EventLoggerContext.jsx'
 import { AccessibilityProvider, useAccessibility } from './contexts/AccessibilityContext.jsx'
 import SessionSetupPage from './pages/SessionSetupPage.jsx'
@@ -26,6 +27,7 @@ function AppShell() {
   useEffect(() => {
     const unsubscribe = wsRelayService.onData((msg) => {
       if (msg.type === 'NAVIGATE' && msg.path) {
+        announce('Moving to the next section.');
         navigate(msg.path);
       }
     });
@@ -48,7 +50,7 @@ function AppShell() {
       </a>
 
       {/* Screen reader live announcer */}
-      <div id="sr-announcer" role="status" aria-live="polite" className="sr-only" />
+      <div id="sr-announcer" role="status" aria-live="polite" aria-atomic="true" className="sr-only" />
 
       <main id="main-content">
         <Routes>

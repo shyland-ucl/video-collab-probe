@@ -540,23 +540,20 @@ export default function Probe3Page() {
     setRole(selectedRole);
     setPhase('waiting');
     logEvent(EventTypes.SESSION_START, Actors.SYSTEM, { role: selectedRole, probe: 'probe3' });
-    setupHandlers(selectedRole);
-    wsRelayService.connect(selectedRole);
-  }, [logEvent, setupHandlers]);
+  }, [logEvent]);
 
-  const didAutoConnect = useRef(false);
+  // Single source of truth for the WS connection lifecycle.
+  // See Probe2bPage.jsx for the rationale; same StrictMode-safe pattern.
+  // docs/walkthrough_findings_2026-04-25_spotcheck.md NF2.
   useEffect(() => {
-    if (validRoleParam && !didAutoConnect.current) {
-      didAutoConnect.current = true;
-      setupHandlers(validRoleParam);
-      wsRelayService.connect(validRoleParam);
-    }
-  }, [validRoleParam, setupHandlers]);
-
-  useEffect(() => () => {
-    clearSubscriptions();
-    wsRelayService.disconnect();
-  }, [clearSubscriptions]);
+    if (!role) return;
+    setupHandlers(role);
+    wsRelayService.connect(role);
+    return () => {
+      clearSubscriptions();
+      wsRelayService.disconnect();
+    };
+  }, [role, setupHandlers, clearSubscriptions]);
 
   useEffect(() => {
     window.__aiEditReceive = (request) => setPendingAIRequest(request);
