@@ -15,7 +15,7 @@ export default function DetailLevelSelector({ currentLevel, onLevelChange }) {
 
   return (
     <div>
-      <span className="text-xs font-medium text-gray-600 block mb-1.5" id="detail-level-label">
+      <span className="text-sm font-medium text-gray-700 block mb-1.5" id="detail-level-label">
         Detail level
       </span>
       <div className="flex gap-2" role="radiogroup" aria-labelledby="detail-level-label">

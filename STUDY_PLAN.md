@@ -47,10 +47,10 @@ The creator works independently with AI-generated descriptions of their video. T
 - Each scene has a name and time range (e.g., "Walking to Kitchen -- 0:00--0:03")
 
 #### Description Levels
-- Three granularity levels per scene (pre-authored in `descriptions.json`):
-  - **Level 1**: Brief (1 sentence, key action only)
-  - **Level 2**: Standard (2--3 sentences, spatial details)
-  - **Level 3**: Detailed (full paragraph, lighting, colours, spatial relationships)
+- Three granularity levels per scene (pre-authored in `descriptions.json`), surfaced in the UI as "Overview / Detailed / Technical":
+  - **Level 1 — Overview**: 1 sentence, key action only
+  - **Level 2 — Detailed**: 2–3 sentences, spatial details
+  - **Level 3 — Technical**: full paragraph, lighting, colours, spatial relationships
 - **Less Detail / More Detail buttons** (middle row) cycle between levels
 - Descriptions are read aloud via TTS when audio is enabled
 - Description text is focused for screen reader announcement on scene change

@@ -23,6 +23,7 @@ import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.js
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
+import ControlLockBanner from '../components/decoupled/ControlLockBanner.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -64,6 +65,8 @@ export default function Probe3Page() {
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
   const [pipelineVideos, setPipelineVideos] = useState([]);
+  // M6: see Probe2bPage for rationale.
+  const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
 
   // Suggestion system state
@@ -98,20 +101,24 @@ export default function Probe3Page() {
     } catch { return []; }
   }, [sessionDyadId]);
 
-  // Get suggestions for the selected video (Video C)
+  // Aggregate pre-authored suggestions across every selected video.
+  // B4 fix: previously only iterated `data.videos`, which meant pipeline-uploaded
+  // videos (loaded via loadPipelineVideos) never contributed suggestions even if
+  // their data carried a `suggestions` array. Now any selected video — sample
+  // or pipeline — can supply suggestions, and they are merged into a single
+  // list. The researcher WoZ panel additionally supports composing ad-hoc
+  // suggestions on the fly for videos that have no pre-authored data.
   const videoSuggestions = useMemo(() => {
-    if (!selectedVideos || !data) return [];
-    // Find the video with suggestions (typically the third video)
-    const allVids = data.videos || (data.video ? [data.video] : []);
-    for (const v of allVids) {
-      if (v.suggestions && v.suggestions.length > 0) {
-        // Check if this video is in the selected set
-        const isSelected = selectedVideos.some?.((sv) => (typeof sv === 'string' ? sv : sv.id) === v.id);
-        if (isSelected) return v.suggestions;
+    if (!selectedVideos) return [];
+    const merged = [];
+    for (const v of selectedVideos) {
+      const vid = typeof v === 'string' ? null : v;
+      if (vid?.suggestions && vid.suggestions.length > 0) {
+        merged.push(...vid.suggestions);
       }
     }
-    return [];
-  }, [selectedVideos, data]);
+    return merged;
+  }, [selectedVideos]);
 
   const projectData = useMemo(() => {
     if (selectedVideos && data) {
@@ -207,37 +214,44 @@ export default function Probe3Page() {
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
 
-  const detectEditAction = useCallback((prevState, newState) => {
-    if (!prevState || !newState) return 'made an edit';
-    const prevClips = prevState.clips?.length || 0;
-    const newClips = newState.clips?.length || 0;
-    const prevCaptions = prevState.captions?.length || 0;
-    const newCaptions = newState.captions?.length || 0;
-    if (newClips > prevClips) return 'split a clip';
-    if (newClips < prevClips) return 'deleted a clip';
-    if (newCaptions > prevCaptions) return 'added a caption';
-    if (newCaptions < prevCaptions) return 'removed a caption';
-    if (prevClips === newClips && prevClips > 0) {
-      const prevIds = prevState.clips.map((c) => c.id).join(',');
-      const newIds = newState.clips.map((c) => c.id).join(',');
-      if (prevIds !== newIds) return 'reordered clips';
-    }
-    return 'made an edit';
-  }, []);
-
+  // M14 + M6: see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    if (role && controlOwner !== role) {
+      announce(
+        `You don't have control of the edits right now. Tap Take control to start editing.`
+      );
+      return;
+    }
     const newState = {
       clips,
       captions,
       sources,
       textOverlays: textOverlays ?? editStateRef.current?.textOverlays ?? [],
     };
-    const action = detectEditAction(editStateRef.current, newState);
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
     const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
     setEditState(newState);
-    wsRelayService.sendData({ type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary, actor: role === 'creator' ? 'CREATOR' : 'HELPER' });
-  }, [role, detectEditAction]);
+    wsRelayService.sendData({
+      type: 'EDIT_STATE_UPDATE',
+      editState: newState,
+      action: changeSummary.actionText,
+      changeSummary,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role, controlOwner]);
+
+  const handleTakeControl = useCallback(() => {
+    if (!role) return;
+    if (controlOwner === role) return;
+    setControlOwner(role);
+    wsRelayService.sendData({
+      type: 'CONTROL_TAKEN',
+      newOwner: role,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+    logEvent(EventTypes.CONTROL_TAKEN, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { newOwner: role });
+    announce('You now have control of the edits.');
+  }, [role, controlOwner, logEvent]);
 
   const handleHelperTaskStatus = useCallback((taskId, status) => {
     setFeedItems((prev) => prev.map((item) => item.id === taskId ? { ...item, status } : item));
@@ -417,6 +431,14 @@ export default function Probe3Page() {
           break;
         case 'PROJECT_CREATED':
           setSelectedVideos(msg.videoIds);
+          break;
+        case 'CONTROL_TAKEN':
+          if (msg.newOwner) {
+            setControlOwner(msg.newOwner);
+            if (msg.newOwner !== currentRole) {
+              announce(`${msg.newOwner.charAt(0).toUpperCase() + msg.newOwner.slice(1)} now has control of the edits.`);
+            }
+          }
           break;
         case 'TASK_TO_HELPER': {
           const item = {
@@ -683,6 +705,12 @@ export default function Probe3Page() {
             description="This works like the previous two-phone setup, but now AI will suggest improvements inside relevant scenes as you edit. When a suggestion appears, you must choose who handles it: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
           />
           <ConditionHeader condition="probe3" modeLabel={modeLabel} />
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.purple}
+          />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
@@ -802,6 +830,12 @@ export default function Probe3Page() {
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto">
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.purple}
+          />
           <HelperDevice
             videoRef={playerRef}
             videoData={projectData}

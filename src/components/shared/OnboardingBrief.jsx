@@ -13,6 +13,11 @@ export default function OnboardingBrief({ description, pageTitle }) {
 
   if (!description) return null;
 
+  // ConditionHeader now provides the page-level <h1>, so OnboardingBrief
+  // doesn't need its own sr-only heading. The pageTitle prop is kept for
+  // backward-compat with callers but is rendered as a screen-reader-only
+  // <h2> so the brief still has an addressable section heading without
+  // duplicating the page-level title (M4).
   return (
     <section
       ref={sectionRef}
@@ -21,9 +26,9 @@ export default function OnboardingBrief({ description, pageTitle }) {
       className="mx-3 mt-3 mb-1 px-4 py-3 rounded-xl bg-gray-50 border border-gray-200 focus:outline-none"
     >
       {pageTitle && (
-        <h1 className="sr-only">{pageTitle}</h1>
+        <h2 className="sr-only">{pageTitle}</h2>
       )}
-      <p className="text-sm text-gray-700">{description}</p>
+      <p className="text-base text-gray-700">{description}</p>
     </section>
   );
 }

@@ -23,6 +23,7 @@ import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.js
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
 import DecoupledHelperDevice from '../components/decoupled/DecoupledHelperDevice.jsx';
+import ControlLockBanner from '../components/decoupled/ControlLockBanner.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -64,6 +65,11 @@ export default function Probe2bPage() {
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
   const [pipelineVideos, setPipelineVideos] = useState([]);
+  // M6 fix: explicit control state. Default 'creator' because the creator
+  // imports the project. Either side can take control; only the owner's
+  // edits propagate over the WS relay (handleEditChange short-circuits when
+  // the local role is not the owner).
+  const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
 
   useEffect(() => {
@@ -218,40 +224,50 @@ export default function Probe2bPage() {
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
 
-  const detectEditAction = useCallback((prevState, newState) => {
-    if (!prevState || !newState) return 'made an edit';
-    const prevClips = prevState.clips?.length || 0;
-    const newClips = newState.clips?.length || 0;
-    const prevCaptions = prevState.captions?.length || 0;
-    const newCaptions = newState.captions?.length || 0;
-    if (newClips > prevClips) return 'split a clip';
-    if (newClips < prevClips) return 'deleted a clip';
-    if (newCaptions > prevCaptions) return 'added a caption';
-    if (newCaptions < prevCaptions) return 'removed a caption';
-    if (prevClips === newClips && prevClips > 0) {
-      const prevIds = prevState.clips.map((c) => c.id).join(',');
-      const newIds = newState.clips.map((c) => c.id).join(',');
-      if (prevIds !== newIds) return 'reordered clips';
-    }
-    return 'made an edit';
-  }, []);
-
+  // M14 + M6: prefer summarizeEditStateChange for awareness messages (M14),
+  // and refuse to broadcast EDIT_STATE_UPDATE when this side is not the
+  // current control owner (M6). The non-owner sees an announcement
+  // explaining why the edit was suppressed; the local UI also doesn't
+  // update, so the user can immediately retry by taking control first.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    if (role && controlOwner !== role) {
+      announce(
+        `You don't have control of the edits right now. Tap Take control to start editing.`
+      );
+      return;
+    }
     const newState = {
       clips,
       captions,
       sources,
       textOverlays: textOverlays ?? editStateRef.current?.textOverlays ?? [],
     };
-    const action = detectEditAction(editStateRef.current, newState);
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
     const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
     setEditState(newState);
     wsRelayService.sendData({
-      type: 'EDIT_STATE_UPDATE', editState: newState, action, changeSummary,
+      type: 'EDIT_STATE_UPDATE',
+      editState: newState,
+      action: changeSummary.actionText,
+      changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role, detectEditAction]);
+  }, [role, controlOwner]);
+
+  // M6: when this side takes control, broadcast it so the peer's banner
+  // updates and their handleEditChange starts refusing.
+  const handleTakeControl = useCallback(() => {
+    if (!role) return;
+    if (controlOwner === role) return;
+    setControlOwner(role);
+    wsRelayService.sendData({
+      type: 'CONTROL_TAKEN',
+      newOwner: role,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+    logEvent(EventTypes.CONTROL_TAKEN, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { newOwner: role });
+    announce('You now have control of the edits.');
+  }, [role, controlOwner, logEvent]);
 
   // Task routing callbacks
   const handleHelperTaskStatus = useCallback((taskId, status) => {
@@ -332,6 +348,15 @@ export default function Probe2bPage() {
           break;
         case 'PROJECT_CREATED':
           setSelectedVideos(msg.videoIds);
+          break;
+        case 'CONTROL_TAKEN':
+          if (msg.newOwner && msg.newOwner !== currentRole) {
+            setControlOwner(msg.newOwner);
+            announce(`${msg.newOwner.charAt(0).toUpperCase() + msg.newOwner.slice(1)} now has control of the edits.`);
+          } else if (msg.newOwner) {
+            // Echo of our own take — already applied locally, but keep state consistent.
+            setControlOwner(msg.newOwner);
+          }
           break;
         case 'TASK_TO_HELPER': {
           const item = {
@@ -546,6 +571,12 @@ export default function Probe2bPage() {
             description="You and your helper each have a phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you can edit by yourself, ask AI to edit, or send a task to your helper's device without handing over. Activity indicators show what your helper is working on. All changes sync between phones automatically."
           />
           <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.green}
+          />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
@@ -641,6 +672,12 @@ export default function Probe2bPage() {
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto">
+          <ControlLockBanner
+            role={role}
+            controlOwner={controlOwner}
+            onTakeControl={handleTakeControl}
+            accentColor={COLORS.green}
+          />
           <DecoupledHelperDevice
             condition="probe2b"
             accentColor={COLORS.green}

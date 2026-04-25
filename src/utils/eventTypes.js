@@ -40,6 +40,7 @@ export const EventTypes = Object.freeze({
 
   // Handover events (Probe 2)
   HANDOVER_INITIATED: 'HANDOVER_INITIATED',
+  HANDOVER_CANCELLED: 'HANDOVER_CANCELLED',
   INTENT_LOCKED: 'INTENT_LOCKED',
   HANDOVER_COMPLETED: 'HANDOVER_COMPLETED',
   HELPER_ACTION: 'HELPER_ACTION',
@@ -52,6 +53,9 @@ export const EventTypes = Object.freeze({
   HANDOVER_LIVE: 'HANDOVER_LIVE',
   COMPLETE_TASK: 'COMPLETE_TASK',
   PLAY_VOICE_NOTE: 'PLAY_VOICE_NOTE',
+
+  // Control lock (Probes 2b, 3) — see ControlLockBanner.
+  CONTROL_TAKEN: 'CONTROL_TAKEN',
 
   // Text overlay (Probe 2 & 3 helper)
   ADD_TEXT_OVERLAY: 'ADD_TEXT_OVERLAY',
