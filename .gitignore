@@ -28,8 +28,9 @@ dist-ssr
 .env.local
 .env.*.local
 
-# Claude Code session data
-.claude/
+# Claude Code session data — keep local except project-shared skills
+.claude/*
+!.claude/skills/
 
 # Git worktrees
 .worktrees/
