@@ -31,11 +31,13 @@ export default function SceneBlock({
   const levelKey = `level_${currentLevel}`;
   const description = scene.descriptions?.[levelKey] || '';
 
-  // Auto-focus actions area and announce on expand
+  // Auto-focus actions area and announce on expand.
+  // Fires for both manual click and auto-follow during playback. TalkBack
+  // picks up the focus change and the live-region announce — we deliberately
+  // don't call ttsService.speak() here so we don't fight the screen reader.
   useEffect(() => {
     if (isExpanded && actionsRef.current) {
       actionsRef.current.focus();
-      // Stop any in-progress TTS before announcing to avoid collision
       ttsService.stop();
       announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`);
     }
@@ -45,26 +47,11 @@ export default function SceneBlock({
     // scene.name and index are stable for the lifecycle of this block
   }, [isExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle browser back button when expanded.
-  // Symmetric push/pop so collapse via Close button or onCollapse() also pops
-  // the history entry we pushed; otherwise expand/collapse cycles inflate the
-  // back-stack and force users to press back N+1 times to leave the probe.
-  useEffect(() => {
-    if (!isExpanded) return;
-    let triggeredByBack = false;
-    const handlePopState = () => {
-      triggeredByBack = true;
-      onCollapse();
-    };
-    window.history.pushState({ sceneBlock: true }, '');
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      if (!triggeredByBack && window.history.state?.sceneBlock === true) {
-        window.history.back();
-      }
-    };
-  }, [isExpanded, onCollapse]);
+  // Browser back-button integration is owned by SceneBlockList — putting it
+  // here caused auto-follow to break: when expandedIndex moves from N to N+1,
+  // block N's cleanup calls history.back(), and the async popstate then fires
+  // against block N+1's just-attached listener, collapsing it. SceneBlockList
+  // does a single push/pop keyed on "is any scene expanded".
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -75,9 +62,8 @@ export default function SceneBlock({
             onCollapse();
             return;
           }
-          if (audioEnabled && description) {
-            ttsService.speak(description, { rate: speechRate });
-          }
+          // The expand effect handles description read-out so the same code
+          // path runs for click and auto-follow — no separate speak here.
           onExpand(index);
         }}
         aria-label={`Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ${isExpanded ? 'Tap to close actions.' : 'Tap to open actions.'}`}

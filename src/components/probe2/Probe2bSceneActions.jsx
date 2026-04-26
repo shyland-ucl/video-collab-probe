@@ -44,6 +44,10 @@ export default function Probe2bSceneActions({
     announce(`Playing scene ${index + 1}.`);
   }, [scene, index, onSeek, onPlay]);
 
+  const handlePauseSegment = useCallback(() => {
+    if (onPause) onPause();
+  }, [onPause]);
+
   // VQA
   const handleAskAI = useCallback(
     async (question) => {
@@ -106,12 +110,12 @@ export default function Probe2bSceneActions({
 
       {/* Play / Pause */}
       <button
-        onClick={isSegmentPlaying ? () => onPause?.() : handlePlaySegment}
+        onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '48px' }}
         aria-label={isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
       >
-        {isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
+        {isSegmentPlaying ? 'Pause' : 'Play from here'}
       </button>
 
       {/* Ask AI (VQA) — toggle */}

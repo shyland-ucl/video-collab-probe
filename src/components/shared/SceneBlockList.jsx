@@ -65,7 +65,11 @@ export default function SceneBlockList({
     [currentLevel, logEvent]
   );
 
-  // Auto-navigate to the scene matching current playback time
+  // Auto-navigate to the scene matching current playback time. Setting
+  // expandedIndex collapses the previous SceneBlock and expands the new one,
+  // so the expanded options visibly follow playback. The announce gives
+  // TalkBack a transition cue; the new SceneBlock's expand effect handles
+  // focus.
   useEffect(() => {
     if (!isPlaying || expandedIndex === null) return;
     const activeIndex = scenes.findIndex(
@@ -76,6 +80,31 @@ export default function SceneBlockList({
       announce(`Now playing scene ${activeIndex + 1}: ${scenes[activeIndex].name}.`);
     }
   }, [currentTime, isPlaying, scenes, expandedIndex]);
+
+  // Single push/pop tied to "is any scene expanded" so the browser back
+  // button closes the open scene without inflating history. Putting this
+  // here instead of in each SceneBlock avoids the auto-follow regression
+  // where block N's cleanup history.back() collapsed block N+1 via
+  // async popstate.
+  const anyExpanded = expandedIndex !== null;
+  useEffect(() => {
+    if (!anyExpanded) return;
+    let triggeredByBack = false;
+    const handlePopState = () => {
+      triggeredByBack = true;
+      setExpandedIndex(null);
+      ttsService.stop();
+      announce('Scene closed.');
+    };
+    window.history.pushState({ sceneBlock: true }, '');
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (!triggeredByBack && window.history.state?.sceneBlock === true) {
+        window.history.back();
+      }
+    };
+  }, [anyExpanded]);
 
   return (
     <div ref={listRef} className="flex flex-col min-h-0">
