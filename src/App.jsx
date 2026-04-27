@@ -49,8 +49,16 @@ function AppShell() {
         Skip to main content
       </a>
 
-      {/* Screen reader live announcer */}
+      {/* Screen reader live announcers.
+          Two regions:
+          - polite: queues behind whatever TalkBack is currently speaking.
+            Used for incidental/background notifications.
+          - assertive: interrupts current speech. Used for direct feedback
+            to a user action (e.g. detail-level change), where TalkBack
+            would otherwise drown out the announce by re-reading the
+            just-activated button. */}
       <div id="sr-announcer" role="status" aria-live="polite" aria-atomic="true" className="sr-only" />
+      <div id="sr-announcer-assertive" role="alert" aria-live="assertive" aria-atomic="true" className="sr-only" />
 
       <main id="main-content">
         <Routes>

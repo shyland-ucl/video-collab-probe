@@ -119,3 +119,50 @@ function mapClips(editState, sceneId, fn) {
   const clips = (editState.clips || []).map((c) => (c.id === sceneId ? fn(c) : c));
   return { ...editState, clips };
 }
+
+export function deleteClip(editState, sceneId) {
+  const clips = (editState.clips || []).filter((c) => c.id !== sceneId);
+  const captions = (editState.captions || []).filter((cap) => cap.sceneId !== sceneId);
+  return { ...editState, clips, captions };
+}
+
+/**
+ * Single dispatcher for both AI-accept and self-edit paths. Maps a free-form
+ * operation key (from `ai_edits_prepared` keys, Gemini drafts, or self-edit
+ * buttons) to the matching scene-edit op. Returns a new editState; never
+ * mutates input. If the operation is unknown the original state is returned.
+ *
+ * options:
+ *   currentTime — for `split`, the playhead time; falls back to clip midpoint
+ *   captionText — for `add_caption`, the caption text; defaults to a placeholder
+ *   direction   — for `reorder`/`move_*`, 'up' (earlier) or 'down' (later)
+ */
+export function applyOperation(editState, sceneId, operation, options = {}) {
+  if (!editState || !sceneId || !operation) return editState;
+  const op = String(operation).toLowerCase();
+  switch (op) {
+    case 'trim':
+    case 'trim_start':
+      return trimClipStart(editState, sceneId, +1);
+    case 'trim_end':
+      return trimClipEnd(editState, sceneId, +1);
+    case 'split':
+      return splitClip(editState, sceneId, options.currentTime);
+    case 'delete':
+    case 'remove':
+    case 'discard':
+      return deleteClip(editState, sceneId);
+    case 'reorder':
+    case 'move_earlier':
+    case 'move_up':
+      return moveClip(editState, sceneId, 'up');
+    case 'move_later':
+    case 'move_down':
+      return moveClip(editState, sceneId, options.direction === 'down' ? 'down' : 'down');
+    case 'add_caption':
+    case 'caption':
+      return addCaption(editState, sceneId, options.captionText || 'AI-added caption');
+    default:
+      return editState;
+  }
+}

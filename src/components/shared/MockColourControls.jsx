@@ -9,17 +9,23 @@ const SLIDERS = [
   { id: 'saturation', label: 'Saturation', min: -100, max: 100, step: 5 },
 ];
 
-export default function MockColourControls({ onAdjust, disabled }) {
-  const [values, setValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
+export default function MockColourControls({ values: controlledValues, onAdjust, disabled }) {
+  // Controlled when `values` prop is provided (parent owns state and wires
+  // the resulting CSS filter into VideoPlayer); otherwise falls back to
+  // local-only state so existing call sites keep working.
+  const [localValues, setLocalValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
+  const values = controlledValues || localValues;
   const { logEvent } = useEventLogger();
 
   const handleChange = useCallback((property, value) => {
     const numVal = Number(value);
-    setValues((prev) => ({ ...prev, [property]: numVal }));
+    if (!controlledValues) {
+      setLocalValues((prev) => ({ ...prev, [property]: numVal }));
+    }
     logEvent(EventTypes.COLOUR_ADJUST, Actors.HELPER, { property, value: numVal });
     if (onAdjust) onAdjust(property, numVal);
     announce(`${property} set to ${numVal}.`);
-  }, [logEvent, onAdjust]);
+  }, [logEvent, onAdjust, controlledValues]);
 
   return (
     <div className="space-y-3">

@@ -37,33 +37,44 @@ await withBrowser(async ({ page }) => {
     return { pass: count === 5, detail: `found ${count} scene blocks` };
   });
 
-  await runner.check('Play button text is "Play from here", aria-label is "Play scene 1"', async () => {
+  await runner.check('Play button visible text and aria-label are both "Play from here"', async () => {
     await expandScene(page, 1);
-    const btn = page.getByRole('button', { name: /^Play scene 1$/ }).first();
+    const btn = page.getByRole('button', { name: /^Play from here$/ }).first();
     const visible = (await btn.textContent())?.trim();
     const aria = await btn.getAttribute('aria-label');
     return {
-      pass: visible === 'Play from here' && aria === 'Play scene 1',
+      pass: visible === 'Play from here' && aria === 'Play from here',
       detail: `visible="${visible}" aria="${aria}"`,
     };
   });
 
-  // Snapshot a small "edit-state fingerprint" by reading the DOM. We look at
-  // the total count of buttons whose aria-label starts with "Scene " and " of "
-  // — that's the clip count surfaced to the user. A Split should grow it; a
-  // Delete (not tested here) would shrink it.
+  // Snapshot a small "edit-state fingerprint" by reading the DOM.
+  //  - splitClipCount: parsed from the visible "This scene currently has N
+  //    clip(s)." text inside the Split section. SceneBlock headers come from
+  //    `segments` (static project data), NOT from editState.clips, so a
+  //    successful split does NOT grow header count — it grows the clip
+  //    count badge inside the open Split section.
+  //  - captionRows: <li> rows under the "Existing captions on scene N" list
+  //    (only present when captions exist; the section's toggle button is
+  //    NOT counted — it's always there and would mask additions).
   async function clipFingerprint() {
-    return page.evaluate(() => ({
-      sceneCount: document.querySelectorAll('button[aria-label*="Scene "][aria-label*=" of "]').length,
-      // Caption indicator: any pill / text that mentions a caption count.
-      captionIndicators: Array.from(document.querySelectorAll('*'))
-        .filter((el) => /caption/i.test(el.getAttribute?.('aria-label') || ''))
-        .length,
-    }));
+    return page.evaluate(() => {
+      const badges = document.querySelectorAll('[data-clip-count-for]');
+      // Sum across all visible badges (only the open Split section actually
+      // renders one, so this is effectively the open scene's clip count).
+      let total = 0;
+      badges.forEach((el) => {
+        const m = (el.textContent || '').match(/has (\d+) clip/);
+        if (m) total += parseInt(m[1], 10);
+      });
+      return {
+        splitClipCount: total,
+        captionRows: document.querySelectorAll('ul[aria-label^="Existing captions"] li').length,
+      };
+    });
   }
 
   await runner.check('Edit by Myself sub-panel opens', async () => {
-    // The expanded scene exposes "Edit Myself" / "Edit by Myself" — match either.
     const edit = page
       .getByRole('button', { name: /Edit (by )?[Mm]yself|Edit Myself/ })
       .first();
@@ -71,52 +82,64 @@ await withBrowser(async ({ page }) => {
       return { pass: false, detail: 'Edit Myself button not found in expanded scene' };
     }
     await edit.click();
-    // After click, Trim / Split / Move buttons should be visible.
-    const trimVisible = await page
-      .getByRole('button', { name: /^Trim/ })
+    // After Lan's M4 a11y refactor, Trim/Split/Move/Caption/Note are
+    // *Section toggles* with aria-label "{Verb}, expand controls". Match
+    // by that suffix to disambiguate the toggle from the action button
+    // inside (e.g. "Split here").
+    const trimToggle = await page
+      .locator('button[aria-label="Trim, expand controls"]')
       .first()
       .isVisible()
       .catch(() => false);
-    return { pass: trimVisible, detail: trimVisible ? 'Trim affordance present' : 'Trim affordance missing' };
+    return { pass: trimToggle, detail: trimToggle ? 'Trim toggle present' : 'Trim toggle missing' };
   });
 
   await runner.check('Split actually adds a clip to editState (B2 regression)', async () => {
-    const before = await clipFingerprint();
-    const split = page.getByRole('button', { name: /^Split/ }).first();
-    if (!(await split.isVisible().catch(() => false))) {
-      return { pass: false, detail: 'Split button not visible — check that Edit Myself sub-panel is open' };
+    // 1. Open the Split section first so its clip-count badge renders. The
+    //    badge is what we use as a fingerprint — it reads directly from
+    //    editState.clips, so it grows on a real split.
+    const splitToggle = page.locator('button[aria-label="Split, expand controls"]').first();
+    if (!(await splitToggle.isVisible().catch(() => false))) {
+      return { pass: false, detail: 'Split section toggle not visible — Edit Myself probably not open' };
     }
-    await split.click();
-    // Give the state mutation a tick to render.
+    await splitToggle.click();
+    await page.locator('[data-clip-count-for]').first().waitFor({ timeout: 2000 });
+    const before = await clipFingerprint();
+    // 2. Click the actual action button — visible label is "Split here".
+    const splitAction = page.getByRole('button', { name: /^Split here$/ }).first();
+    await splitAction.waitFor({ timeout: 2000 });
+    await splitAction.click();
     await page.waitForTimeout(300);
     const after = await clipFingerprint();
-    const grew = after.sceneCount > before.sceneCount;
+    const grew = after.splitClipCount > before.splitClipCount;
     return {
       pass: grew,
-      detail: `sceneCount before=${before.sceneCount} after=${after.sceneCount}`,
+      detail: `splitClipCount before=${before.splitClipCount} after=${after.splitClipCount}`,
     };
   });
 
   await runner.check('Add Caption actually adds a caption (B2 regression)', async () => {
     const before = await clipFingerprint();
-    const cap = page.getByRole('button', { name: /Add Caption/i }).first();
-    if (!(await cap.isVisible().catch(() => false))) {
-      return { pass: false, detail: 'Add Caption button not visible' };
+    // 1. Open the Add caption section.
+    const capToggle = page.locator('button[aria-label="Add caption, expand controls"]').first();
+    if (!(await capToggle.isVisible().catch(() => false))) {
+      return { pass: false, detail: 'Add caption toggle not visible' };
     }
-    await cap.click();
-    // Some implementations open a text-input modal; type something + Save.
-    const input = page.locator('input[type="text"]').last();
-    if (await input.isVisible().catch(() => false)) {
-      await input.fill('autotest caption');
-      const save = page.getByRole('button', { name: /^Save$/ }).first();
-      await save.click().catch(() => {});
-    }
+    await capToggle.click();
+    // 2. The composer is a <textarea>, not an <input>. Fill it.
+    const textarea = page.locator('textarea[id^="caption-input-"]').first();
+    await textarea.waitFor({ timeout: 2000 });
+    await textarea.fill('autotest caption');
+    // 3. Submit. Visible label is "Add caption" — disambiguate from the
+    //    section toggle by matching the EXACT name.
+    const submit = page.getByRole('button', { name: /^Add caption$/ }).first();
+    await submit.click();
     await page.waitForTimeout(300);
     const after = await clipFingerprint();
-    const grew = after.captionIndicators > before.captionIndicators;
+    const grew = after.captionRows > before.captionRows;
     return {
       pass: grew,
-      detail: `captionIndicators before=${before.captionIndicators} after=${after.captionIndicators}`,
+      detail: `captionRows before=${before.captionRows} after=${after.captionRows}`,
     };
   });
 

@@ -15,6 +15,7 @@ Run automated, study-plan-aligned smoke tests against the live dev server and re
 - User asks to "auto test the probes", "run the probe regression", "check if anything broke", "verify the study flows", or types `/probe-auto-test`.
 - After you've just edited any of: `src/components/shared/SceneBlock*.jsx`, `src/components/{probe1,probe2,probe3}/Probe*SceneActions.jsx`, `src/hooks/usePlaybackEngine.js`, `src/components/shared/VideoPlayer.jsx`, `src/services/wsRelayService.js`, `vite-ws-relay-plugin.js`, `vite-pipeline-plugin.js`, or anything in `pipeline/`.
 - Before recommending the user pull the project out of dev to test on a phone.
+- Specifically for **accessibility-flow** changes (announcer.js, ARIA labels, focus management, live regions): also run `task-audit.mjs` — it catches **functiona11ity errors** that the static `a11y-report.mjs` misses.
 
 ## What it covers vs. what it can't
 
@@ -83,7 +84,24 @@ Keep it terse. Don't paste sample tables unless the user asks.
 - `scripts/probe2a.mjs` — Probe 2a edit-mutation regression checks (B2).
 - `scripts/probe2b-pair.mjs` — two-client WS pairing smoke test for Probe 2b. Probe 3 reuses it via the same pairing handshake.
 - `scripts/run-all.mjs` — runs every script in sequence, aggregates the PASS/FAIL totals, exits non-zero if anything failed.
-- `scripts/a11y-report.mjs` — for each probe state, dumps the TalkBack reading order (DOM walk in role-aware order, skipping `aria-hidden`/`inert` subtrees) plus the `#sr-announcer` live-region stream observed during transitions. Writes `docs/probe_a11y_report_<date>.md`. Use this when the user asks "what does TalkBack hear?", or before making any change to ARIA labels / heading hierarchy / live regions, or before a study pilot. The companion human-readable interpretation lives at `docs/probe_a11y_findings_<date>.md` (write by hand from the raw dump — the raw is for evidence, the findings doc is for action).
+- `scripts/a11y-report.mjs` — for each probe state, dumps the TalkBack reading order (DOM walk in role-aware order, skipping `aria-hidden`/`inert` subtrees) plus the `#sr-announcer` live-region stream observed during transitions. Writes `docs/probe_a11y_report_<date>.md`. Use this when the user asks "what does TalkBack hear?", or before making any change to ARIA labels / heading hierarchy / live regions, or before a study pilot. The companion human-readable interpretation lives at `docs/probe_a11y_findings_<date>.md` (write by hand from the raw dump — the raw is for evidence, the findings doc is for action). **Limitation:** static dump only — cannot catch issues that only manifest *during* an interaction (e.g. silent activation, focus yanked to body, polite live-region updates dropped on Android during button-activation re-read). For those, use `task-audit.mjs` below.
+
+- `scripts/task-audit.mjs` (+ `lib-trace.mjs`, `judge.mjs`) — **TaskAudit-style** end-to-end accessibility journey runner. Drives a scripted user task through real Playwright interactions and records, around every step: (a) the focused element before and after, (b) every write to either live region (#sr-announcer polite + #sr-announcer-assertive), (c) focus events. The judge applies severity-tagged heuristics (B/M/m matching the existing findings convention) and emits `docs/probe_task_audit_<date>.md`.
+
+  Methodology adapted from two 2025 papers:
+  - **ScreenAudit** (Salehnamadi et al., [arXiv:2504.02110](https://arxiv.org/abs/2504.02110)) — semantic auditing rather than rule-based syntactic checks. The judge encodes domain rules ("polite live-region update during button activation is unreliable on Android TalkBack") that no axe-style linter would surface.
+  - **TaskAudit** (Tan et al., [arXiv:2510.12972](https://arxiv.org/abs/2510.12972)) — *functiona11ity errors* are accessibility failures that only manifest through interaction and are invisible to static AT-tree dumps. The recorder + judge implement exactly this loop for our probes.
+
+  Heuristic codes the judge currently emits:
+  - **B `STEP_THREW`** — Playwright failed to execute the step (selector miss / app crash).
+  - **B `SILENT_ACTIVATION`** — user activated something, no focus change, no announce. SR user has zero feedback.
+  - **M `FOCUS_LOST_TO_BODY`** — focused element became disabled / unmounted; focus reverted to body.
+  - **M `ANDROID_POLITE_DROP_RISK`** — only the polite region was written. Android TalkBack drops these mid-activation re-read.
+  - **M `EXPECTED_UTTERANCE_MISSING`** — journey author specified `expect.utterance` but the trace contains no announce / focused name with that substring.
+  - **m `ANNOUNCE_DUPLICATES_FOCUS`** — the announce duplicates the focused element's accessible name → likely double-read.
+  - **m `FOCUS_OFFSCREEN`** — focused element is outside the viewport after the action.
+
+  Add a new journey by appending to the `JOURNEYS` map in `task-audit.mjs`. Each step is `{ name, action({ page }), expect? }`. The `expect` shape is `{ kind: 'activation', utterance?: string }` — `kind: 'activation'` enables the silent-activation + polite-drop checks; `utterance` enables the substring assertion.
 
 ### Running the a11y report
 
@@ -95,6 +113,26 @@ The script writes `docs/probe_a11y_report_<date>.md`. After reading it, write
 or update the matching `docs/probe_a11y_findings_<date>.md` with B/M/m-tagged
 findings, citing each finding to the state and item index in the raw report so
 a reviewer can audit the interpretation.
+
+### Running the task audit (interaction-trace audit)
+
+```
+BASE=http://localhost:5173 node .claude/skills/probe-auto-test/scripts/task-audit.mjs probe1
+```
+
+Currently only `probe1` is wired (the seven steps cover scene expansion,
+detail-level stepping, Ask AI, play, and pause — the user paths most
+likely to break SR feedback). To extend coverage, append a journey to the
+`JOURNEYS` map. Output: `docs/probe_task_audit_<date>.md` with a B/M/m
+findings table at the top and a per-step trace below it (focus before,
+focus after, every announce in between). When you fix a finding, re-run
+to confirm it's gone.
+
+The judge is **deterministic and conservative on purpose** — it will
+sometimes flag things that are correct on iOS but unreliable on Android
+(e.g. `ANDROID_POLITE_DROP_RISK`). Treat findings as evidence to review,
+not bugs to auto-fix; pair the audit with `superpowers:systematic-debugging`
+when something needs root-causing.
 
 ## Adding a new check
 

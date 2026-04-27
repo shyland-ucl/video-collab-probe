@@ -1,21 +1,18 @@
 import { useState, useCallback } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
+import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
+import ttsService from '../../services/ttsService.js';
 import InlineVQAComposer from '../shared/InlineVQAComposer.jsx';
 import DetailLevelSelector from '../shared/DetailLevelSelector.jsx';
-import TaskRouterPanel from '../shared/TaskRouterPanel.jsx';
 import { playEarcon } from '../../utils/earcon.js';
 import {
-  trimClipStart,
-  trimClipEnd,
   splitClip,
   moveClip,
   addCaption,
-  addNote,
   getClipForScene,
   getCaptionsForScene,
-  getNotesForScene,
 } from '../../utils/sceneEditOps.js';
 
 export default function Probe2aSceneActions({
@@ -40,6 +37,8 @@ export default function Probe2aSceneActions({
   // can produce visible mutations instead of being placeholders.
   editState = null,
   onEditChange,
+  onUndoEdit,
+  canUndoEdit = false,
 }) {
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [showIntentLocker, setShowIntentLocker] = useState(false);
@@ -49,12 +48,14 @@ export default function Probe2aSceneActions({
   const [aiProposal, setAiProposal] = useState(null);
   const [thinking, setThinking] = useState(false);
   const { logEvent } = useEventLogger();
+  const { audioEnabled, speechRate } = useAccessibility();
 
   const handlePlaySegment = useCallback(() => {
     if (onSeek) onSeek(scene.start_time);
     if (onPlay) onPlay();
-    announce(`Playing scene ${index + 1}.`);
-  }, [scene, index, onSeek, onPlay]);
+    // No announce — the button label flips to "Pause from here" and
+    // TalkBack re-reads the focused button. Keeps playback minimal.
+  }, [scene, onSeek, onPlay]);
 
   const handlePauseSegment = useCallback(() => {
     if (onPause) onPause();
@@ -91,9 +92,16 @@ export default function Probe2aSceneActions({
   const handleAcceptAIEdit = useCallback(() => {
     logEvent(EventTypes.AI_EDIT_ACCEPTED, Actors.CREATOR, { segmentId: scene.id, proposal: aiProposal });
     if (onEditSelf && aiProposal?.operation) onEditSelf(scene, aiProposal.operation);
+    const description = aiProposal?.description || aiProposal?.text || '';
+    const feedback = description
+      ? `AI edit accepted. ${description}`
+      : 'AI edit accepted.';
+    announce(feedback);
+    if (audioEnabled && description) {
+      ttsService.speak(feedback, { rate: speechRate });
+    }
     setAiProposal(null);
-    announce('AI edit accepted.');
-  }, [scene, aiProposal, logEvent, onEditSelf]);
+  }, [scene, aiProposal, logEvent, onEditSelf, audioEnabled, speechRate]);
 
   const handleCancelAIEdit = useCallback(() => {
     logEvent(EventTypes.AI_EDIT_CANCELLED, Actors.CREATOR, { segmentId: scene.id });
@@ -121,14 +129,20 @@ export default function Probe2aSceneActions({
   return (
     <>
       {/* Detail level selector */}
-      <DetailLevelSelector currentLevel={currentLevel} onLevelChange={onLevelChange} />
+      <DetailLevelSelector
+        currentLevel={currentLevel}
+        onLevelChange={onLevelChange}
+        levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
+      />
 
-      {/* Play / Pause */}
+      {/* Play / Pause. data-scene-play-button is the focus target SceneBlock
+          uses on auto-follow expand. */}
       <button
         onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
+        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
       >
         {isSegmentPlaying ? 'Pause' : 'Play from here'}
       </button>
@@ -171,6 +185,8 @@ export default function Probe2aSceneActions({
             onEditSelf={onEditSelf}
             isKept={isKept}
             onKeepDiscardClick={handleKeepDiscard}
+            onUndoEdit={onUndoEdit}
+            canUndoEdit={canUndoEdit}
             logEvent={logEvent}
           />
         )}
@@ -219,7 +235,7 @@ export default function Probe2aSceneActions({
         )}
       </div>
 
-      {/* Ask Helper (Intent Locker) */}
+      {/* Ask Helper — co-located handover */}
       <div>
         <button
           onClick={() => setShowIntentLocker(!showIntentLocker)}
@@ -230,21 +246,52 @@ export default function Probe2aSceneActions({
           {showIntentLocker ? 'Cancel Handover' : 'Ask Helper'}
         </button>
         {showIntentLocker && (
-          <TaskRouterPanel
-            idPrefix="intent-2a"
-            submitLabel="Hand Over"
-            accentColor="#D9534F"
-            onSubmit={({ instruction, category, priority }) => {
-              playEarcon(660, 150);
-              logEvent(EventTypes.INTENT_LOCKED, Actors.CREATOR, {
-                segmentId: scene.id, instruction, category, priority,
-              });
-              if (onHandover) {
-                onHandover({ segmentId: scene.id, segmentName: scene.name, instruction, category, priority });
-              }
-              setShowIntentLocker(false);
-            }}
-          />
+          <div
+            className="mt-2 p-3 bg-green-50 rounded-lg border border-green-200 space-y-3"
+            role="region"
+            aria-label="Confirm handover to helper"
+          >
+            <p className="text-sm text-gray-800 font-medium">
+              Tell your helper what you would like changed for scene {index + 1}.
+            </p>
+            <p className="text-sm text-gray-700">
+              Speak clearly so they can hear. They will edit on this device.
+              When you tap Hand Over, screen-reader announcements will pause —
+              the helper can dismiss VoiceOver or TalkBack themselves before editing.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  playEarcon(660, 150);
+                  logEvent(EventTypes.INTENT_LOCKED, Actors.CREATOR, {
+                    segmentId: scene.id, mode: 'spoken_in_person',
+                  });
+                  if (onHandover) {
+                    onHandover({
+                      segmentId: scene.id,
+                      segmentName: scene.name,
+                      instruction: 'Spoken to helper in person',
+                      category: 'General Review',
+                      priority: 'Must Do',
+                    });
+                  }
+                  setShowIntentLocker(false);
+                }}
+                className="flex-1 py-3 text-sm font-bold rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ backgroundColor: '#D9534F', minHeight: '48px' }}
+                aria-label={`Hand over phone for scene ${index + 1}`}
+              >
+                Hand Over
+              </button>
+              <button
+                onClick={() => setShowIntentLocker(false)}
+                className="flex-1 py-3 text-sm font-medium rounded bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ minHeight: '48px' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </>
@@ -252,11 +299,14 @@ export default function Probe2aSceneActions({
 }
 
 /**
- * EditByMyselfPanel — real (non-placeholder) self-edit operations for B2.
- * Renders Keep/Discard at the top (passes through to parent), then five
- * collapsible sub-panels for Trim, Split, Move, Add Caption, Add Note. Each
- * mutates editState via onEditChange (which broadcasts to the helper in
- * Probe 2a's handover flow once the device is handed over).
+ * EditByMyselfPanel — scene-block-scoped self-edit operations for BLV creators.
+ *
+ * The panel exposes Remove, Split, Move earlier/later, Add caption, and Undo.
+ * Trim was dropped because it requires sub-second timeline precision that BLV
+ * users can't get without visual scrubbing. Add note was dropped because in
+ * 2a's solo edit mode no helper or researcher reads it. Redo was dropped
+ * because real users who undo rarely redo. Split + Remove together cover the
+ * trim case at scene-block granularity (split here, remove half).
  */
 function EditByMyselfPanel({
   scene,
@@ -267,16 +317,20 @@ function EditByMyselfPanel({
   onEditSelf,
   isKept,
   onKeepDiscardClick,
+  onUndoEdit,
+  canUndoEdit,
   logEvent,
 }) {
   const [openSection, setOpenSection] = useState(null);
   const [captionText, setCaptionText] = useState('');
-  const [noteText, setNoteText] = useState('');
 
   const clip = getClipForScene(editState, scene.id);
   const captions = getCaptionsForScene(editState, scene.id);
-  const notes = getNotesForScene(editState, scene.id);
   const editsAvailable = !!editState && !!clip && typeof onEditChange === 'function';
+  // After a Split, splitClip() inserts a new clip with id `${scene.id}-split-${ts}`.
+  const clipCountForScene = (editState?.clips || []).filter(
+    (c) => c.id === scene.id || (typeof c.id === 'string' && c.id.startsWith(`${scene.id}-split-`))
+  ).length || 1;
 
   const apply = useCallback((mutator, eventName, payload) => {
     if (!editsAvailable) return;
@@ -289,21 +343,19 @@ function EditByMyselfPanel({
     if (onEditSelf) onEditSelf(scene, eventName);
   }, [editsAvailable, editState, onEditChange, logEvent, onEditSelf, scene]);
 
-  const trimStart = clip?.trimStart || 0;
-  const trimEnd = clip?.trimEnd || 0;
-
   return (
     <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
+      {/* Remove / Restore — top-level destructive action */}
       <button
         onClick={onKeepDiscardClick}
-        className={`w-full py-2 text-sm rounded font-medium transition-colors ${
-          isKept ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-red-100 text-red-800 hover:bg-red-200'
+        className={`w-full py-3 text-sm rounded font-medium transition-colors ${
+          isKept ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
         }`}
-        style={{ minHeight: '44px' }}
-        aria-label={isKept ? `Scene ${index + 1}: kept. Tap to discard` : `Scene ${index + 1}: discarded. Tap to keep`}
+        style={{ minHeight: '48px' }}
+        aria-label={isKept ? `Remove scene ${index + 1} from the edit` : `Restore scene ${index + 1} to the edit`}
         aria-pressed={!isKept}
       >
-        {isKept ? 'Keep (tap to discard)' : 'Discarded (tap to keep)'}
+        {isKept ? 'Remove this scene' : 'Removed — tap to restore'}
       </button>
 
       {!editsAvailable && (
@@ -312,34 +364,25 @@ function EditByMyselfPanel({
         </p>
       )}
 
-      {/* Trim */}
-      <Section
-        label="Trim"
-        open={openSection === 'trim'}
-        onToggle={() => setOpenSection((v) => (v === 'trim' ? null : 'trim'))}
-        ariaPrefix={`Trim scene ${index + 1}`}
-      >
-        <p className="text-sm text-gray-600 mb-2">
-          Trimmed from start: {trimStart.toFixed(1)}s · from end: {trimEnd.toFixed(1)}s
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <TrimButton onClick={() => apply((s) => trimClipStart(s, scene.id, +1), 'trim_start_more', { trimStart: trimStart + 0.5 })} disabled={!editsAvailable} label="Trim start +0.5s" />
-          <TrimButton onClick={() => apply((s) => trimClipStart(s, scene.id, -1), 'trim_start_less', { trimStart: Math.max(0, trimStart - 0.5) })} disabled={!editsAvailable || trimStart === 0} label="Trim start −0.5s" />
-          <TrimButton onClick={() => apply((s) => trimClipEnd(s, scene.id, +1), 'trim_end_more', { trimEnd: trimEnd + 0.5 })} disabled={!editsAvailable} label="Trim end +0.5s" />
-          <TrimButton onClick={() => apply((s) => trimClipEnd(s, scene.id, -1), 'trim_end_less', { trimEnd: Math.max(0, trimEnd - 0.5) })} disabled={!editsAvailable || trimEnd === 0} label="Trim end −0.5s" />
-        </div>
-      </Section>
-
+      <div role="group" aria-label={`Edit operations for scene ${index + 1}`} className="space-y-2">
       {/* Split */}
       <Section
-        label="Split"
+        label={`Split${clipCountForScene > 1 ? ` (${clipCountForScene} clips)` : ''}`}
         open={openSection === 'split'}
         onToggle={() => setOpenSection((v) => (v === 'split' ? null : 'split'))}
-        ariaPrefix={`Split scene ${index + 1}`}
+        ariaPrefix="Split"
       >
         <p className="text-sm text-gray-600 mb-2">
           Splits this scene into two clips at the current playback time, or at
-          the midpoint if the video isn't playing.
+          the midpoint if the video isn't playing. Pair with Remove to drop
+          part of a scene.
+        </p>
+        <p
+          className="text-xs text-gray-500 mb-2"
+          data-clip-count-for={scene.id}
+          aria-label={`This scene currently has ${clipCountForScene} clip${clipCountForScene === 1 ? '' : 's'}.`}
+        >
+          This scene currently has {clipCountForScene} clip{clipCountForScene === 1 ? '' : 's'}.
         </p>
         <button
           onClick={() => {
@@ -360,7 +403,7 @@ function EditByMyselfPanel({
         label="Move"
         open={openSection === 'move'}
         onToggle={() => setOpenSection((v) => (v === 'move' ? null : 'move'))}
-        ariaPrefix={`Move scene ${index + 1}`}
+        ariaPrefix="Move"
       >
         <p className="text-sm text-gray-600 mb-2">Reorder this clip in the timeline.</p>
         <div className="grid grid-cols-2 gap-2">
@@ -390,7 +433,7 @@ function EditByMyselfPanel({
         label={`Add caption${captions.length ? ` (${captions.length})` : ''}`}
         open={openSection === 'caption'}
         onToggle={() => setOpenSection((v) => (v === 'caption' ? null : 'caption'))}
-        ariaPrefix={`Add caption to scene ${index + 1}`}
+        ariaPrefix="Add caption"
       >
         {captions.length > 0 && (
           <ul className="mb-2 text-sm text-gray-700 space-y-1" aria-label={`Existing captions on scene ${index + 1}`}>
@@ -421,43 +464,20 @@ function EditByMyselfPanel({
           Add caption
         </button>
       </Section>
+      </div>
 
-      {/* Add Note */}
-      <Section
-        label={`Add note${notes.length ? ` (${notes.length})` : ''}`}
-        open={openSection === 'note'}
-        onToggle={() => setOpenSection((v) => (v === 'note' ? null : 'note'))}
-        ariaPrefix={`Add note to scene ${index + 1}`}
+      {/* Undo — single safety net for the most recent edit op */}
+      <button
+        onClick={() => {
+          if (typeof onUndoEdit === 'function') onUndoEdit();
+        }}
+        disabled={!canUndoEdit}
+        className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+        style={{ minHeight: '44px' }}
+        aria-label="Undo last edit"
       >
-        {notes.length > 0 && (
-          <ul className="mb-2 text-sm text-gray-700 space-y-1" aria-label={`Existing notes on scene ${index + 1}`}>
-            {notes.map((n) => (
-              <li key={n.id} className="bg-white border border-gray-200 rounded px-2 py-1">{n.text}</li>
-            ))}
-          </ul>
-        )}
-        <label htmlFor={`note-input-${scene.id}`} className="sr-only">Note text (only you and the helper see this)</label>
-        <textarea
-          id={`note-input-${scene.id}`}
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          rows={2}
-          placeholder="Note text (only you and the helper see this)"
-          className="w-full px-3 py-2 text-base border border-gray-300 rounded focus:outline-2 focus:outline-blue-500"
-        />
-        <button
-          onClick={() => {
-            apply((s) => addNote(s, scene.id, noteText), 'add_note', { text: noteText.trim() });
-            announce(`Note added to scene ${index + 1}.`);
-            setNoteText('');
-          }}
-          disabled={!editsAvailable || !noteText.trim()}
-          className="w-full mt-2 py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '44px' }}
-        >
-          Add note
-        </button>
-      </Section>
+        Undo last edit
+      </button>
     </div>
   );
 }
@@ -479,16 +499,3 @@ function Section({ label, open, onToggle, ariaPrefix, children }) {
   );
 }
 
-function TrimButton({ onClick, disabled, label }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-      style={{ minHeight: '44px' }}
-      aria-label={label}
-    >
-      {label}
-    </button>
-  );
-}

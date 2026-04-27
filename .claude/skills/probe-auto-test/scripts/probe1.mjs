@@ -60,21 +60,23 @@ await withBrowser(async ({ page }) => {
     return { pass: region === 1, detail: `region count=${region}` };
   });
 
-  await runner.check('Play button visible text is "Play from here", aria-label is "Play scene 1"', async () => {
-    // Visible text is the BLV-friendly label; aria-label keeps the dyad-coordination wording.
-    // Lan supersedes M11 here — see memory `feedback_scene_block_a11y.md`.
-    const btn = page.getByRole('button', { name: /^Play scene 1$/ }).first();
+  await runner.check('Play button visible text and aria-label are both "Play from here"', async () => {
+    // Lan 2026-04-26: aria-label simplified from "Play scene N" to
+    // "Play from here" to match the visible text. Surrounding region is
+    // already labelled "Actions for scene N", which carries the scene
+    // context.
+    const btn = page.getByRole('button', { name: /^Play from here$/ }).first();
     const visible = (await btn.textContent())?.trim();
     const aria = await btn.getAttribute('aria-label');
     return {
-      pass: visible === 'Play from here' && aria === 'Play scene 1',
+      pass: visible === 'Play from here' && aria === 'Play from here',
       detail: `visible="${visible}" aria="${aria}"`,
     };
   });
 
   await runner.check('expanded block auto-follows playback across scene boundaries', async () => {
     // Already on scene 1 expanded. Click the play button and sample for 8 s.
-    await page.getByRole('button', { name: /^Play scene 1$/ }).first().click();
+    await page.getByRole('button', { name: /^Play from here$/ }).first().click();
     const { samples, transitions } = await sampleAutoFollow(page);
     // Expect at least one transition 1 → 2 around videoTime ≈ 3 s.
     const oneToTwo = transitions.find((t) => t.from === 1 && t.to === 2);

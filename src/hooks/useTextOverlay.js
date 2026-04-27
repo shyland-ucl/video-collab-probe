@@ -17,15 +17,27 @@ export default function useTextOverlay({ initialOverlays = [], onOverlaysChange 
   const syncingFromPropsRef = useRef(false);
   const onOverlaysChangeRef = useRef(onOverlaysChange);
   const initialSignature = getOverlaySignature(initialOverlays);
+  // Track the props signature we last reconciled with. Without this, any
+  // local edit (e.g. adding a text overlay via the T Text tool) re-runs the
+  // props-sync effect, sees that local has diverged from props (the parent
+  // hasn't broadcast the new overlay back yet), and clobbers the local
+  // state — wiping out the new overlay AND setTextToolActive(false). The
+  // gate makes the sync only fire when props themselves changed.
+  const lastInitialSignatureRef = useRef(initialSignature);
 
   useEffect(() => {
     onOverlaysChangeRef.current = onOverlaysChange;
   }, [onOverlaysChange]);
 
   useEffect(() => {
-    const nextSignature = getOverlaySignature(initialOverlays);
+    if (initialSignature === lastInitialSignatureRef.current) {
+      // Props unchanged since last reconciliation — this fire was caused by
+      // a local textOverlays update. Do not revert.
+      return;
+    }
+    lastInitialSignatureRef.current = initialSignature;
     const currentSignature = getOverlaySignature(textOverlays);
-    if (nextSignature === currentSignature) return;
+    if (initialSignature === currentSignature) return;
     syncingFromPropsRef.current = true;
     setTextOverlays(initialOverlays);
     if (activeOverlayId && !initialOverlays.some((overlay) => overlay.id === activeOverlayId)) {

@@ -30,7 +30,11 @@ export default function Probe1SceneActions({
       segmentId: scene.id,
       action: 'play_segment',
     });
-    announce(`Playing scene ${index + 1}.`);
+    // No announce here. The button's accessible name flips from
+    // "Play from here" to "Pause from here" on activation; TalkBack
+    // re-reads the focused button, which is sufficient feedback. Lan
+    // 2026-04-26: keep playback minimal so the video audio isn't
+    // talked over.
   }, [scene, index, onSeek, onPlay, logEvent]);
 
   const handlePauseSegment = useCallback(() => {
@@ -58,14 +62,22 @@ export default function Probe1SceneActions({
   return (
     <>
       {/* Detail level selector */}
-      <DetailLevelSelector currentLevel={currentLevel} onLevelChange={onLevelChange} />
+      <DetailLevelSelector
+        currentLevel={currentLevel}
+        onLevelChange={onLevelChange}
+        levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
+      />
 
-      {/* Play / Pause segment */}
+      {/* Play / Pause segment.
+          data-scene-play-button: SceneBlock looks for this on auto-follow
+          expand to keep AT focus on the play/pause button instead of
+          jumping to the actions region. */}
       <button
         onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
+        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
       >
         {isSegmentPlaying ? 'Pause' : 'Play from here'}
       </button>

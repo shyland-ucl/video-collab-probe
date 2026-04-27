@@ -1,7 +1,9 @@
 import { useState, useCallback } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
+import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
+import ttsService from '../../services/ttsService.js';
 import InlineVQAComposer from '../shared/InlineVQAComposer.jsx';
 import DetailLevelSelector from '../shared/DetailLevelSelector.jsx';
 import TaskRouterPanel from '../shared/TaskRouterPanel.jsx';
@@ -34,6 +36,7 @@ export default function Probe2bSceneActions({
   const [aiProposal, setAiProposal] = useState(null);
   const [thinking, setThinking] = useState(false);
   const { logEvent } = useEventLogger();
+  const { audioEnabled, speechRate } = useAccessibility();
 
   const isSegmentPlaying =
     isPlaying && currentTime >= scene.start_time && currentTime < scene.end_time;
@@ -41,8 +44,9 @@ export default function Probe2bSceneActions({
   const handlePlaySegment = useCallback(() => {
     if (onSeek) onSeek(scene.start_time);
     if (onPlay) onPlay();
-    announce(`Playing scene ${index + 1}.`);
-  }, [scene, index, onSeek, onPlay]);
+    // No announce — button label flips to "Pause from here" and TalkBack
+    // re-reads the focused button. Keeps playback minimal.
+  }, [scene, onSeek, onPlay]);
 
   const handlePauseSegment = useCallback(() => {
     if (onPause) onPause();
@@ -76,9 +80,16 @@ export default function Probe2bSceneActions({
   const handleAcceptAIEdit = useCallback(() => {
     logEvent(EventTypes.AI_EDIT_ACCEPTED, Actors.CREATOR, { segmentId: scene.id, proposal: aiProposal });
     if (onEditSelf && aiProposal?.operation) onEditSelf(scene, aiProposal.operation);
+    const description = aiProposal?.description || aiProposal?.text || '';
+    const feedback = description
+      ? `AI edit accepted. ${description}`
+      : 'AI edit accepted.';
+    announce(feedback);
+    if (audioEnabled && description) {
+      ttsService.speak(feedback, { rate: speechRate });
+    }
     setAiProposal(null);
-    announce('AI edit accepted.');
-  }, [scene, aiProposal, logEvent, onEditSelf]);
+  }, [scene, aiProposal, logEvent, onEditSelf, audioEnabled, speechRate]);
 
   const handleCancelAIEdit = useCallback(() => {
     logEvent(EventTypes.AI_EDIT_CANCELLED, Actors.CREATOR, { segmentId: scene.id });
@@ -106,14 +117,20 @@ export default function Probe2bSceneActions({
   return (
     <>
       {/* Detail level selector */}
-      <DetailLevelSelector currentLevel={currentLevel} onLevelChange={onLevelChange} />
+      <DetailLevelSelector
+        currentLevel={currentLevel}
+        onLevelChange={onLevelChange}
+        levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
+      />
 
-      {/* Play / Pause */}
+      {/* Play / Pause. data-scene-play-button is the focus target SceneBlock
+          uses on auto-follow expand. */}
       <button
         onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? `Pause scene ${index + 1}` : `Play scene ${index + 1}`}
+        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
       >
         {isSegmentPlaying ? 'Pause' : 'Play from here'}
       </button>

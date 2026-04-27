@@ -33,8 +33,15 @@ export function EventLoggerProvider({ children }) {
   conditionRef.current = state.currentCondition;
 
   const logEvent = useCallback((eventType, actor, data = {}) => {
+    const now = Date.now();
     const event = {
-      timestamp: Date.now() - sessionStartRef.current,
+      // Absolute wall-clock timestamp (Unix ms). Stable across tabs and
+      // sessions so logs from the dashboard and participant align even when
+      // they don't share a sessionStart reference.
+      timestamp: now,
+      // Relative offset from this tab's session start, kept for backwards
+      // compatibility with consumers that expect "time into session".
+      sessionOffsetMs: now - sessionStartRef.current,
       eventType,
       actor,
       data,

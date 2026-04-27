@@ -1,9 +1,22 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import useSpeechRecognition from '../../hooks/useSpeechRecognition.js';
 
 export default function InlineVQAComposer({ onSubmit, disabled, accentColor = '#2B579A' }) {
   const [input, setInput] = useState('');
   const inputRef = useRef(null);
+  const voiceButtonRef = useRef(null);
+
+  // Auto-focus the voice-input button on mount. The composer is rendered
+  // only when its parent's "Ask AI" panel opens, so mount === panel-opened.
+  // Voice is the primary BLV interaction; landing on it skips one swipe
+  // for the user. They can still swipe right once to reach the text input
+  // for keyboard / Gboard mic dictation.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      voiceButtonRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const submitQuestion = useCallback(
     (text) => {
@@ -29,6 +42,7 @@ export default function InlineVQAComposer({ onSubmit, disabled, accentColor = '#
   return (
     <div className="flex gap-2 mt-2">
       <button
+        ref={voiceButtonRef}
         onClick={toggleListening}
         aria-label={isListening ? 'Stop listening' : 'Voice input — speak your question'}
         aria-expanded={isListening}

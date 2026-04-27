@@ -45,12 +45,12 @@ export default function DecoupledWaitingScreen({
 
   return (
     <div className="min-h-screen bg-white">
+      <ConditionHeader condition={condition} modeLabel={modeLabel} />
       <div className="max-w-lg mx-auto px-4">
         <OnboardingBrief
           pageTitle="Waiting for Connection"
           description={`You are the ${role}. Waiting for the ${otherRole} to connect. Ask them to open this same page on their phone and select their role. The session will start automatically once both people are connected.`}
         />
-        <ConditionHeader condition={condition} modeLabel={modeLabel} />
         <div className="mt-12 text-center">
           <div
             className="w-16 h-16 mx-auto mb-6 rounded-full flex items-center justify-center animate-pulse"

@@ -9,7 +9,6 @@ import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import MockColourControls from '../shared/MockColourControls.jsx';
 import MockFramingControls from '../shared/MockFramingControls.jsx';
-import TaskQueue from './TaskQueue.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
 import useTextOverlay from '../../hooks/useTextOverlay.js';
@@ -29,6 +28,10 @@ export default function HelperMode({
   onReturnDevice,
   onTaskComplete,
   editState,
+  playbackEditState,
+  videoFilter,
+  colourValues,
+  onColourAdjust,
   onEditChange,
   initialSources = [],
 }) {
@@ -50,10 +53,13 @@ export default function HelperMode({
     onOverlaysChange: handleOverlayChange,
   });
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnSummary, setReturnSummary] = useState('');
   const returnModalTriggerRef = useRef(null);
   const returnModalFirstFocusRef = useRef(null);
-  const audioRef = useRef(null);
+  // Blocking dismiss-screen-reader modal — shown when HelperMode mounts so the
+  // helper has to acknowledge before they can edit. We can't toggle the OS
+  // screen reader from a web app; the modal coaches them through doing it.
+  const [showDismissModal, setShowDismissModal] = useState(true);
+  const dismissModalButtonRef = useRef(null);
 
   useEffect(() => {
     if (showReturnModal) {
@@ -61,108 +67,44 @@ export default function HelperMode({
     }
   }, [showReturnModal]);
 
+  useEffect(() => {
+    if (showDismissModal) {
+      setTimeout(() => { dismissModalButtonRef.current?.focus(); }, 50);
+    }
+  }, [showDismissModal]);
+
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
 
   const handleReturnClick = useCallback(() => {
     returnModalTriggerRef.current = document.activeElement;
-    setReturnSummary('');
     setShowReturnModal(true);
   }, []);
 
   const handleReturnConfirm = useCallback(() => {
     setShowReturnModal(false);
-    onReturnDevice(returnSummary);
-  }, [returnSummary, onReturnDevice]);
-
-  const handlePlayVoiceNote = useCallback((task) => {
-    if (!task.audioBlob) return;
-    const url = URL.createObjectURL(task.audioBlob);
-    if (audioRef.current) {
-      audioRef.current.src = url;
-      audioRef.current.play();
-    }
-  }, []);
+    // No typed summary — the helper tells the creator in person. We pass
+    // a marker string so event logs still show that a return occurred.
+    onReturnDevice('Spoken to creator in person');
+  }, [onReturnDevice]);
 
   return (
     <div>
-      {/* Hidden audio player */}
-      <audio ref={audioRef} className="hidden" />
 
-      {/* Mode Bar Card */}
-      <div role="region" aria-label="Helper mode" className="rounded-2xl overflow-hidden mb-4" style={{ border: '1px solid rgba(230,126,34,0.25)', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
-        <div
-          className="flex items-center gap-2.5 px-4 py-3"
-          style={{ background: 'linear-gradient(135deg, #E67E22, #D35400)' }}
-          role="status"
-          aria-label="Helper mode active"
+      {/* Minimal top bar: just the Return Device button. The mode title,
+          Creator's Intent banner, and Task Queue are intentionally absent in
+          2a — the creator already spoke the request to the helper, so on-
+          screen task metadata is redundant. */}
+      <div className="mb-4">
+        <button
+          onClick={handleReturnClick}
+          className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
+          style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '48px' }}
+          aria-label="Return device to creator"
         >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-          </svg>
-          <span className="text-white font-bold text-sm tracking-wide">
-            Helper Mode {handoverMode === 'tasks' ? '— Task List' : '— Live'}
-          </span>
-        </div>
-        <div className="px-4 py-3" style={{ background: '#fffcf8' }}>
-          <button
-            onClick={handleReturnClick}
-            className="w-full py-2.5 rounded-xl font-bold text-sm text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
-            style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '44px' }}
-            aria-label="Return device to creator"
-          >
-            <span aria-hidden="true">↩ </span>Return Device
-          </button>
-        </div>
+          <span aria-hidden="true">↩ </span>Return Device
+        </button>
       </div>
-
-      {/* Creator Intent Banner — shows most recent unfinished task */}
-      {tasks && tasks.length > 0 && (() => {
-        const activeTask = [...tasks].reverse().find((t) => !t.status || t.status === 'pending');
-        if (!activeTask) return null;
-        return (
-          <div
-            role="region"
-            aria-label="Creator's current request"
-            className="rounded-xl px-4 py-3 mb-4 border-l-4"
-            style={{ borderColor: '#E67E22', backgroundColor: '#FFF8F1' }}
-          >
-            <p className="text-xs font-bold text-orange-700 uppercase tracking-wider mb-1">Creator's Intent</p>
-            <p className="text-sm text-gray-800 font-medium">{activeTask.instruction || activeTask.segmentName || 'Task from creator'}</p>
-            {activeTask.category && (
-              <div className="flex gap-2 mt-1">
-                <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">{activeTask.category}</span>
-                {activeTask.priority && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{activeTask.priority}</span>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {/* Task Queue Card */}
-      {handoverMode === 'tasks' && tasks && tasks.length > 0 && (
-        <div
-          role="region"
-          aria-label="Task queue from creator"
-          className="rounded-2xl overflow-hidden mb-4"
-          style={{ border: '1px solid rgba(230,126,34,0.2)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-        >
-          <div className="px-4 py-2.5" style={{ background: '#fff8f1', borderBottom: '1px solid #fde8d0' }}>
-            <h2 className="text-xs font-bold tracking-wider text-[#c2410c] uppercase">
-              Creator's Tasks ({tasks.length})
-            </h2>
-          </div>
-          <div className="p-4 bg-white">
-            <TaskQueue
-              tasks={tasks}
-              onTaskComplete={onTaskComplete}
-              onPlayVoiceNote={handlePlayVoiceNote}
-            />
-          </div>
-        </div>
-      )}
 
       {/* Live Collaboration Card */}
       {handoverMode === 'live' && (
@@ -199,7 +141,8 @@ export default function HelperMode({
               segments={segments}
               onTimeUpdate={onTimeUpdate}
               onSegmentChange={onSegmentChange}
-              editState={editState}
+              editState={playbackEditState || editState}
+              videoFilter={videoFilter}
             />
             {textOverlays.map(overlay => (
               <TextOverlay
@@ -252,19 +195,77 @@ export default function HelperMode({
           <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Visual Adjustments</h2>
         </div>
         <div className="p-4 bg-white space-y-4">
-          <MockColourControls />
+          <MockColourControls values={colourValues} onAdjust={onColourAdjust} />
           <MockFramingControls />
         </div>
       </div>
 
-      {/* Return Device Modal */}
+      {/* Dismiss-screen-reader modal — blocks the helper UI until they
+          confirm they've turned VoiceOver/TalkBack off (or chosen to keep
+          using it). The web app cannot toggle the OS screen reader, so this
+          is the only mechanism we have to nudge them. */}
+      {showDismissModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ backgroundColor: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(4px)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="dismiss-modal-title"
+          aria-describedby="dismiss-modal-body"
+          onKeyDown={(e) => {
+            if (e.key === 'Tab') {
+              e.preventDefault();
+              dismissModalButtonRef.current?.focus();
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-md mx-4 overflow-hidden" style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
+            <div
+              className="px-6 py-5"
+              style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)' }}
+            >
+              <h2 id="dismiss-modal-title" className="text-white font-bold text-lg">
+                Helper: turn off the screen reader
+              </h2>
+              <p className="text-white/70 text-xs mt-1">Before you start editing</p>
+            </div>
+            <div id="dismiss-modal-body" className="px-6 py-5 space-y-3 text-sm text-gray-800">
+              <p>
+                <span className="font-bold">iPhone:</span> triple-click the side button (or home button on older models).
+              </p>
+              <p>
+                <span className="font-bold">Android:</span> press and hold both volume keys for three seconds, or open Settings &rarr; Accessibility &rarr; TalkBack.
+              </p>
+              <p className="text-gray-600">
+                When the screen reader is off, tap the button below to start editing.
+              </p>
+            </div>
+            <div className="px-6 py-4" style={{ borderTop: '1px solid #eef2f7' }}>
+              <button
+                ref={dismissModalButtonRef}
+                onClick={() => setShowDismissModal(false)}
+                className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
+                style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '48px' }}
+                aria-label="Continue to editor"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Return Device Modal — symmetric to the handover. No typed summary;
+          the helper tells the creator in person and turns the screen reader
+          back on before passing the phone over. */}
       {showReturnModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center"
           style={{ backgroundColor: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
           role="dialog"
           aria-modal="true"
-          aria-label="Return device summary"
+          aria-labelledby="return-modal-title"
+          aria-describedby="return-modal-body"
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
               e.preventDefault();
@@ -272,7 +273,7 @@ export default function HelperMode({
               setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
             }
             if (e.key === 'Tab') {
-              const focusable = e.currentTarget.querySelectorAll('textarea, button, [tabindex]:not([tabindex="-1"])');
+              const focusable = e.currentTarget.querySelectorAll('button, [tabindex]:not([tabindex="-1"])');
               if (focusable.length === 0) return;
               const first = focusable[0];
               const last = focusable[focusable.length - 1];
@@ -291,20 +292,20 @@ export default function HelperMode({
               className="px-6 py-5 rounded-t-2xl"
               style={{ background: 'linear-gradient(135deg, #1a2d4d, #152240)' }}
             >
-              <h2 className="text-white font-bold text-lg">Return to Creator</h2>
-              <p className="text-white/60 text-sm mt-1">Add a summary of what you did</p>
+              <h2 id="return-modal-title" className="text-white font-bold text-lg">Return phone to creator</h2>
+              <p className="text-white/70 text-xs mt-1">Before you hand it back</p>
             </div>
-            <div className="px-6 py-5">
-              <textarea
-                ref={returnModalFirstFocusRef}
-                value={returnSummary}
-                onChange={(e) => setReturnSummary(e.target.value)}
-                placeholder="Describe what changes you made..."
-                className="w-full px-3.5 py-2.5 rounded-xl text-sm resize-none transition-colors focus:outline-none focus:ring-2 focus:ring-[#2B579A]"
-                style={{ border: '1px solid #e2e8f0', background: '#f8f9fb' }}
-                rows={6}
-                aria-label="Summary of actions taken"
-              />
+            <div id="return-modal-body" className="px-6 py-5 space-y-3 text-sm text-gray-800">
+              <p>Tell the creator out loud what you changed. Speak clearly so they can hear.</p>
+              <p>
+                Turn the screen reader back on before returning the phone:
+              </p>
+              <p>
+                <span className="font-bold">iPhone:</span> triple-click the side button (or home button on older models).
+              </p>
+              <p>
+                <span className="font-bold">Android:</span> press and hold both volume keys for three seconds, or open Settings &rarr; Accessibility &rarr; TalkBack.
+              </p>
             </div>
             <div className="px-6 py-4 flex justify-end gap-3" style={{ borderTop: '1px solid #eef2f7' }}>
               <button
@@ -312,19 +313,20 @@ export default function HelperMode({
                   setShowReturnModal(false);
                   setTimeout(() => { returnModalTriggerRef.current?.focus(); }, 50);
                 }}
-                className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 transition-all duration-150 active:scale-[0.97] hover:bg-gray-100 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px', minWidth: '44px', border: '1px solid #e2e8f0' }}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-700 transition-all duration-150 active:scale-[0.97] hover:bg-gray-100 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ minHeight: '48px', minWidth: '44px', border: '1px solid #e2e8f0' }}
                 aria-label="Cancel return"
               >
                 Cancel
               </button>
               <button
+                ref={returnModalFirstFocusRef}
                 onClick={handleReturnConfirm}
                 className="px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all duration-150 active:scale-[0.97] focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '44px', minWidth: '44px' }}
-                aria-label="Confirm return to creator"
+                style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '48px', minWidth: '44px' }}
+                aria-label="Hand phone back to creator"
               >
-                Confirm Return
+                Hand back
               </button>
             </div>
           </div>

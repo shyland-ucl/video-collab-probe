@@ -17,12 +17,22 @@ export default function SceneBlock({
   total,
   currentLevel,
   isExpanded,
+  autoFollowed = false,
   onExpand,
   onCollapse,
   vqaHistory = [],
   awareness,
   children,
   accentColor = '#2B579A',
+  // True when the participant has tapped Remove on this scene. Renders the
+  // block dimmed with a "Removed" badge so they get visible confirmation
+  // alongside the playback filter. The block stays interactive (so they
+  // can still expand to Restore).
+  isRemoved = false,
+  // Forwarded from SceneBlockList so it can restore focus to this scene's
+  // header on full collapse — otherwise focus falls to <body> when the
+  // expanded actions region unmounts (Lan 2026-04-26).
+  headerRef,
 }) {
   const actionsRef = useRef(null);
   const { audioEnabled, speechRate } = useAccessibility();
@@ -31,15 +41,35 @@ export default function SceneBlock({
   const levelKey = `level_${currentLevel}`;
   const description = scene.descriptions?.[levelKey] || '';
 
-  // Auto-focus actions area and announce on expand.
-  // Fires for both manual click and auto-follow during playback. TalkBack
-  // picks up the focus change and the live-region announce — we deliberately
-  // don't call ttsService.speak() here so we don't fight the screen reader.
+  // Auto-focus on expand. Fires for both manual click and auto-follow
+  // during playback. We deliberately do NOT call ttsService.speak() here
+  // so we don't fight TalkBack — the announce() live region + focus
+  // change is enough.
+  //
+  // Focus target depends on origin (per Lan's 2026-04-26 feedback):
+  //   - Manual click → actions region (user is opening the menu).
+  //   - Auto-follow  → the new scene's Play/Pause button (so the user
+  //     stays on the button they were just using). Falls back to the
+  //     actions region if the play button isn't found.
   useEffect(() => {
     if (isExpanded && actionsRef.current) {
-      actionsRef.current.focus();
       ttsService.stop();
-      announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`);
+      const playBtn = autoFollowed
+        ? actionsRef.current.querySelector('[data-scene-play-button="true"]')
+        : null;
+      if (playBtn) {
+        playBtn.focus();
+      } else {
+        actionsRef.current.focus();
+      }
+      // Announce only on MANUAL expand. During auto-follow (playback
+      // crossing scene boundaries) we stay silent so the video audio
+      // isn't talked over (Lan 2026-04-26). Assertive on manual expand
+      // because Android TalkBack drops polite writes during the
+      // activated button's re-read.
+      if (!autoFollowed) {
+        announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`, { assertive: true });
+      }
     }
     if (!isExpanded) {
       ttsService.stop();
@@ -55,8 +85,12 @@ export default function SceneBlock({
 
   return (
     <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
-      {/* Collapsed header — always visible */}
+      {/* Collapsed header — always visible. The aria-label includes the
+          description (current detail level) so a TalkBack creator can hear
+          what's in each scene without having to expand it (Lan-confirmed
+          override of M3 trade-off, 2026-04-26). */}
       <button
+        ref={headerRef}
         onClick={() => {
           if (isExpanded) {
             onCollapse();
@@ -66,11 +100,16 @@ export default function SceneBlock({
           // path runs for click and auto-follow — no separate speak here.
           onExpand(index);
         }}
-        aria-label={`Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ${isExpanded ? 'Tap to close actions.' : 'Tap to open actions.'}`}
+        aria-label={
+          `Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ` +
+          (isRemoved ? 'Removed from edit. ' : '') +
+          (description ? `${description} ` : '') +
+          (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
+        }
         aria-expanded={isExpanded}
         className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
           isExpanded ? 'border-b-2' : ''
-        }`}
+        } ${isRemoved ? 'bg-gray-50 opacity-60' : ''}`}
         style={isExpanded ? { borderBottomColor: accentColor, minHeight: '48px' } : { minHeight: '48px' }}
       >
         {/* Scene header row */}
@@ -81,7 +120,17 @@ export default function SceneBlock({
               style={{ backgroundColor: scene.color || accentColor }}
               aria-hidden="true"
             />
-            <span className="font-medium text-sm truncate">{scene.name}</span>
+            <span className={`font-medium text-sm truncate ${isRemoved ? 'line-through text-gray-500' : ''}`}>
+              {scene.name}
+            </span>
+            {isRemoved && (
+              <span
+                className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 flex-shrink-0"
+                aria-hidden="true"
+              >
+                Removed
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 text-xs text-gray-500">
             {awareness?.taskSummary && (
@@ -103,7 +152,7 @@ export default function SceneBlock({
           </div>
         </div>
         {/* Description always visible */}
-        <p className="text-sm text-gray-600 leading-relaxed" aria-hidden="true">
+        <p className={`text-sm leading-relaxed ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-600'}`} aria-hidden="true">
           {description || 'No description available.'}
         </p>
       </button>

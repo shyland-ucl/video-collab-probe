@@ -26,6 +26,10 @@ export default function DecoupledHelperDevice({
   onSegmentChange,
   onSeek,
   editState,
+  playbackEditState,
+  videoFilter,
+  colourValues,
+  onColourAdjust,
   onEditChange,
   initialSources = [],
   feedItems = [],
@@ -159,7 +163,8 @@ export default function DecoupledHelperDevice({
               segments={segments}
               onTimeUpdate={onTimeUpdate}
               onSegmentChange={onSegmentChange}
-              editState={editState}
+              editState={playbackEditState || editState}
+              videoFilter={videoFilter}
             />
             {textOverlays.map(overlay => (
               <TextOverlay
@@ -212,7 +217,7 @@ export default function DecoupledHelperDevice({
           <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Visual Adjustments</h2>
         </div>
         <div className="p-4 bg-white space-y-4">
-          <MockColourControls />
+          <MockColourControls values={colourValues} onAdjust={onColourAdjust} />
           <MockFramingControls />
         </div>
       </div>

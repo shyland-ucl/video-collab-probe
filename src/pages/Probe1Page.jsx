@@ -214,22 +214,22 @@ export default function Probe1Page() {
     <div className="min-h-screen bg-white flex flex-col">
       {phase === 'library' && (
         <>
+          <ConditionHeader condition="probe1" />
           <OnboardingBrief
             pageTitle="Probe 1: Solo Creator — Video Library"
             description="This is the video library. Browse the available clips, select one or more that you want to explore, then tap Import to begin. You can select multiple clips if you want to combine them."
           />
-          <ConditionHeader condition="probe1" />
           <VideoLibrary videos={allVideos} onImport={handleImport} />
         </>
       )}
 
       {phase === 'exploring' && (
         <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+          <ConditionHeader condition="probe1" />
           <OnboardingBrief
             pageTitle="Probe 1: Solo Creator — Scene Explorer"
             description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also ask AI a question about what is happening in a scene, or flag a description if it seems wrong. Use the Play All button to listen to every scene description in order."
           />
-          <ConditionHeader condition="probe1" />
           {/* Video player — visual reference, hidden from screen readers */}
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
@@ -254,6 +254,16 @@ export default function Probe1Page() {
             accentColor="#2B579A"
             videoCount={selectedVideos?.length || 1}
             vqaHistories={vqaHistories}
+            onSceneClose={(sceneId) => {
+              // Lan 2026-04-27: wipe chat history on full collapse so the
+              // panel doesn't pile up Q+A bubbles across sessions.
+              setVqaHistories((prev) => {
+                if (!(sceneId in prev)) return prev;
+                const next = { ...prev };
+                delete next[sceneId];
+                return next;
+              });
+            }}
             renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
               <Probe1SceneActions
                 scene={scene}

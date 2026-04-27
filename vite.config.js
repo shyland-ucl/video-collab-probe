@@ -14,5 +14,18 @@ export default defineConfig({
   ],
   server: {
     host: true, // expose on LAN (0.0.0.0)
+    // Vite 7 blocks unknown Host headers as a DNS-rebinding defence.
+    // Allow:
+    //  - any *.trycloudflare.com subdomain (npm run dev:tunnel rotates
+    //    the hostname every restart, so a wildcard is the only way to
+    //    avoid editing this file each time);
+    //  - any *.ngrok-free.app / *.ngrok.io / *.ngrok.app for the
+    //    common alternative tunnel.
+    allowedHosts: [
+      '.trycloudflare.com',
+      '.ngrok-free.app',
+      '.ngrok.io',
+      '.ngrok.app',
+    ],
   },
 })

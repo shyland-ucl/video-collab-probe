@@ -7,7 +7,10 @@ import { wsRelayService } from '../services/wsRelayService.js';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
+import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 import ResearcherMaterialsPanel from '../components/shared/ResearcherMaterialsPanel.jsx';
+import MockEditorVisual from '../components/shared/MockEditorVisual.jsx';
+import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import DataExportButton from '../components/shared/DataExportButton.jsx';
 
 const COLORS = {
@@ -44,6 +47,19 @@ function formatElapsed(ms) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+// Wall-clock formatter for the event log. Shows local time HH:MM:SS.mmm so
+// timestamps align across tabs and devices (the participant's Probe 2a tab,
+// the researcher dashboard, and any helper tab).
+function formatWallClock(unixMs) {
+  if (!unixMs) return '—';
+  const d = new Date(unixMs);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  return `${hh}:${mm}:${ss}.${ms}`;
+}
+
 export default function ResearcherPage() {
   const { events, currentCondition, sessionStart, logEvent, setCondition, clearEvents } = useEventLogger();
 
@@ -57,12 +73,29 @@ export default function ResearcherPage() {
   const [helperFallbackNote, setHelperFallbackNote] = useState('');
 
   // Probe 2a state
-  const [currentMode, setCurrentMode] = useState('creator');
+  const [currentMode] = useState('creator');
   const [transitionInitiated, setTransitionInitiated] = useState(false);
 
   // Probe 3 state
   const [seekTime, setSeekTime] = useState('0');
   const [deployedSuggestions, setDeployedSuggestions] = useState({});
+
+  // AI Edit WoZ — surfaces "Ask AI" requests from any probe page on this dashboard.
+  const [pendingAIRequest, setPendingAIRequest] = useState(null);
+  const [aiEditSegment, setAIEditSegment] = useState(null);
+
+  // Mirror of the participant's current editState. Populated by EDIT_STATE_UPDATE
+  // messages from creator/helper (the relay forwards them here). The researcher
+  // edits directly in this mirror; changes broadcast back as EDIT_STATE_UPDATE
+  // and apply to the participant's video in real time.
+  const [mirrorEditState, setMirrorEditState] = useState(null);
+  const mirrorEditStateRef = useRef(null);
+  useEffect(() => { mirrorEditStateRef.current = mirrorEditState; }, [mirrorEditState]);
+
+  // Dashboard's own playhead (independent of the participant's). Used to
+  // drive the timeline playhead and seek when clicking clips.
+  const dashboardPlayerRef = useRef(null);
+  const [dashboardCurrentTime, setDashboardCurrentTime] = useState(0);
 
   // Event log filters
   const [filterCondition, setFilterCondition] = useState('all');
@@ -70,14 +103,105 @@ export default function ResearcherPage() {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [activeConditions, setActiveConditions] = useState({});
 
+  // Tag every dashboard-side event with the currently-viewed probe so the
+  // event log filter "by condition" actually matches. Materials tab clears
+  // the condition (those events aren't tied to a probe).
+  useEffect(() => {
+    const tabToCondition = {
+      materials: null,
+      probe1: 'probe1',
+      probe2a: 'probe2a',
+      probe2b: 'probe2b',
+      probe3: 'probe3',
+    };
+    setCondition(tabToCondition[selectedTab] ?? null);
+  }, [selectedTab, setCondition]);
+
   const logEndRef = useRef(null);
   const logContainerRef = useRef(null);
 
-  // Connect as researcher to WS relay for navigation control
+  // Connect as researcher to WS relay for navigation control + WoZ.
+  // Also fire a REQUEST_EDIT_STATE so the participant device replies with its
+  // current editState, in case the dashboard opens after the session starts.
   useEffect(() => {
     wsRelayService.connect('researcher');
-    return () => wsRelayService.disconnect();
+    const sub = wsRelayService.onConnected(() => {
+      wsRelayService.sendData({ type: 'REQUEST_EDIT_STATE', actor: 'RESEARCHER' });
+    });
+    // Also send a request shortly after mount in case the socket is already
+    // open (onConnected fires only on the connect event, not on join).
+    const timer = setTimeout(() => {
+      wsRelayService.sendData({ type: 'REQUEST_EDIT_STATE', actor: 'RESEARCHER' });
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+      sub();
+      wsRelayService.disconnect();
+    };
   }, []);
+
+  // Surface "Ask AI to Edit" requests from any probe page in the dashboard.
+  // Looks up the segment by id from the loaded descriptions data so the
+  // panel can show the project's prepared canned responses.
+  // Also mirrors the participant's editState so the researcher can edit
+  // alongside the helper.
+  useEffect(() => {
+    const unsub = wsRelayService.onData((msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'AI_EDIT_REQUEST') {
+        const req = msg.request || null;
+        setPendingAIRequest(req);
+        if (req?.segmentId && data) {
+          const allVids = data.videos || (data.video ? [data.video] : []);
+          for (const v of allVids) {
+            const seg = (v.segments || []).find((s) => s.id === req.segmentId);
+            if (seg) { setAIEditSegment(seg); return; }
+          }
+        }
+        setAIEditSegment(null);
+        return;
+      }
+      if (msg.type === 'EDIT_STATE_UPDATE' && msg.editState) {
+        setMirrorEditState(msg.editState);
+        return;
+      }
+    });
+    return unsub;
+  }, [data]);
+
+  const handleDashboardEditChange = useCallback((clips, captions, sources, textOverlays) => {
+    const previous = mirrorEditStateRef.current;
+    const newState = {
+      clips,
+      captions,
+      sources,
+      textOverlays: textOverlays ?? previous?.textOverlays ?? [],
+    };
+    setMirrorEditState(newState);
+    wsRelayService.sendData({
+      type: 'EDIT_STATE_UPDATE',
+      editState: newState,
+      action: 'researcher edit',
+      changeSummary: {
+        announcement: 'The timeline was updated.',
+        shortText: 'Researcher edit',
+      },
+      actor: 'RESEARCHER',
+    });
+    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { source: 'dashboard_editor' });
+  }, [logEvent]);
+
+  const handleAIEditSendResponse = useCallback((responseText, responseType) => {
+    setPendingAIRequest(null);
+    logEvent(EventTypes.AI_EDIT_PROPOSED, Actors.RESEARCHER, {
+      source: 'researcher_dashboard', response: responseText, responseType,
+    });
+    wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
+  }, [logEvent]);
+
+  const handleAIEditApply = useCallback((editAction) => {
+    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
+  }, [logEvent]);
 
   useEffect(() => {
     loadDescriptions().then(setData).catch(console.error);
@@ -89,7 +213,12 @@ export default function ResearcherPage() {
   }, [sessionStart]);
 
   useEffect(() => {
-    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    // Scroll within the log container only — using scrollIntoView() here
+    // would also jump the document if the log is below the fold, which is
+    // disorienting whenever the page logs an event (e.g. clicking the
+    // timeline fires SEEK → log update → page jumped to the bottom).
+    const container = logContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
   }, [events.length]);
 
   const sessionConfig = useMemo(() => {
@@ -241,6 +370,74 @@ export default function ResearcherPage() {
   const segments = data?.video?.segments || [];
   const handleSegmentSelect = useCallback((seg) => setCurrentSegment(seg), []);
 
+  // Reusable Researcher Editor panel — rendered inside each relevant probe
+  // tab (2a, 2b, 3). One instance, switched in/out by the active tab so the
+  // researcher only sees it when on a probe that uses the editor.
+  const researcherEditorPanel = (
+    <div className="bg-white rounded-lg border-2 shadow-sm p-4" style={{ borderColor: COLORS.purple }}>
+      <div className="mb-3">
+        <h2 className="font-bold text-sm" style={{ color: COLORS.navy }}>Researcher Editor</h2>
+        <p className="text-xs text-gray-500">
+          Edit the participant's timeline. Trim, split, delete, reorder, and add captions —
+          every change applies to their video instantly.
+        </p>
+      </div>
+      {mirrorEditState ? (
+        <div
+          className="rounded overflow-hidden border-2 border-purple-400 bg-black"
+          aria-label="Researcher editor (live two-way sync)"
+        >
+          <div className="aspect-video max-h-[40vh] mx-auto">
+            <VideoPlayer
+              ref={dashboardPlayerRef}
+              src={mirrorEditState?.sources?.[0]?.src || null}
+              editState={mirrorEditState}
+              onTimeUpdate={setDashboardCurrentTime}
+            />
+          </div>
+          <MockEditorVisual
+            editState={mirrorEditState}
+            onEditChange={handleDashboardEditChange}
+            initialSources={[]}
+            segments={[]}
+            currentTime={dashboardCurrentTime}
+            onSeek={(t) => dashboardPlayerRef.current?.seek?.(t)}
+          />
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 italic">
+          Waiting for the participant to start a session — the editor will populate as soon as they import or edit the project.
+        </p>
+      )}
+    </div>
+  );
+
+  const aiEditRequestsPanel = (
+    <div
+      className={[
+        'bg-white rounded-lg border-2 shadow-sm p-4',
+        pendingAIRequest ? 'animate-pulse' : '',
+      ].join(' ')}
+      style={{ borderColor: pendingAIRequest ? '#9B59B6' : '#E5E7EB' }}
+      aria-live="polite"
+    >
+      <h2 className="font-bold text-sm mb-3" style={{ color: COLORS.navy }}>
+        AI Edit Requests (WoZ)
+        {pendingAIRequest && (
+          <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+            New request
+          </span>
+        )}
+      </h2>
+      <ResearcherAIEditPanel
+        segment={aiEditSegment}
+        pendingRequest={pendingAIRequest}
+        onSendResponse={handleAIEditSendResponse}
+        onApplyEdit={handleAIEditApply}
+      />
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gray-100">
       <header className="w-full px-4 py-3 flex items-center gap-4 flex-wrap" style={{ backgroundColor: COLORS.navy }} role="banner" aria-label="Researcher dashboard">
@@ -390,19 +587,8 @@ export default function ResearcherPage() {
                 {/* Probe 2a tab */}
                 {selectedTab === 'probe2a' && (
                   <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Current Mode</p>
-                      <span className="px-2 py-0.5 rounded-full text-xs font-semibold text-white" style={{ backgroundColor: currentMode === 'creator' ? COLORS.blue : '#E67E22' }}>
-                        {currentMode === 'creator' ? 'Creator Mode' : 'Helper Mode'}
-                      </span>
-                      <button
-                        onClick={() => setCurrentMode((m) => m === 'creator' ? 'helper' : 'creator')}
-                        className="text-xs text-gray-400 underline hover:text-gray-600 focus:outline-2 focus:outline-blue-500"
-                        aria-label="Toggle mode display"
-                      >
-                        Toggle
-                      </button>
-                    </div>
+                    {researcherEditorPanel}
+                    {aiEditRequestsPanel}
                     <ResearcherHandoverPanel onTriggerSuggestion={handleTriggerSuggestion} currentMode={currentMode} />
 
                     {/* Transition to Phase 2b */}
@@ -440,23 +626,16 @@ export default function ResearcherPage() {
                 {/* Probe 2b tab */}
                 {selectedTab === 'probe2b' && (
                   <div className="space-y-4">
-                    <div className="border-2 rounded-lg p-4" style={{ borderColor: COLORS.amber, backgroundColor: '#FFFBF0' }}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: COLORS.amber }} aria-hidden="true" />
-                        <h3 className="font-bold text-sm" style={{ color: COLORS.navy }}>Manual Sync Controls</h3>
-                      </div>
-                      <p className="text-xs text-gray-500 mb-3">Use if connection drops between devices.</p>
-                      <div className="flex gap-2 flex-wrap items-end">
-                        <button onClick={handleManualPlay} className="px-3 py-1.5 rounded text-sm font-medium text-white focus:outline-2 focus:outline-offset-2" style={{ backgroundColor: '#5CB85C' }}>Play</button>
-                        <button onClick={handleManualPause} className="px-3 py-1.5 rounded text-sm font-medium text-white focus:outline-2 focus:outline-offset-2" style={{ backgroundColor: '#D9534F' }}>Pause</button>
-                      </div>
-                    </div>
+                    {researcherEditorPanel}
+                    {aiEditRequestsPanel}
                   </div>
                 )}
 
                 {/* Probe 3 tab */}
                 {selectedTab === 'probe3' && (
                   <div className="space-y-4">
+                    {researcherEditorPanel}
+                    {aiEditRequestsPanel}
                     <ResearcherSuggestionPanel
                       suggestions={videoSuggestions}
                       deployedSuggestions={deployedSuggestions}
@@ -509,7 +688,7 @@ export default function ResearcherPage() {
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-gray-50">
                     <tr className="border-b border-gray-200">
-                      <th className="text-left px-3 py-2 font-semibold text-gray-500">Time (ms)</th>
+                      <th className="text-left px-3 py-2 font-semibold text-gray-500">Time</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Event Type</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Actor</th>
                       <th className="text-left px-3 py-2 font-semibold text-gray-500">Condition</th>
@@ -524,7 +703,7 @@ export default function ResearcherPage() {
                         const colors = ACTOR_COLORS[evt.actor] || ACTOR_COLORS.SYSTEM;
                         return (
                           <tr key={i} className="border-b border-gray-100 hover:bg-gray-50" style={{ backgroundColor: colors.bg }}>
-                            <td className="px-3 py-1.5 font-mono text-gray-600">{evt.timestamp}</td>
+                            <td className="px-3 py-1.5 font-mono text-gray-600" title={`Unix ms: ${evt.timestamp}`}>{formatWallClock(evt.timestamp)}</td>
                             <td className="px-3 py-1.5 font-medium text-gray-800">{evt.eventType}</td>
                             <td className="px-3 py-1.5">
                               <span className="px-1.5 py-0.5 rounded text-xs font-semibold" style={{ backgroundColor: colors.bg, color: colors.text, border: `1px solid ${colors.text}33` }}>{evt.actor}</span>
@@ -557,23 +736,6 @@ export default function ResearcherPage() {
                 >
                   {sessionActive ? 'End Session' : 'Start Session'}
                 </button>
-
-                <div className="border-t border-gray-200 pt-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Condition Controls</p>
-                  <div className="space-y-1.5">
-                    {CONDITIONS.map((cond) => (
-                      <button
-                        key={cond.key}
-                        onClick={() => handleConditionToggle(cond.key)}
-                        className="w-full py-1.5 px-3 rounded text-xs font-medium text-white transition-colors focus:outline-2 focus:outline-offset-2"
-                        style={{ backgroundColor: activeConditions[cond.key] ? '#D9534F' : cond.color }}
-                        aria-label={activeConditions[cond.key] ? `End ${cond.label}` : `Start ${cond.label}`}
-                      >
-                        {activeConditions[cond.key] ? `End ${cond.label}` : `Start ${cond.label}`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
 
                 <div className="border-t border-gray-200 pt-3">
                   <DataExportButton />
@@ -632,17 +794,6 @@ export default function ResearcherPage() {
               </div>
             </div>
 
-            {/* Quick links */}
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4">
-              <h2 className="font-bold text-sm mb-3" style={{ color: COLORS.navy }}>Quick Links</h2>
-              <div className="space-y-1.5">
-                <a href="/" className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500">Session Setup</a>
-                <a href="/probe1?mode=researcher" className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500">Probe 1 (Researcher)</a>
-                <a href="/probe2?mode=researcher" className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500">Probe 2a (Researcher)</a>
-                <a href="/probe2b?mode=researcher" className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500">Probe 2b (Researcher)</a>
-                <a href="/probe3?mode=researcher" className="block px-3 py-2 rounded text-sm text-gray-600 hover:bg-gray-50 transition-colors focus:outline-2 focus:outline-blue-500">Probe 3 (Researcher)</a>
-              </div>
-            </div>
           </div>
         </div>
       </div>

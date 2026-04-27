@@ -15,9 +15,13 @@ const SOURCE_COLORS = [
 export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive, clipPerSource = false }) {
   const { logEvent } = useEventLogger();
 
-  const [clips, setClips] = useState([]);
-  const [captions, setCaptions] = useState([]);
-  const [sources, setSources] = useState([]);
+  // Initialize from editState prop if available, otherwise empty arrays.
+  // Without this, the editState-sync useEffect early-returns on first render
+  // because `editState === prevEditStateRef.current` (both equal the prop),
+  // leaving the timeline blank even though clips were passed in. (B2 fix.)
+  const [clips, setClips] = useState(() => (editState?.clips ? [...editState.clips] : []));
+  const [captions, setCaptions] = useState(() => (editState?.captions ? [...editState.captions] : []));
+  const [sources, setSources] = useState(() => (editState?.sources ? [...editState.sources] : []));
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
   const [selectedClipIndex, setSelectedClipIndex] = useState(null);
@@ -33,14 +37,27 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   const fileInputRef = useRef(null);
   const onEditChangeRef = useRef(onEditChange);
   const sourcesRef = useRef(sources);
+  const clipsRef = useRef(clips);
+  const captionsRef = useRef(captions);
   useEffect(() => { onEditChangeRef.current = onEditChange; }, [onEditChange]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
+  useEffect(() => { clipsRef.current = clips; }, [clips]);
+  useEffect(() => { captionsRef.current = captions; }, [captions]);
 
   // Guard: when true, suppress the next onEditChange broadcast (it came from props, not user)
   const syncFromPropsRef = useRef(false);
+  // Guard: skip the initial mount run of the broadcast effect. Otherwise we
+  // emit `onEditChange([], [], [])` before the editState prop sync runs,
+  // which can clobber upstream state (B1 fix: was blanking the participant's
+  // timeline whenever the researcher dashboard mounted the mirror editor).
+  const didMountRef = useRef(false);
 
   // Notify parent whenever clips, captions, or sources change
   useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     if (syncFromPropsRef.current) {
       syncFromPropsRef.current = false;
       return;
@@ -50,16 +67,27 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     }
   }, [clips, captions, sources]);
 
-  // Sync internal state when editState prop changes from outside (peer edits via WebSocket)
+  // Sync internal state when editState prop changes from outside (peer edits via WebSocket).
+  // Only set syncFromPropsRef when state will actually change. Otherwise, when
+  // the parent passes back a wrapped object containing the SAME inner array
+  // references we just emitted (the round-trip case after onEditChange →
+  // parent setState → re-render), setClips() bails out, the broadcast effect
+  // doesn't run to reset the flag, and the next legitimate edit is suppressed.
   const prevEditStateRef = useRef(editState);
   useEffect(() => {
     if (!editState) return;
     if (editState === prevEditStateRef.current) return;
     prevEditStateRef.current = editState;
+
+    const clipsChanged = editState.clips !== undefined && editState.clips !== clipsRef.current;
+    const captionsChanged = editState.captions !== undefined && editState.captions !== captionsRef.current;
+    const sourcesChanged = editState.sources !== undefined && editState.sources !== sourcesRef.current;
+    if (!clipsChanged && !captionsChanged && !sourcesChanged) return;
+
     syncFromPropsRef.current = true;
-    if (editState.clips) setClips(editState.clips);
-    if (editState.captions) setCaptions(editState.captions);
-    if (editState.sources) setSources(editState.sources);
+    if (clipsChanged) setClips(editState.clips);
+    if (captionsChanged) setCaptions(editState.captions);
+    if (sourcesChanged) setSources(editState.sources);
   }, [editState]);
 
   // Initialize clips + sources when initialSources arrives (async data load)
@@ -572,10 +600,10 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
             <div className="border-l border-white/30 h-6 mx-1" aria-hidden="true" />
             <button
               onClick={onTextTool}
-              className={`px-2 py-1 rounded text-xs font-bold transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
                 textToolActive
                   ? 'bg-[#fbbf24] text-[#1a1a2e]'
-                  : 'bg-white/10 text-white/70 hover:bg-white/20'
+                  : 'bg-white/20 text-white border border-white/30 hover:bg-white/30'
               }`}
               style={{ minHeight: '44px', minWidth: '44px' }}
               aria-label="Text overlay tool"

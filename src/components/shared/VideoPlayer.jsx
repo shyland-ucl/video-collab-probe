@@ -4,7 +4,7 @@ import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import usePlaybackEngine from '../../hooks/usePlaybackEngine.js';
 
-const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState }, ref) {
+const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter }, ref) {
   const singleVideoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -183,7 +183,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
               }}
               src={source.src}
               className="w-full h-full object-contain absolute inset-0"
-              style={{ display: isActive ? 'block' : 'none' }}
+              style={{ display: isActive ? 'block' : 'none', filter: videoFilter || undefined }}
               onTimeUpdate={isActive ? handleTimeUpdate : undefined}
               onPlay={isActive ? handlePlay : undefined}
               onPause={isActive ? handlePause : undefined}
@@ -200,6 +200,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
           ref={singleVideoRef}
           src={src}
           className="w-full h-full object-contain"
+          style={{ filter: videoFilter || undefined }}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}

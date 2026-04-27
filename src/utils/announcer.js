@@ -19,13 +19,40 @@
  */
 
 const QUEUE_GAP_MS = 150;
+// M2: how long an announcement stays in the live region before being
+// cleared. Long enough that screen readers always finish speaking; short
+// enough that re-focusing the [status] region later doesn't re-read a
+// many-actions-stale message. See docs/probe_a11y_findings_2026-04-25.md.
+const STALE_CLEAR_MS = 2000;
 
 const queue = [];
 let draining = false;
+let clearTimer = null;
+// Helper-mode handover (Probe 2a) suppresses live-region announcements so a
+// sighted helper isn't interrupted by VoiceOver/TalkBack while editing on the
+// creator's device. The OS screen reader itself can only be dismissed by the
+// user (no web API for it); muting our announcer is the part we control.
+let muted = false;
 
-function setText(text) {
-  const el = typeof document !== 'undefined' ? document.getElementById('sr-announcer') : null;
+function setText(text, assertive) {
+  // Two live regions live in the page (App.jsx):
+  //   #sr-announcer (polite) — default, queues behind current speech.
+  //   #sr-announcer-assertive (alert) — interrupts current speech.
+  //
+  // Assertive is needed when an announce immediately follows a React
+  // state-driven re-render that TalkBack reacts to (e.g. detail-level
+  // change re-renders nearby DOM and TalkBack starts re-reading the
+  // activated button — the polite live-region update gets dropped).
+  // 2026-04-26 Lan reproduced this on Android Chrome.
+  const id = assertive ? 'sr-announcer-assertive' : 'sr-announcer';
+  const el = typeof document !== 'undefined' ? document.getElementById(id) : null;
   if (!el) return;
+  // A pending stale-clear from a previous message would otherwise wipe
+  // the new message before SR finishes speaking it.
+  if (clearTimer) {
+    clearTimeout(clearTimer);
+    clearTimer = null;
+  }
   // Clear first so the screen reader sees a real DOM change even when the
   // next message is identical to the current text.
   el.textContent = '';
@@ -34,6 +61,15 @@ function setText(text) {
   // which is what makes assistive tech announce the content reliably.
   setTimeout(() => {
     el.textContent = text;
+    // M2: queue a delayed clear so the live region returns to empty
+    // between announcements. The guards make sure we don't blank out a
+    // newer message that arrived during the wait.
+    clearTimer = setTimeout(() => {
+      clearTimer = null;
+      if (queue.length === 0 && el.textContent === text) {
+        el.textContent = '';
+      }
+    }, STALE_CLEAR_MS);
   }, 30);
 }
 
@@ -44,18 +80,49 @@ function drain() {
   }
   draining = true;
   const next = queue.shift();
-  setText(next);
+  setText(next.message, next.assertive);
   setTimeout(drain, QUEUE_GAP_MS);
 }
 
 /**
  * Announce a message to assistive technology.
  * @param {string} message
+ * @param {{ assertive?: boolean }} [options]
+ *   When `assertive` is true the message goes to the assertive live
+ *   region and interrupts current speech. Use for direct feedback to a
+ *   user action (e.g. detail-level change) where TalkBack would
+ *   otherwise drown out a polite announce by re-reading the just-
+ *   activated button. Default is polite.
  */
-export function announce(message) {
+export function announce(message, options) {
   if (typeof message !== 'string' || message.length === 0) return;
-  queue.push(message);
+  if (muted) return;
+  queue.push({ message, assertive: !!(options && options.assertive) });
   if (!draining) drain();
+}
+
+/**
+ * Mute or unmute the live-region announcer. Used by Probe 2a's handover flow
+ * to stop interrupting a sighted helper editing on the creator's device.
+ * Returns the previous mute state for symmetric restoration.
+ */
+export function setAnnouncerMuted(next) {
+  const prev = muted;
+  muted = !!next;
+  if (muted) {
+    queue.length = 0;
+    if (clearTimer) {
+      clearTimeout(clearTimer);
+      clearTimer = null;
+    }
+    if (typeof document !== 'undefined') {
+      const polite = document.getElementById('sr-announcer');
+      const assertive = document.getElementById('sr-announcer-assertive');
+      if (polite) polite.textContent = '';
+      if (assertive) assertive.textContent = '';
+    }
+  }
+  return prev;
 }
 
 /**
@@ -64,4 +131,8 @@ export function announce(message) {
 export function _resetAnnouncerForTests() {
   queue.length = 0;
   draining = false;
+  if (clearTimer) {
+    clearTimeout(clearTimer);
+    clearTimer = null;
+  }
 }

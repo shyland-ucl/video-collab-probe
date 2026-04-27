@@ -104,6 +104,9 @@ export default function VideoUpload({ onUpload, disabled = false }) {
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Hidden from AT — the visible button is the AT-facing entry point.
+          The previous `aria-label="Upload video files"` left a duplicate
+          "Upload video files" stop in TalkBack right next to the button. */}
       <input
         ref={fileInputRef}
         type="file"
@@ -112,7 +115,8 @@ export default function VideoUpload({ onUpload, disabled = false }) {
         capture={false}
         onChange={handleInputChange}
         className="sr-only"
-        aria-label="Upload video files"
+        aria-hidden="true"
+        tabIndex={-1}
         id="video-upload-input"
       />
 

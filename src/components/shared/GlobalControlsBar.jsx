@@ -13,14 +13,18 @@ export default function GlobalControlsBar({
 }) {
   if (sceneCount === 0) return null;
 
+  // Build the summary as a single template string so it renders as one
+  // text node. Previously the JSX mixed `{expr}` interpolations with
+  // literal "&middot;" entities, producing several adjacent text nodes;
+  // TalkBack on Android announced each fragment separately ("1", "clip",
+  // "5"...) instead of the whole sentence.
+  const summary =
+    `${videoCount} clip${videoCount !== 1 ? 's' : ''} imported, ` +
+    `${sceneCount} scenes, total length ${formatTotalDuration(totalDuration)}`;
+
   return (
     <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-4 py-3">
-      <p
-        className="text-xs text-gray-500"
-        aria-label={`${videoCount} clip${videoCount !== 1 ? 's' : ''} imported, ${sceneCount} scenes, total length ${formatTotalDuration(totalDuration)}`}
-      >
-        {videoCount} clip{videoCount !== 1 ? 's' : ''} imported &middot; {sceneCount} scenes &middot; {formatTotalDuration(totalDuration)} total
-      </p>
+      <p className="text-xs text-gray-500">{summary}</p>
     </div>
   );
 }

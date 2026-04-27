@@ -7,7 +7,9 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
+import { filterClipsByKept, colourValuesToFilter } from '../utils/editStateView.js';
 import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
+import { applyOperation } from '../utils/sceneEditOps.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -56,6 +58,10 @@ export default function Probe2bPage() {
   const [librarySelection, setLibrarySelection] = useState(new Set());
   const [feedItems, setFeedItems] = useState([]);
   const [pendingAIRequest, setPendingAIRequest] = useState(null);
+  // Parked resolver for "Ask AI to edit": when no canned response matches we
+  // broadcast AI_EDIT_REQUEST over the relay and wait for the researcher's
+  // AI_EDIT_RESPONSE to resolve this promise. Mirrors Probe2Page.
+  const aiEditResolverRef = useRef(null);
 
   const [helperActivities, setHelperActivities] = useState([]);
   const [creatorActivities, setCreatorActivities] = useState([]);
@@ -64,6 +70,7 @@ export default function Probe2bPage() {
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
+  const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
   const [pipelineVideos, setPipelineVideos] = useState([]);
   // M6 fix: explicit control state. Default 'creator' because the creator
   // imports the project. Either side can take control; only the owner's
@@ -128,6 +135,14 @@ export default function Probe2bPage() {
   const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
   const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
   const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
+  // Filter the playback EDL by Removed scenes, and derive a CSS filter from
+  // the helper's colour sliders. Only used for VideoPlayer — the timeline
+  // editor still sees the full editState so the helper can see what was cut.
+  const playbackEditState = useMemo(() => filterClipsByKept(editState, keptScenes), [editState, keptScenes]);
+  const videoFilter = useMemo(() => colourValuesToFilter(colourValues), [colourValues]);
+  const handleColourAdjust = useCallback((property, value) => {
+    setColourValues((prev) => ({ ...prev, [property]: value }));
+  }, []);
 
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
@@ -216,6 +231,17 @@ export default function Probe2bPage() {
     logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, { videoIds: videos.map((v) => v.id), count: videos.length });
     announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
     wsRelayService.sendData({ type: 'PROJECT_CREATED', videoIds: videos.map((v) => v.id), actor: 'CREATOR' });
+    // Also broadcast the full initial editState so the researcher dashboard's
+    // mirror populates immediately (without waiting for the first edit). The
+    // helper will overwrite their locally-derived editState with this — same
+    // shape, so it's a no-op visually.
+    wsRelayService.sendData({
+      type: 'EDIT_STATE_UPDATE',
+      editState: nextEditState,
+      action: 'project initialised',
+      changeSummary: { announcement: '', shortText: '' },
+      actor: 'CREATOR',
+    });
     setPhase('active');
   }, [logEvent]);
 
@@ -401,6 +427,38 @@ export default function Probe2bPage() {
           }
           break;
         }
+        case 'AI_EDIT_REQUEST': {
+          // Surface in this researcher tab's panel (only relevant if this
+          // tab joined as researcher via ?mode=researcher).
+          if (isResearcher) setPendingAIRequest(msg.request || null);
+          break;
+        }
+        case 'REQUEST_EDIT_STATE': {
+          // The researcher dashboard joined late and wants the current state.
+          // Only the creator answers, so the dashboard doesn't get two copies.
+          if (currentRole === 'creator' && editStateRef.current) {
+            wsRelayService.sendData({
+              type: 'EDIT_STATE_UPDATE',
+              editState: editStateRef.current,
+              action: 'snapshot',
+              changeSummary: { announcement: '', shortText: '' },
+              actor: 'CREATOR',
+            });
+          }
+          break;
+        }
+        case 'AI_EDIT_RESPONSE': {
+          // Resolve the parked Ask-AI promise on the participant device.
+          if (!isResearcher && aiEditResolverRef.current) {
+            aiEditResolverRef.current({
+              description: msg.text,
+              text: msg.text,
+              operation: msg.responseType || 'researcher_response',
+            });
+            aiEditResolverRef.current = null;
+          }
+          break;
+        }
         default:
           break;
       }
@@ -415,7 +473,10 @@ export default function Probe2bPage() {
     unsubscribeRef.current.connected = wsRelayService.onConnected(() => {
       setConnected(true);
       logEvent(EventTypes.DEVICE_CONNECTED, Actors.SYSTEM, { role: currentRole });
-      announce('Device connected');
+      // M7: name the peer so the creator knows who joined; "Loading shared
+      // session" tells them the page is about to advance.
+      const peer = currentRole === 'creator' ? 'Helper' : 'Creator';
+      announce(`${peer} joined. Loading shared session.`);
     });
   }, [clearSubscriptions, logEvent]);
 
@@ -476,6 +537,11 @@ export default function Probe2bPage() {
     setRole(selectedRole);
     setPhase('waiting');
     logEvent(EventTypes.SESSION_START, Actors.SYSTEM, { role: selectedRole, probe: 'probe2b' });
+    // M7: a BLV creator selecting their role hears nothing back from the
+    // page chrome (the waiting spinner is aria-hidden). Confirm the choice
+    // and explain the wait so they don't think the tap was lost.
+    const otherRole = selectedRole === 'creator' ? 'helper' : 'creator';
+    announce(`Role selected: ${selectedRole}. Waiting for ${otherRole} to join.`);
   }, [logEvent]);
 
   // Single source of truth for the WS connection lifecycle.
@@ -495,18 +561,88 @@ export default function Probe2bPage() {
     };
   }, [role, setupHandlers, clearSubscriptions]);
 
-  // WoZ AI edit callbacks
-  useEffect(() => {
-    window.__aiEditReceive = (request) => setPendingAIRequest(request);
-    return () => { delete window.__aiEditReceive; };
-  }, []);
+  // WoZ AI edit callbacks. The participant device parks a resolver via
+  // handleAskAIEdit; the researcher device (any tab joined as 'researcher')
+  // resolves it by sending AI_EDIT_RESPONSE over the WS relay.
+  const handleAskAIEdit = useCallback(async (instruction, scene) => {
+    // Cancel any older parked resolver — a new request supersedes the old.
+    if (aiEditResolverRef.current) {
+      aiEditResolverRef.current({
+        description: 'Cancelled by a newer request.',
+        text: '',
+        operation: 'superseded',
+      });
+      aiEditResolverRef.current = null;
+    }
+    // Try canned responses first.
+    const prepared = scene?.ai_edits_prepared;
+    if (prepared) {
+      for (const [key, val] of Object.entries(prepared)) {
+        if (instruction.toLowerCase().includes(key.replace('_', ' '))) {
+          logEvent(EventTypes.AI_EDIT_PROPOSED, Actors.AI, {
+            instruction, segmentId: scene?.id, source: 'prepared', operation: key,
+          });
+          return { description: val.response || val.partial, operation: key, text: val.response };
+        }
+      }
+    }
+    // No canned match → broadcast to researcher and park the resolver.
+    const request = {
+      instruction,
+      segment: scene?.name,
+      segmentId: scene?.id,
+      timestamp: Date.now(),
+    };
+    setPendingAIRequest(request);
+    wsRelayService.sendData({ type: 'AI_EDIT_REQUEST', request });
+    announce('AI is preparing the edit. Researcher is reviewing.');
+    return new Promise((resolve) => {
+      aiEditResolverRef.current = resolve;
+    });
+  }, [logEvent]);
+
+  // Apply an operation key (from AI accept OR a self-edit button) against the
+  // current editState. Reuses handleEditChange so the control-owner check
+  // and EDIT_STATE_UPDATE broadcast logic stays in one place.
+  const handleApplySceneEdit = useCallback((scene, operation) => {
+    if (!scene || !operation) return;
+    const current = editStateRef.current;
+    if (!current) return;
+    const next = applyOperation(current, scene.id, operation, {
+      currentTime,
+      captionText: scene.descriptions?.level_1 || 'AI-added caption',
+    });
+    if (next === current) {
+      announce(`Could not apply ${operation} on this scene.`);
+      logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, {
+        action: operation, segmentId: scene.id, applied: false, reason: 'no-op',
+      });
+      return;
+    }
+    logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, {
+      action: operation, segmentId: scene.id, applied: true,
+    });
+    handleEditChange(next.clips, next.captions, next.sources, next.textOverlays);
+  }, [currentTime, handleEditChange, logEvent]);
 
   const handleAIEditResponse = useCallback((responseText, responseType) => {
     setPendingAIRequest(null);
-    if (typeof window.__aiEditResponse === 'function') {
-      window.__aiEditResponse(responseText, responseType);
+    logEvent(EventTypes.AI_EDIT_PROPOSED, Actors.RESEARCHER, {
+      source: 'researcher_woz', response: responseText, responseType,
+    });
+    // Same-tab path: resolve a local resolver if the participant lives in
+    // this tab (e.g. ?mode=researcher on a single-device setup).
+    if (aiEditResolverRef.current) {
+      aiEditResolverRef.current({
+        description: responseText,
+        text: responseText,
+        operation: responseType || 'researcher_response',
+      });
+      aiEditResolverRef.current = null;
     }
-  }, []);
+    // Cross-device path: relay to the participant.
+    wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
+  }, [logEvent]);
 
   const handleApplyEdit = useCallback((editAction) => {
     logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
@@ -544,11 +680,11 @@ export default function Probe2bPage() {
     const isCreator = role === 'creator';
     return (
       <div className="min-h-screen bg-white">
+        <ConditionHeader condition="probe2b" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
         <OnboardingBrief
           pageTitle="Probe 2b: Two Devices — Video Library"
           description="This is the video library. The creator selects the clips to work on. Once imported, both devices will load the same footage. Browse the list and tap Import when ready."
         />
-        <ConditionHeader condition="probe2b" modeLabel={`${role.charAt(0).toUpperCase() + role.slice(1)} — Select Videos`} />
         <VideoLibrary
           videos={allVideos}
           onImport={handleImport}
@@ -566,11 +702,11 @@ export default function Probe2bPage() {
     <div className="min-h-screen bg-white">
       {role === 'creator' ? (
         <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+          <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 2b: Two Devices — Creator"
             description="You and your helper each have a phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you can edit by yourself, ask AI to edit, or send a task to your helper's device without handing over. Activity indicators show what your helper is working on. All changes sync between phones automatically."
           />
-          <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
           <ControlLockBanner
             role={role}
             controlOwner={controlOwner}
@@ -584,7 +720,8 @@ export default function Probe2bPage() {
               segments={segments}
               onTimeUpdate={handleTimeUpdate}
               onSegmentChange={handleSegmentChange}
-              editState={editState}
+              editState={playbackEditState}
+              videoFilter={videoFilter}
             />
           </div>
           <SceneBlockList
@@ -605,6 +742,15 @@ export default function Probe2bPage() {
             videoCount={selectedVideos?.length || 1}
             vqaHistories={vqaHistories}
             awarenessData={awarenessData}
+            keptScenes={keptScenes}
+            onSceneClose={(sceneId) => {
+              setVqaHistories((prev) => {
+                if (!(sceneId in prev)) return prev;
+                const next = { ...prev };
+                delete next[sceneId];
+                return next;
+              });
+            }}
             renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
               <Probe2bSceneActions
                 scene={scene}
@@ -636,17 +782,7 @@ export default function Probe2bPage() {
                     } catch { /* WoZ fallback */ }
                   }
                 }}
-                onAskAIEdit={async (instruction, s) => {
-                  const prepared = s.ai_edits_prepared;
-                  if (prepared) {
-                    for (const [key, val] of Object.entries(prepared)) {
-                      if (instruction.toLowerCase().includes(key.replace('_', ' '))) {
-                        return { description: val.response || val.partial, operation: key, text: val.response };
-                      }
-                    }
-                  }
-                  return { description: `I can't do "${instruction}" directly. Send to helper?`, text: instruction };
-                }}
+                onAskAIEdit={(instruction, s) => handleAskAIEdit(instruction, s)}
                 onSendToHelper={(task) => {
                   wsRelayService.sendData({
                     type: 'TASK_TO_HELPER',
@@ -659,9 +795,7 @@ export default function Probe2bPage() {
                     actor: 'CREATOR',
                   });
                 }}
-                onEditSelf={(s, action) => {
-                  logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action, segmentId: s.id });
-                }}
+                onEditSelf={handleApplySceneEdit}
                 isKept={keptScenes[scene.id] !== false}
                 onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
                 helperName="helper"
@@ -693,6 +827,10 @@ export default function Probe2bPage() {
             onSegmentChange={handleSegmentChange}
             onSeek={handleSeek}
             editState={editState}
+            playbackEditState={playbackEditState}
+            videoFilter={videoFilter}
+            colourValues={colourValues}
+            onColourAdjust={handleColourAdjust}
             onEditChange={handleEditChange}
             initialSources={initialSources}
             feedItems={feedItems}

@@ -44,12 +44,19 @@ async function pair(probePath) {
 }
 
 async function leftWaitingScreen(page, timeoutMs = 8000) {
-  // Both Creator and Helper sit on a "Waiting for ..." screen until paired.
-  // Once paired they navigate into a library / role-specific UI; the
-  // simplest check is that the "Waiting" copy disappears.
+  // Both Creator and Helper sit on a "Waiting for {otherRole}..." screen
+  // until paired. After pairing they navigate to phase='library' which
+  // renders the VideoLibrary.
+  //
+  // Don't probe for the *absence* of any "Waiting for" substring —
+  // VideoLibrary in readOnly mode (helper side) renders the message
+  // "Waiting for creator to select videos..." and that false-fails the
+  // pairing check on a healthy helper. Instead, probe for the *presence*
+  // of the library page's onboarding copy, which only renders once
+  // phase==='library'.
   try {
     await page.waitForFunction(
-      () => !/Waiting for/i.test(document.body.innerText || ''),
+      () => /This is the video library/i.test(document.body.innerText || ''),
       null,
       { timeout: timeoutMs }
     );

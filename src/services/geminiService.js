@@ -81,3 +81,100 @@ ${options.segmentDescription ? `\nContext: The current scene has been described 
 
   return answer.trim();
 }
+
+/**
+ * Draft an AI edit response for the researcher's WoZ panel. Text-only call:
+ * given the participant's edit instruction and the current segment's
+ * description, return a one-sentence response that describes the edit the
+ * AI would make + a structured action key from a fixed vocabulary.
+ *
+ * @param {string} instruction - what the participant asked the AI to do
+ * @param {string} segmentDescription - the segment's level_2 description
+ * @returns {Promise<{ description: string, action: string }>}
+ */
+export async function draftAIEditResponse(instruction, segmentDescription = '') {
+  if (!API_KEY) {
+    throw new Error('Gemini API key not configured. Set VITE_GEMINI_API_KEY in .env');
+  }
+
+  const ACTIONS = ['trim_start', 'split', 'delete', 'reorder', 'add_caption'];
+  const prompt = `You are drafting a response from an AI video-editing assistant to a blind or low-vision creator.
+The creator is working on a video segment described as: "${segmentDescription || 'unknown segment'}"
+The creator asked the AI: "${instruction}"
+
+Output ONLY a single raw JSON object matching this schema. No preamble. No explanation. No markdown code fences. Just the JSON.
+Schema: {"description": string, "action": string}
+- description: one short sentence describing the edit you would make, addressed to the creator (e.g. "I trimmed the first 2 seconds where the camera was shaky.")
+- action: one of ${ACTIONS.map((a) => `"${a}"`).join(', ')}. If the request doesn't map cleanly, pick the closest.`;
+
+  const requestBody = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.6,
+      // 2.5-flash counts thinking tokens against maxOutputTokens. We disable
+      // thinking (it's overkill for a one-sentence draft) and keep enough
+      // headroom for the JSON payload.
+      maxOutputTokens: 512,
+      thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: 'OBJECT',
+        properties: {
+          description: { type: 'STRING' },
+          action: { type: 'STRING', enum: ACTIONS },
+        },
+        required: ['description', 'action'],
+      },
+    },
+  };
+
+  const response = await fetch(`${API_URL}?key=${API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${error}`);
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('No draft received from Gemini');
+
+  const parsed = parseLooseJson(text);
+  if (!parsed) {
+    // Most likely the response was truncated mid-JSON. Surface a clean
+    // error so the researcher sees "draft failed" rather than raw JSON in
+    // the textarea.
+    if (text.trim().startsWith('{')) {
+      throw new Error('Gemini returned incomplete JSON (likely truncated).');
+    }
+    return { description: text.trim(), action: 'trim_start' };
+  }
+  const action = ACTIONS.includes(parsed.action) ? parsed.action : 'trim_start';
+  return { description: String(parsed.description || '').trim(), action };
+}
+
+/**
+ * Best-effort JSON extractor for LLM output that may wrap the JSON in
+ * markdown fences, prose preambles, or trailing notes. Returns the parsed
+ * object or null if no valid JSON object is found.
+ */
+function parseLooseJson(text) {
+  if (!text) return null;
+  // Try direct parse first (the happy path when responseMimeType is honoured).
+  try { return JSON.parse(text); } catch { /* fall through */ }
+  // Strip ```json ... ``` or ``` ... ``` fences anywhere in the text.
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch { /* fall through */ }
+  }
+  // Last resort: greedy match on the first {...} block.
+  const braceMatch = text.match(/\{[\s\S]*\}/);
+  if (braceMatch) {
+    try { return JSON.parse(braceMatch[0]); } catch { /* give up */ }
+  }
+  return null;
+}

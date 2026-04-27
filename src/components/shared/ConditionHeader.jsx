@@ -33,6 +33,12 @@ const conditionConfig = {
  * users perceive the same heading. OnboardingBrief drops its `sr-only` h1
  * (now redundant). The description and mode-label remain in the same
  * element but become live content rather than aria-hidden.
+ *
+ * B2 fix (probe_a11y_findings_2026-04-25.md): `role="banner"` was removed
+ * because the banner landmark's accessible name was being computed from
+ * its descendants — including the inner `<h1>` — so TalkBack announced the
+ * title *twice* (once as the banner name, once as the heading). With the
+ * banner role gone, the `<h1>` is the single naming element.
  */
 export default function ConditionHeader({ condition, modeLabel }) {
   const config = conditionConfig[condition];
@@ -42,14 +48,12 @@ export default function ConditionHeader({ condition, modeLabel }) {
     <div
       className="w-full px-4 py-3 flex items-center gap-3"
       style={{ backgroundColor: config.color }}
-      role="banner"
     >
       <h1 className="text-white font-bold text-lg m-0">{config.label}</h1>
       <span className="text-white/80 text-sm">{config.description}</span>
       {modeLabel && (
         <span
           className="ml-auto px-2 py-0.5 bg-white/20 text-white text-xs font-semibold rounded"
-          aria-label={`Mode: ${modeLabel}`}
         >
           {modeLabel}
         </span>

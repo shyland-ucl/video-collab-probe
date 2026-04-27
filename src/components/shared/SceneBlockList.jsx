@@ -5,6 +5,7 @@ import ttsService from '../../services/ttsService.js';
 import { announce } from '../../utils/announcer.js';
 import GlobalControlsBar from './GlobalControlsBar.jsx';
 import SceneBlock from './SceneBlock.jsx';
+import { LEVELS } from '../../utils/detailLevels.js';
 
 export default function SceneBlockList({
   scenes = [],
@@ -19,12 +20,33 @@ export default function SceneBlockList({
   // Per-scene data
   vqaHistories = {},
   awarenessData = {},
+  // sceneId → boolean. When `keptScenes[id] === false`, the scene is marked
+  // removed and the block renders dimmed with a "Removed" badge so the
+  // participant gets visible confirmation that Remove worked. Playback
+  // filtering happens upstream via filterClipsByKept.
+  keptScenes = {},
   // Render prop for probe-specific actions
   renderSceneActions,
+  // Fired when a scene is FULLY collapsed (close button, header tap, or
+  // browser-back) — NOT on auto-follow boundary moves. Pages use this to
+  // wipe per-scene chat history so re-opening starts fresh and TalkBack
+  // doesn't have to swipe past N stale Q+A bubbles (Lan 2026-04-27).
+  onSceneClose,
 }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
+  // Where the latest expansion came from. Drives focus behavior in SceneBlock:
+  //   'user' — manual tap → focus the actions region (default landing).
+  //   'auto' — playback auto-follow → focus the new scene's Play/Pause button
+  //            so the user stays on the button they were just using.
+  const [expandSource, setExpandSource] = useState('user');
   const [currentLevel, setCurrentLevel] = useState(1);
   const listRef = useRef(null);
+  // Refs to each SceneBlock's collapsed-header button. Used to restore
+  // focus when a scene is fully collapsed — otherwise the browser drops
+  // focus to <body> and TalkBack/VoiceOver swipe-navigates from page top
+  // (Lan 2026-04-27 regression).
+  const headerRefs = useRef([]);
+  const prevExpandedRef = useRef(null);
   const { logEvent } = useEventLogger();
 
   const totalDuration = scenes.reduce(
@@ -34,6 +56,7 @@ export default function SceneBlockList({
 
   const handleExpand = useCallback(
     (index) => {
+      setExpandSource('user');
       setExpandedIndex(index);
       const scene = scenes[index];
       logEvent(EventTypes.NAVIGATE_SEGMENT, Actors.CREATOR, {
@@ -61,25 +84,98 @@ export default function SceneBlockList({
         toLevel: level,
       });
       setCurrentLevel(level);
+      // Announce the new level *and* the description for the currently
+      // expanded scene so the user immediately hears what changed
+      // (2026-04-26 Lan request — the level name alone doesn't tell them
+      // what's now in the description). Falls back to the level name only
+      // when no scene is open. announce() is queued, never speak() — see
+      // memory `feedback_scene_block_a11y.md`.
+      //
+      // Avoid the phrase "detailed description" — it's a recognised
+      // assistive-tech term (long-description / aria-describedby) and
+      // TalkBack on Android sometimes filters or mis-routes it. Phrasing
+      // the level as "{label} view" sidesteps the collision.
+      const label = LEVELS.find((l) => l.value === level)?.label;
+      const expandedScene = expandedIndex !== null ? scenes[expandedIndex] : null;
+      const desc = expandedScene?.descriptions?.[`level_${level}`];
+      // Assertive carries BOTH the level label and the description. We
+      // tried trimming this to just `${label}.` and relying on the chip's
+      // aria-label being read on focus move — but on Android TalkBack the
+      // programmatic focus to the chip's `tabIndex={-1}` <span> doesn't
+      // reliably trigger a re-read, so the description disappeared
+      // (Lan-confirmed regression, 2026-04-26). The chip's accessible
+      // name is now just the visible level word (no duplication risk),
+      // so we put the description back into the assertive announce
+      // — that's the only channel Android can hear.
+      const text = expandedScene && desc ? `${label}. ${desc}` : `${label}.`;
+      announce(text, { assertive: true });
     },
-    [currentLevel, logEvent]
+    [currentLevel, logEvent, expandedIndex, scenes]
   );
 
   // Auto-navigate to the scene matching current playback time. Setting
   // expandedIndex collapses the previous SceneBlock and expands the new one,
-  // so the expanded options visibly follow playback. The announce gives
-  // TalkBack a transition cue; the new SceneBlock's expand effect handles
-  // focus.
+  // so the expanded options visibly follow playback. We deliberately do NOT
+  // announce a boundary cue here — Lan 2026-04-26 wants playback to stay
+  // quiet so the video audio isn't talked over. Focus still moves to the
+  // new scene's play button (via SceneBlock's expand effect with
+  // autoFollowed=true), and TalkBack reads the focused button on its own.
   useEffect(() => {
     if (!isPlaying || expandedIndex === null) return;
     const activeIndex = scenes.findIndex(
       (s) => currentTime >= s.start_time && currentTime < s.end_time
     );
     if (activeIndex !== -1 && activeIndex !== expandedIndex) {
+      setExpandSource('auto');
       setExpandedIndex(activeIndex);
-      announce(`Now playing scene ${activeIndex + 1}: ${scenes[activeIndex].name}.`);
     }
   }, [currentTime, isPlaying, scenes, expandedIndex]);
+
+  // Pause read-out: when playback transitions playing → paused while a
+  // scene is expanded, announce the current scene's description so the
+  // user hears what they just paused on. Uses announce() (live region),
+  // never ttsService.speak — per memory `feedback_scene_block_a11y.md`,
+  // active TTS fights TalkBack.
+  const wasPlayingRef = useRef(isPlaying);
+  useEffect(() => {
+    const wasPlaying = wasPlayingRef.current;
+    wasPlayingRef.current = isPlaying;
+    if (wasPlaying && !isPlaying && expandedIndex !== null) {
+      const scene = scenes[expandedIndex];
+      const desc = scene?.descriptions?.[`level_${currentLevel}`];
+      if (desc) {
+        // Assertive: pause flips the scene-play button's aria-label from
+        // "Pause from here" back to "Play from here", and Android
+        // TalkBack re-reads the activated button. A polite announce here
+        // gets dropped, which is exactly the case the BLV creator needs
+        // to hear ("which scene did I just pause on?"). Assertive
+        // interrupts the re-read so the description lands.
+        announce(`Paused on scene ${expandedIndex + 1}, ${scene.name}. ${desc}`, { assertive: true });
+      }
+    }
+  }, [isPlaying, expandedIndex, scenes, currentLevel]);
+
+  // Full-collapse side effects: when expandedIndex transitions from N to
+  // null (Close button, header re-tap, or browser-back), restore focus to
+  // scene N's collapsed-header button AND fire onSceneClose so the page
+  // can wipe per-scene chat history. Auto-follow (N → M) is excluded
+  // because the new SceneBlock's expand effect already lands focus on
+  // its play button.
+  useEffect(() => {
+    const prev = prevExpandedRef.current;
+    prevExpandedRef.current = expandedIndex;
+    if (prev !== null && expandedIndex === null) {
+      const sceneId = scenes[prev]?.id;
+      // Focus restoration runs in a rAF so React has finished unmounting
+      // the actions region before we move focus back to the header —
+      // otherwise the unmount races and focus snaps to <body>.
+      const raf = requestAnimationFrame(() => {
+        headerRefs.current[prev]?.focus();
+      });
+      if (sceneId && onSceneClose) onSceneClose(sceneId);
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [expandedIndex, scenes, onSceneClose]);
 
   // Single push/pop tied to "is any scene expanded" so the browser back
   // button closes the open scene without inflating history. Putting this
@@ -127,11 +223,14 @@ export default function SceneBlockList({
               total={scenes.length}
               currentLevel={currentLevel}
               isExpanded={expandedIndex === i}
+              autoFollowed={expandedIndex === i && expandSource === 'auto'}
               onExpand={handleExpand}
               onCollapse={handleCollapse}
               vqaHistory={vqaHistories[scene.id] || []}
               awareness={awarenessData[scene.id]}
               accentColor={accentColor}
+              isRemoved={keptScenes[scene.id] === false}
+              headerRef={(el) => { headerRefs.current[i] = el; }}
             >
               {renderSceneActions && renderSceneActions({
                 scene,

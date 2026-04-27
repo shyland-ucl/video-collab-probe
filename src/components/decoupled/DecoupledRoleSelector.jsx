@@ -13,12 +13,12 @@ export default function DecoupledRoleSelector({
 }) {
   return (
     <div className="min-h-screen bg-white">
+      <ConditionHeader condition={condition} />
       <div className="max-w-lg mx-auto px-4">
         <OnboardingBrief
           pageTitle="Role Selection"
           description="Each person uses their own phone. Choose whether this device is for the creator or the helper. The creator has an audio and text interface optimised for screen readers. The helper has a visual interface with video editing tools. After both people select a role, the session will begin."
         />
-        <ConditionHeader condition={condition} />
         <h2 className="text-2xl font-bold text-center mt-6 mb-2" aria-hidden="true" style={{ color: COLORS.navy }}>
           Select Your Role
         </h2>
@@ -27,7 +27,7 @@ export default function DecoupledRoleSelector({
             onClick={() => onRoleSelect('creator')}
             className="flex-1 py-6 rounded-xl border-2 text-center transition-colors hover:shadow-lg focus:outline-2 focus:outline-offset-2"
             style={{ borderColor: COLORS.blue }}
-            aria-label="Select creator role"
+            aria-label="Select creator role — audio and text-optimised interface, primary playback control"
           >
             <div className="text-3xl mb-2" aria-hidden="true">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={COLORS.blue} strokeWidth="2" className="mx-auto">
@@ -44,7 +44,7 @@ export default function DecoupledRoleSelector({
             onClick={() => onRoleSelect('helper')}
             className="flex-1 py-6 rounded-xl border-2 text-center transition-colors hover:shadow-lg focus:outline-2 focus:outline-offset-2"
             style={{ borderColor: accentColor }}
-            aria-label="Select helper role"
+            aria-label="Select helper role — visual-optimised interface, can request control or work independently"
           >
             <div className="text-3xl mb-2" aria-hidden="true">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="2" className="mx-auto">

@@ -158,7 +158,11 @@ export default function VideoLibrary({
               } ${readOnly ? 'cursor-default' : ''}`}
               style={{ minHeight: '48px' }}
             >
-              <div className="flex items-start gap-3">
+              {/* Visual content only — the button's aria-label is the
+                  AT-facing label. Without aria-hidden here, TalkBack on
+                  Android surfaces the inner <h3> as a separately addressable
+                  heading and reads the title twice. */}
+              <div className="flex items-start gap-3" aria-hidden="true">
                 {/* Checkbox indicator */}
                 <div
                   className={`flex-shrink-0 w-6 h-6 mt-0.5 rounded border-2 flex items-center justify-center transition-colors ${

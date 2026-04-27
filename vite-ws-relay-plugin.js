@@ -115,10 +115,25 @@ export default function wsRelayPlugin() {
             return;
           }
 
-          // Creator/helper relay to each other (existing behavior)
+          // Participant → researcher (used by Probe 2a's AI-edit WoZ so the
+          // participant device can surface its request on a separate
+          // researcher device). Participants don't talk to creator/helper.
+          if (role === 'participant') {
+            if (researcher && researcher.readyState === 1) {
+              researcher.send(raw.toString());
+            }
+            return;
+          }
+
+          // Creator/helper relay to each other AND to researcher (so the
+          // dashboard can observe Ask-AI requests etc. without needing a
+          // separate ?mode=researcher tab on the probe page).
           const peer = role === 'creator' ? helper : creator;
-          if (peer && peer.readyState === 1) {
-            peer.send(raw.toString());
+          const targets = [peer, researcher].filter(
+            (t) => t && t.readyState === 1
+          );
+          for (const target of targets) {
+            target.send(raw.toString());
           }
         });
 
