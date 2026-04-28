@@ -7,13 +7,7 @@ import ttsService from '../../services/ttsService.js';
 import InlineVQAComposer from '../shared/InlineVQAComposer.jsx';
 import DetailLevelSelector from '../shared/DetailLevelSelector.jsx';
 import { playEarcon } from '../../utils/earcon.js';
-import {
-  splitClip,
-  moveClip,
-  addCaption,
-  getClipForScene,
-  getCaptionsForScene,
-} from '../../utils/sceneEditOps.js';
+import EditByMyselfPanel from './EditByMyselfPanel.jsx';
 
 export default function Probe2aSceneActions({
   scene,
@@ -151,7 +145,6 @@ export default function Probe2aSceneActions({
       <div>
         <button
           onClick={() => setShowAskAI(!showAskAI)}
-          aria-expanded={showAskAI}
           className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '48px' }}
         >
@@ -165,13 +158,12 @@ export default function Probe2aSceneActions({
         )}
       </div>
 
-      {/* Edit by myself */}
+      {/* Edit by myself — blue (creator/self), aligned with Probe 2b */}
       <div>
         <button
           onClick={() => setShowEditPanel(!showEditPanel)}
-          aria-expanded={showEditPanel}
-          className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '48px' }}
+          className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+          style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
         >
           {showEditPanel ? 'Hide Edit Options' : 'Edit by Myself'}
         </button>
@@ -192,13 +184,12 @@ export default function Probe2aSceneActions({
         )}
       </div>
 
-      {/* Ask AI to edit — toggle */}
+      {/* Ask AI to edit — amber (AI), aligned with Probe 2b */}
       <div>
         <button
           onClick={() => setShowAskAIEdit(!showAskAIEdit)}
-          aria-expanded={showAskAIEdit}
-          className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '48px' }}
+          className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+          style={{ backgroundColor: '#F0AD4E', minHeight: '48px' }}
         >
           {showAskAIEdit ? 'Close AI Edit' : 'Ask AI to Edit'}
         </button>
@@ -239,7 +230,6 @@ export default function Probe2aSceneActions({
       <div>
         <button
           onClick={() => setShowIntentLocker(!showIntentLocker)}
-          aria-expanded={showIntentLocker}
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: accentColor, minHeight: '48px' }}
         >
@@ -298,204 +288,4 @@ export default function Probe2aSceneActions({
   );
 }
 
-/**
- * EditByMyselfPanel — scene-block-scoped self-edit operations for BLV creators.
- *
- * The panel exposes Remove, Split, Move earlier/later, Add caption, and Undo.
- * Trim was dropped because it requires sub-second timeline precision that BLV
- * users can't get without visual scrubbing. Add note was dropped because in
- * 2a's solo edit mode no helper or researcher reads it. Redo was dropped
- * because real users who undo rarely redo. Split + Remove together cover the
- * trim case at scene-block granularity (split here, remove half).
- */
-function EditByMyselfPanel({
-  scene,
-  index,
-  currentTime,
-  editState,
-  onEditChange,
-  onEditSelf,
-  isKept,
-  onKeepDiscardClick,
-  onUndoEdit,
-  canUndoEdit,
-  logEvent,
-}) {
-  const [openSection, setOpenSection] = useState(null);
-  const [captionText, setCaptionText] = useState('');
-
-  const clip = getClipForScene(editState, scene.id);
-  const captions = getCaptionsForScene(editState, scene.id);
-  const editsAvailable = !!editState && !!clip && typeof onEditChange === 'function';
-  // After a Split, splitClip() inserts a new clip with id `${scene.id}-split-${ts}`.
-  const clipCountForScene = (editState?.clips || []).filter(
-    (c) => c.id === scene.id || (typeof c.id === 'string' && c.id.startsWith(`${scene.id}-split-`))
-  ).length || 1;
-
-  const apply = useCallback((mutator, eventName, payload) => {
-    if (!editsAvailable) return;
-    const next = mutator(editState);
-    if (next === editState) return;
-    onEditChange(next.clips, next.captions, next.sources, next.textOverlays);
-    if (logEvent) {
-      logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action: eventName, segmentId: scene.id, ...payload });
-    }
-    if (onEditSelf) onEditSelf(scene, eventName);
-  }, [editsAvailable, editState, onEditChange, logEvent, onEditSelf, scene]);
-
-  return (
-    <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
-      {/* Remove / Restore — top-level destructive action */}
-      <button
-        onClick={onKeepDiscardClick}
-        className={`w-full py-3 text-sm rounded font-medium transition-colors ${
-          isKept ? 'bg-red-100 text-red-800 hover:bg-red-200' : 'bg-green-100 text-green-800 hover:bg-green-200'
-        }`}
-        style={{ minHeight: '48px' }}
-        aria-label={isKept ? `Remove scene ${index + 1} from the edit` : `Restore scene ${index + 1} to the edit`}
-        aria-pressed={!isKept}
-      >
-        {isKept ? 'Remove this scene' : 'Removed — tap to restore'}
-      </button>
-
-      {!editsAvailable && (
-        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" role="status">
-          Editing tools become available once the project is loaded.
-        </p>
-      )}
-
-      <div role="group" aria-label={`Edit operations for scene ${index + 1}`} className="space-y-2">
-      {/* Split */}
-      <Section
-        label={`Split${clipCountForScene > 1 ? ` (${clipCountForScene} clips)` : ''}`}
-        open={openSection === 'split'}
-        onToggle={() => setOpenSection((v) => (v === 'split' ? null : 'split'))}
-        ariaPrefix="Split"
-      >
-        <p className="text-sm text-gray-600 mb-2">
-          Splits this scene into two clips at the current playback time, or at
-          the midpoint if the video isn't playing. Pair with Remove to drop
-          part of a scene.
-        </p>
-        <p
-          className="text-xs text-gray-500 mb-2"
-          data-clip-count-for={scene.id}
-          aria-label={`This scene currently has ${clipCountForScene} clip${clipCountForScene === 1 ? '' : 's'}.`}
-        >
-          This scene currently has {clipCountForScene} clip{clipCountForScene === 1 ? '' : 's'}.
-        </p>
-        <button
-          onClick={() => {
-            const at = (clip && currentTime > clip.startTime && currentTime < clip.endTime) ? currentTime : null;
-            apply((s) => splitClip(s, scene.id, at), 'split', { splitAt: at ?? 'midpoint' });
-            announce(`Scene ${index + 1} split into two clips.`);
-          }}
-          disabled={!editsAvailable}
-          className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '44px' }}
-        >
-          Split here
-        </button>
-      </Section>
-
-      {/* Move */}
-      <Section
-        label="Move"
-        open={openSection === 'move'}
-        onToggle={() => setOpenSection((v) => (v === 'move' ? null : 'move'))}
-        ariaPrefix="Move"
-      >
-        <p className="text-sm text-gray-600 mb-2">Reorder this clip in the timeline.</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => { apply((s) => moveClip(s, scene.id, 'up'), 'move_earlier', {}); announce(`Scene ${index + 1} moved earlier.`); }}
-            disabled={!editsAvailable || index === 0}
-            className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-            style={{ minHeight: '44px' }}
-            aria-label={`Move scene ${index + 1} earlier`}
-          >
-            Move earlier
-          </button>
-          <button
-            onClick={() => { apply((s) => moveClip(s, scene.id, 'down'), 'move_later', {}); announce(`Scene ${index + 1} moved later.`); }}
-            disabled={!editsAvailable}
-            className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-            style={{ minHeight: '44px' }}
-            aria-label={`Move scene ${index + 1} later`}
-          >
-            Move later
-          </button>
-        </div>
-      </Section>
-
-      {/* Add Caption */}
-      <Section
-        label={`Add caption${captions.length ? ` (${captions.length})` : ''}`}
-        open={openSection === 'caption'}
-        onToggle={() => setOpenSection((v) => (v === 'caption' ? null : 'caption'))}
-        ariaPrefix="Add caption"
-      >
-        {captions.length > 0 && (
-          <ul className="mb-2 text-sm text-gray-700 space-y-1" aria-label={`Existing captions on scene ${index + 1}`}>
-            {captions.map((c) => (
-              <li key={c.id} className="bg-white border border-gray-200 rounded px-2 py-1">{c.text}</li>
-            ))}
-          </ul>
-        )}
-        <label htmlFor={`caption-input-${scene.id}`} className="sr-only">Caption text</label>
-        <textarea
-          id={`caption-input-${scene.id}`}
-          value={captionText}
-          onChange={(e) => setCaptionText(e.target.value)}
-          rows={2}
-          placeholder="Caption text"
-          className="w-full px-3 py-2 text-base border border-gray-300 rounded focus:outline-2 focus:outline-blue-500"
-        />
-        <button
-          onClick={() => {
-            apply((s) => addCaption(s, scene.id, captionText), 'add_caption', { text: captionText.trim() });
-            announce(`Caption added to scene ${index + 1}.`);
-            setCaptionText('');
-          }}
-          disabled={!editsAvailable || !captionText.trim()}
-          className="w-full mt-2 py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '44px' }}
-        >
-          Add caption
-        </button>
-      </Section>
-      </div>
-
-      {/* Undo — single safety net for the most recent edit op */}
-      <button
-        onClick={() => {
-          if (typeof onUndoEdit === 'function') onUndoEdit();
-        }}
-        disabled={!canUndoEdit}
-        className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-        style={{ minHeight: '44px' }}
-        aria-label="Undo last edit"
-      >
-        Undo last edit
-      </button>
-    </div>
-  );
-}
-
-function Section({ label, open, onToggle, ariaPrefix, children }) {
-  return (
-    <div className="border border-gray-200 rounded-md bg-white overflow-hidden">
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={`${ariaPrefix}, ${open ? 'collapse' : 'expand'} controls`}
-        className="w-full px-3 py-2 text-left text-sm font-medium text-gray-800 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-        style={{ minHeight: '44px' }}
-      >
-        {open ? '▾' : '▸'} {label}
-      </button>
-      {open && <div className="px-3 py-2 border-t border-gray-200">{children}</div>}
-    </div>
-  );
-}
 

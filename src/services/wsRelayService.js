@@ -106,12 +106,14 @@ class WsRelayService {
   }
 
   disconnect() {
+    // Close the socket but DO NOT clear callbacks. Each subscriber is
+    // responsible for its own cleanup via the unsub function returned by
+    // onData/onConnected/onDisconnected. Persistent listeners (e.g. the
+    // event-broadcast wiring inside EventLoggerProvider) need to survive
+    // page transitions where one page disconnects and the next reconnects.
     this.ws?.close();
     this.ws = null;
     this.isPeerConnected = false;
-    this.onDataCallbacks = [];
-    this.onConnectedCallbacks = [];
-    this.onDisconnectedCallbacks = [];
   }
 }
 

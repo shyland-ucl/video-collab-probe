@@ -25,7 +25,6 @@ import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.js
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
 import DecoupledHelperDevice from '../components/decoupled/DecoupledHelperDevice.jsx';
-import ControlLockBanner from '../components/decoupled/ControlLockBanner.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -72,11 +71,10 @@ export default function Probe2bPage() {
   const [keptScenes, setKeptScenes] = useState({});
   const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
   const [pipelineVideos, setPipelineVideos] = useState([]);
-  // M6 fix: explicit control state. Default 'creator' because the creator
-  // imports the project. Either side can take control; only the owner's
-  // edits propagate over the WS relay (handleEditChange short-circuits when
-  // the local role is not the owner).
-  const [controlOwner, setControlOwner] = useState('creator');
+  // Bounded history for the creator's "Edit by Myself" undo. Capped at 20.
+  // Pushed only by local edits (handleEditChange); peer edits arriving over
+  // the WS relay don't push, so undo never reverts the helper's changes.
+  const [editHistory, setEditHistory] = useState([]);
   const { audioEnabled, speechRate } = useAccessibility();
 
   useEffect(() => {
@@ -135,6 +133,32 @@ export default function Probe2bPage() {
   const segments = useMemo(() => buildAllSegments(projectData), [projectData]);
   const videoDuration = useMemo(() => getTotalDuration(projectData), [projectData]);
   const initialSources = useMemo(() => buildInitialSources(projectData), [projectData]);
+
+  // Derive the visible scene order from editState.clips so the creator's
+  // scene block list reflects the helper's deletes/reorders/splits in real
+  // time. Without this, the creator only saw the original `segments` list
+  // and helper edits looked invisible. Same approach as Probe 2a.
+  const sceneIdToSegment = useMemo(() => {
+    const m = new Map();
+    for (const s of segments) m.set(s.id, s);
+    return m;
+  }, [segments]);
+
+  const orderedScenes = useMemo(() => {
+    if (!editState?.clips || editState.clips.length === 0) return segments;
+    const seen = new Set();
+    const out = [];
+    for (const clip of editState.clips) {
+      const baseId = typeof clip.id === 'string' && clip.id.includes('-split-')
+        ? clip.id.slice(0, clip.id.lastIndexOf('-split-'))
+        : clip.id;
+      const seg = sceneIdToSegment.get(baseId);
+      if (!seg || seen.has(seg.id)) continue;
+      seen.add(seg.id);
+      out.push(seg);
+    }
+    return out.length > 0 ? out : segments;
+  }, [editState, segments, sceneIdToSegment]);
   // Filter the playback EDL by Removed scenes, and derive a CSS filter from
   // the helper's colour sliders. Only used for VideoPlayer — the timeline
   // editor still sees the full editState so the helper can see what was cut.
@@ -142,7 +166,16 @@ export default function Probe2bPage() {
   const videoFilter = useMemo(() => colourValuesToFilter(colourValues), [colourValues]);
   const handleColourAdjust = useCallback((property, value) => {
     setColourValues((prev) => ({ ...prev, [property]: value }));
-  }, []);
+    // Broadcast so the peer's VideoPlayer applies the same CSS filter live.
+    // Without this, helper's brightness/contrast/saturation only affect the
+    // helper's preview and the creator's video stays untouched.
+    wsRelayService.sendData({
+      type: 'COLOUR_UPDATE',
+      property,
+      value,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role]);
 
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
@@ -178,7 +211,17 @@ export default function Probe2bPage() {
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
-  const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
+  // Broadcast SEEK so the peer's player follows. Used both when creator
+  // expands a scene block (SceneBlockList calls onSeek with scene.start_time)
+  // and when "Play from here" runs (onSeek then onPlay).
+  const handleSeek = useCallback((time) => {
+    playerRef.current?.seek(time);
+    wsRelayService.sendData({
+      type: 'SEEK',
+      time,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role]);
   const handleQuestion = useCallback((question) => setPendingQuestion(question), []);
 
   // Library selection sync
@@ -250,26 +293,23 @@ export default function Probe2bPage() {
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
 
-  // M14 + M6: prefer summarizeEditStateChange for awareness messages (M14),
-  // and refuse to broadcast EDIT_STATE_UPDATE when this side is not the
-  // current control owner (M6). The non-owner sees an announcement
-  // explaining why the edit was suppressed; the local UI also doesn't
-  // update, so the user can immediately retry by taking control first.
+  // Both creator and helper edit freely; whichever side commits last wins.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
-    if (role && controlOwner !== role) {
-      announce(
-        `You don't have control of the edits right now. Tap Take control to start editing.`
-      );
-      return;
-    }
+    const prev = editStateRef.current;
     const newState = {
       clips,
       captions,
       sources,
-      textOverlays: textOverlays ?? editStateRef.current?.textOverlays ?? [],
+      textOverlays: textOverlays ?? prev?.textOverlays ?? [],
     };
+    if (prev) {
+      setEditHistory((h) => {
+        const next = [...h, prev];
+        return next.length > 20 ? next.slice(next.length - 20) : next;
+      });
+    }
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
-    const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
+    const changeSummary = summarizeEditStateChange(prev, newState, actorLabel);
     setEditState(newState);
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
@@ -278,22 +318,26 @@ export default function Probe2bPage() {
       changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role, controlOwner]);
+  }, [role]);
 
-  // M6: when this side takes control, broadcast it so the peer's banner
-  // updates and their handleEditChange starts refusing.
-  const handleTakeControl = useCallback(() => {
-    if (!role) return;
-    if (controlOwner === role) return;
-    setControlOwner(role);
-    wsRelayService.sendData({
-      type: 'CONTROL_TAKEN',
-      newOwner: role,
-      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+  const handleUndoEdit = useCallback(() => {
+    setEditHistory((h) => {
+      if (h.length === 0) return h;
+      const prev = h[h.length - 1];
+      setEditState(prev);
+      // Broadcast the restored state so the peer's editor reflects the undo.
+      wsRelayService.sendData({
+        type: 'EDIT_STATE_UPDATE',
+        editState: prev,
+        action: 'undo',
+        changeSummary: { announcement: 'Edit undone.', shortText: 'Undo' },
+        actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+      });
+      logEvent(EventTypes.EDIT_ACTION, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { action: 'undo' });
+      announce('Undid last edit.');
+      return h.slice(0, -1);
     });
-    logEvent(EventTypes.CONTROL_TAKEN, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { newOwner: role });
-    announce('You now have control of the edits.');
-  }, [role, controlOwner, logEvent]);
+  }, [role, logEvent]);
 
   // Task routing callbacks
   const handleHelperTaskStatus = useCallback((taskId, status) => {
@@ -375,15 +419,6 @@ export default function Probe2bPage() {
         case 'PROJECT_CREATED':
           setSelectedVideos(msg.videoIds);
           break;
-        case 'CONTROL_TAKEN':
-          if (msg.newOwner && msg.newOwner !== currentRole) {
-            setControlOwner(msg.newOwner);
-            announce(`${msg.newOwner.charAt(0).toUpperCase() + msg.newOwner.slice(1)} now has control of the edits.`);
-          } else if (msg.newOwner) {
-            // Echo of our own take — already applied locally, but keep state consistent.
-            setControlOwner(msg.newOwner);
-          }
-          break;
         case 'TASK_TO_HELPER': {
           const item = {
             id: msg.taskId || `task-${Date.now()}`,
@@ -456,6 +491,18 @@ export default function Probe2bPage() {
               operation: msg.responseType || 'researcher_response',
             });
             aiEditResolverRef.current = null;
+          }
+          break;
+        }
+        case 'COLOUR_UPDATE': {
+          // Mirror peer's colour slider movement onto our local CSS filter,
+          // and announce so a BLV creator hears that something changed (the
+          // CSS filter at small step sizes is too subtle to detect visually
+          // alone, and there's no slider on the creator's screen to flip).
+          if (typeof msg.property === 'string' && typeof msg.value === 'number') {
+            setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
+            const peer = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
+            announce(`${peer} set ${msg.property} to ${msg.value}.`);
           }
           break;
         }
@@ -707,12 +754,6 @@ export default function Probe2bPage() {
             pageTitle="Probe 2b: Two Devices — Creator"
             description="You and your helper each have a phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you can edit by yourself, ask AI to edit, or send a task to your helper's device without handing over. Activity indicators show what your helper is working on. All changes sync between phones automatically."
           />
-          <ControlLockBanner
-            role={role}
-            controlOwner={controlOwner}
-            onTakeControl={handleTakeControl}
-            accentColor={COLORS.green}
-          />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
@@ -725,7 +766,7 @@ export default function Probe2bPage() {
             />
           </div>
           <SceneBlockList
-            scenes={segments}
+            scenes={orderedScenes}
             playerRef={playerRef}
             currentTime={currentTime}
             isPlaying={isPlaying}
@@ -790,8 +831,6 @@ export default function Probe2bPage() {
                     text: task.instruction,
                     segment: task.segmentName,
                     segmentId: task.segmentId,
-                    category: task.category,
-                    priority: task.priority,
                     actor: 'CREATOR',
                   });
                 }}
@@ -800,18 +839,16 @@ export default function Probe2bPage() {
                 onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
                 helperName="helper"
                 accentColor={COLORS.green}
+                editState={editState}
+                onEditChange={handleEditChange}
+                onUndoEdit={handleUndoEdit}
+                canUndoEdit={editHistory.length > 0}
               />
             )}
           />
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto">
-          <ControlLockBanner
-            role={role}
-            controlOwner={controlOwner}
-            onTakeControl={handleTakeControl}
-            accentColor={COLORS.green}
-          />
           <DecoupledHelperDevice
             condition="probe2b"
             accentColor={COLORS.green}

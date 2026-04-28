@@ -8,7 +8,6 @@ import TransportControls from '../shared/TransportControls.jsx';
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import MockColourControls from '../shared/MockColourControls.jsx';
-import MockFramingControls from '../shared/MockFramingControls.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
 import useTextOverlay from '../../hooks/useTextOverlay.js';
@@ -143,6 +142,7 @@ export default function HelperMode({
               onSegmentChange={onSegmentChange}
               editState={playbackEditState || editState}
               videoFilter={videoFilter}
+              actor={Actors.HELPER}
             />
             {textOverlays.map(overlay => (
               <TextOverlay
@@ -169,6 +169,7 @@ export default function HelperMode({
             onTextTool={handleTextTool}
             textToolActive={textToolActive}
             clipPerSource
+            actor={Actors.HELPER}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
@@ -196,7 +197,6 @@ export default function HelperMode({
         </div>
         <div className="p-4 bg-white space-y-4">
           <MockColourControls values={colourValues} onAdjust={onColourAdjust} />
-          <MockFramingControls />
         </div>
       </div>
 

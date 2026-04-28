@@ -54,7 +54,7 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onD
           className="w-full py-2 text-sm font-medium rounded bg-orange-100 text-orange-800 hover:bg-orange-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '44px' }}
         >
-          Send to {helperName}
+          Ask {helperName} to fix
         </button>
         <button
           onClick={() => onDismiss(suggestion)}

@@ -4,7 +4,7 @@ import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import usePlaybackEngine from '../../hooks/usePlaybackEngine.js';
 
-const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter }, ref) {
+const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter, actor = Actors.CREATOR }, ref) {
   const singleVideoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -114,10 +114,10 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
     seek(time) {
       if (isEngineActive) {
         engine.seekEdl(time);
-        logEvent(EventTypes.SEEK, Actors.CREATOR, { time, edl: true });
+        logEvent(EventTypes.SEEK, actor, { time, edl: true });
       } else if (singleVideoRef.current) {
         singleVideoRef.current.currentTime = time;
-        logEvent(EventTypes.SEEK, Actors.CREATOR, { time });
+        logEvent(EventTypes.SEEK, actor, { time });
       }
     },
     getCurrentTime() {
@@ -142,17 +142,17 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
     get edlDuration() {
       return isEngineActive ? engine.totalDuration : null;
     },
-  }), [logEvent, isEngineActive, engine, hasMultiSource, videoRefs]);
+  }), [logEvent, isEngineActive, engine, hasMultiSource, videoRefs, actor]);
 
   const handlePlay = useCallback(() => {
     setIsPlaying(true);
-    logEvent(EventTypes.PLAY, Actors.CREATOR, { time: singleVideoRef.current?.currentTime });
-  }, [logEvent]);
+    logEvent(EventTypes.PLAY, actor, { time: singleVideoRef.current?.currentTime });
+  }, [logEvent, actor]);
 
   const handlePause = useCallback(() => {
     setIsPlaying(false);
-    logEvent(EventTypes.PAUSE, Actors.CREATOR, { time: singleVideoRef.current?.currentTime });
-  }, [logEvent]);
+    logEvent(EventTypes.PAUSE, actor, { time: singleVideoRef.current?.currentTime });
+  }, [logEvent, actor]);
 
   const handleLoadedMetadata = useCallback(() => {
     if (singleVideoRef.current) {

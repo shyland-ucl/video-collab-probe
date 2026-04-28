@@ -177,6 +177,18 @@ export default function SceneBlockList({
     }
   }, [expandedIndex, scenes, onSceneClose]);
 
+  // If the currently-expanded scene gets removed (keptScenes[id] === false),
+  // collapse it so the actions region doesn't linger as a stranded panel.
+  // Without this, the user marks Remove → block disappears from the list →
+  // expanded actions region is still mounted but now belongs to nothing.
+  useEffect(() => {
+    if (expandedIndex === null) return;
+    const scene = scenes[expandedIndex];
+    if (scene && keptScenes[scene.id] === false) {
+      setExpandedIndex(null);
+    }
+  }, [keptScenes, expandedIndex, scenes]);
+
   // Single push/pop tied to "is any scene expanded" so the browser back
   // button closes the open scene without inflating history. Putting this
   // here instead of in each SceneBlock avoids the auto-follow regression
@@ -213,41 +225,50 @@ export default function SceneBlockList({
       <div
         className="flex-1 overflow-y-auto px-3 py-3 space-y-2"
         role="list"
-        aria-label={`${scenes.length} scenes`}
+        aria-label={`${scenes.filter((s) => keptScenes[s.id] !== false).length} scenes`}
       >
-        {scenes.map((scene, i) => (
-          <div key={scene.id || i} role="listitem">
-            <SceneBlock
-              scene={scene}
-              index={i}
-              total={scenes.length}
-              currentLevel={currentLevel}
-              isExpanded={expandedIndex === i}
-              autoFollowed={expandedIndex === i && expandSource === 'auto'}
-              onExpand={handleExpand}
-              onCollapse={handleCollapse}
-              vqaHistory={vqaHistories[scene.id] || []}
-              awareness={awarenessData[scene.id]}
-              accentColor={accentColor}
-              isRemoved={keptScenes[scene.id] === false}
-              headerRef={(el) => { headerRefs.current[i] = el; }}
-            >
-              {renderSceneActions && renderSceneActions({
-                scene,
-                index: i,
-                currentLevel,
-                onLevelChange: handleLevelChange,
-                isExpanded: expandedIndex === i,
-                playerRef,
-                currentTime,
-                isPlaying,
-                onSeek,
-                onPlay,
-                onPause,
-              })}
-            </SceneBlock>
-          </div>
-        ))}
+        {scenes.map((scene, i) => {
+          // Removed scenes are dropped from the rendered list entirely so
+          // they don't take screen-reader focus or visual space. Restoration
+          // happens via the Edit-by-Myself panel's Undo button (the most
+          // recent Remove). Auto-follow still uses the original `scenes`
+          // array, but playbackEditState already filters removed clips so
+          // the engine never lands on a removed scene's time range.
+          if (keptScenes[scene.id] === false) return null;
+          return (
+            <div key={scene.id || i} role="listitem">
+              <SceneBlock
+                scene={scene}
+                index={i}
+                total={scenes.length}
+                currentLevel={currentLevel}
+                isExpanded={expandedIndex === i}
+                autoFollowed={expandedIndex === i && expandSource === 'auto'}
+                onExpand={handleExpand}
+                onCollapse={handleCollapse}
+                vqaHistory={vqaHistories[scene.id] || []}
+                awareness={awarenessData[scene.id]}
+                accentColor={accentColor}
+                isRemoved={false}
+                headerRef={(el) => { headerRefs.current[i] = el; }}
+              >
+                {renderSceneActions && renderSceneActions({
+                  scene,
+                  index: i,
+                  currentLevel,
+                  onLevelChange: handleLevelChange,
+                  isExpanded: expandedIndex === i,
+                  playerRef,
+                  currentTime,
+                  isPlaying,
+                  onSeek,
+                  onPlay,
+                  onPause,
+                })}
+              </SceneBlock>
+            </div>
+          );
+        })}
         {scenes.length === 0 && (
           <p className="text-center text-gray-400 py-8 text-sm">No scenes loaded.</p>
         )}

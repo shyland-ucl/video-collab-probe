@@ -86,7 +86,6 @@ export default function Probe1SceneActions({
       <div>
         <button
           onClick={() => setShowAskAI(!showAskAI)}
-          aria-expanded={showAskAI}
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: accentColor, minHeight: '48px' }}
         >

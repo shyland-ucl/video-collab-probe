@@ -1,19 +1,22 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import useSpeechRecognition from '../../hooks/useSpeechRecognition.js';
 import { announce } from '../../utils/announcer.js';
-
-const TASK_CATEGORIES = ['Trim', 'Colour', 'Framing', 'Audio', 'Caption', 'General Review'];
-const PRIORITIES = ['Must Do', 'Nice to Have', 'Just Check'];
 
 export default function TaskRouterPanel({
   onSubmit,
   submitLabel = 'Send',
   accentColor = '#5CB85C',
-  idPrefix = 'task',
 }) {
   const [taskText, setTaskText] = useState('');
-  const [category, setCategory] = useState('General Review');
-  const [priority, setPriority] = useState('Must Do');
+  const voiceButtonRef = useRef(null);
+
+  // Land focus on the voice-input button as soon as the panel opens — for a
+  // BLV creator the fastest path is "tap, speak", and the voice button is
+  // the implicit next action. The text input is one Tab away if they prefer
+  // typing.
+  useEffect(() => {
+    voiceButtonRef.current?.focus();
+  }, []);
 
   const { isListening, toggleListening } = useSpeechRecognition({
     onResult: (transcript) => setTaskText(transcript),
@@ -25,7 +28,7 @@ export default function TaskRouterPanel({
       announce('Please describe the task.');
       return;
     }
-    onSubmit({ instruction: taskText, category, priority });
+    onSubmit({ instruction: taskText });
     setTaskText('');
   };
 
@@ -33,10 +36,12 @@ export default function TaskRouterPanel({
     <div className="mt-2 p-3 bg-green-50 rounded-lg border border-green-200 space-y-3">
       <div className="flex gap-2">
         <button
+          ref={voiceButtonRef}
           onClick={toggleListening}
-          aria-label={isListening ? 'Stop listening' : 'Voice input'}
-          className={`flex items-center justify-center rounded ${
-            isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600'
+          aria-label={isListening ? 'Stop listening' : 'Voice input — speak your instruction'}
+          aria-pressed={isListening}
+          className={`flex items-center justify-center rounded transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+            isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
           style={{ minHeight: '44px', minWidth: '44px' }}
         >
@@ -55,42 +60,6 @@ export default function TaskRouterPanel({
           style={{ minHeight: '44px' }}
           aria-label="Task instruction"
         />
-      </div>
-      <div>
-        <span className="text-xs font-medium text-gray-600 block mb-1" id={`${idPrefix}-cat`}>Category</span>
-        <div className="flex flex-wrap gap-1" role="group" aria-labelledby={`${idPrefix}-cat`}>
-          {TASK_CATEGORIES.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setCategory(cat)}
-              aria-pressed={category === cat}
-              className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
-                category === cat ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              style={{ minHeight: '36px' }}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <span className="text-xs font-medium text-gray-600 block mb-1" id={`${idPrefix}-pri`}>Priority</span>
-        <div className="flex gap-1" role="group" aria-labelledby={`${idPrefix}-pri`}>
-          {PRIORITIES.map((p) => (
-            <button
-              key={p}
-              onClick={() => setPriority(p)}
-              aria-pressed={priority === p}
-              className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
-                priority === p ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-              style={{ minHeight: '36px' }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
       </div>
       <button
         onClick={handleSubmit}

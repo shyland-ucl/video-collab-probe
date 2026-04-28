@@ -4,7 +4,6 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { serialiseProjectState } from '../utils/projectState.js';
 import { wsRelayService } from '../services/wsRelayService.js';
-import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
@@ -61,15 +60,24 @@ function formatWallClock(unixMs) {
 }
 
 export default function ResearcherPage() {
-  const { events, currentCondition, sessionStart, logEvent, setCondition, clearEvents } = useEventLogger();
+  const {
+    events,
+    currentCondition,
+    sessionStart,
+    logEvent,
+    setCondition,
+    clearEvents,
+    ingestRemoteEvent,
+    ingestEventBacklog,
+  } = useEventLogger();
 
   const [elapsed, setElapsed] = useState(0);
   const [sessionActive, setSessionActive] = useState(false);
   const [selectedTab, setSelectedTab] = useState('materials');
 
-  // Probe 1 state
+  // Probe 1 state — Probe 1 is fully Gemini-driven now; the dashboard
+  // only logs the helper fallback (when the creator turns to the helper).
   const [data, setData] = useState(null);
-  const [currentSegment, setCurrentSegment] = useState(null);
   const [helperFallbackNote, setHelperFallbackNote] = useState('');
 
   // Probe 2a state
@@ -122,16 +130,20 @@ export default function ResearcherPage() {
 
   // Connect as researcher to WS relay for navigation control + WoZ.
   // Also fire a REQUEST_EDIT_STATE so the participant device replies with its
-  // current editState, in case the dashboard opens after the session starts.
+  // current editState, in case the dashboard opens after the session starts,
+  // and a REQUEST_EVENT_BACKLOG so we get every interaction logged so far on
+  // the participant device(s).
   useEffect(() => {
     wsRelayService.connect('researcher');
     const sub = wsRelayService.onConnected(() => {
       wsRelayService.sendData({ type: 'REQUEST_EDIT_STATE', actor: 'RESEARCHER' });
+      wsRelayService.sendData({ type: 'REQUEST_EVENT_BACKLOG', actor: 'RESEARCHER' });
     });
-    // Also send a request shortly after mount in case the socket is already
-    // open (onConnected fires only on the connect event, not on join).
+    // Also send shortly after mount in case the socket is already open
+    // (onConnected only fires on the connect event, not on join).
     const timer = setTimeout(() => {
       wsRelayService.sendData({ type: 'REQUEST_EDIT_STATE', actor: 'RESEARCHER' });
+      wsRelayService.sendData({ type: 'REQUEST_EVENT_BACKLOG', actor: 'RESEARCHER' });
     }, 500);
     return () => {
       clearTimeout(timer);
@@ -144,7 +156,9 @@ export default function ResearcherPage() {
   // Looks up the segment by id from the loaded descriptions data so the
   // panel can show the project's prepared canned responses.
   // Also mirrors the participant's editState so the researcher can edit
-  // alongside the helper.
+  // alongside the helper, and ingests live event broadcasts + backlog
+  // replies so the dashboard's event log mirrors every interaction across
+  // participant devices.
   useEffect(() => {
     const unsub = wsRelayService.onData((msg) => {
       if (!msg || typeof msg !== 'object') return;
@@ -165,9 +179,17 @@ export default function ResearcherPage() {
         setMirrorEditState(msg.editState);
         return;
       }
+      if (msg.type === 'EVENT_LOG' && msg.event) {
+        ingestRemoteEvent(msg.event);
+        return;
+      }
+      if (msg.type === 'EVENT_BACKLOG' && Array.isArray(msg.events)) {
+        ingestEventBacklog(msg.events);
+        return;
+      }
     });
     return unsub;
-  }, [data]);
+  }, [data, ingestRemoteEvent, ingestEventBacklog]);
 
   const handleDashboardEditChange = useCallback((clips, captions, sources, textOverlays) => {
     const previous = mirrorEditStateRef.current;
@@ -284,11 +306,10 @@ export default function ResearcherPage() {
   // Probe 1: Helper fallback
   const handleHelperFallback = useCallback(() => {
     logEvent(EventTypes.HELPER_FALLBACK, Actors.RESEARCHER, {
-      currentScene: currentSegment?.id || null,
       note: helperFallbackNote.trim() || null,
     });
     setHelperFallbackNote('');
-  }, [logEvent, currentSegment, helperFallbackNote]);
+  }, [logEvent, helperFallbackNote]);
 
   // Probe 2a: suggestion handler
   const handleTriggerSuggestion = useCallback((text) => {
@@ -367,9 +388,6 @@ export default function ResearcherPage() {
     wsRelayService.sendData({ type: 'NAVIGATE', path });
   }, []);
 
-  const segments = data?.video?.segments || [];
-  const handleSegmentSelect = useCallback((seg) => setCurrentSegment(seg), []);
-
   // Reusable Researcher Editor panel — rendered inside each relevant probe
   // tab (2a, 2b, 3). One instance, switched in/out by the active tab so the
   // researcher only sees it when on a probe that uses the editor.
@@ -393,6 +411,7 @@ export default function ResearcherPage() {
               src={mirrorEditState?.sources?.[0]?.src || null}
               editState={mirrorEditState}
               onTimeUpdate={setDashboardCurrentTime}
+              actor={Actors.RESEARCHER}
             />
           </div>
           <MockEditorVisual
@@ -402,6 +421,7 @@ export default function ResearcherPage() {
             segments={[]}
             currentTime={dashboardCurrentTime}
             onSeek={(t) => dashboardPlayerRef.current?.seek?.(t)}
+            actor={Actors.RESEARCHER}
           />
         </div>
       ) : (
@@ -526,31 +546,14 @@ export default function ResearcherPage() {
                   <ResearcherMaterialsPanel />
                 )}
 
-                {/* Probe 1 tab */}
+                {/* Probe 1 tab — Gemini handles all VQA on the participant
+                    device. The dashboard only logs helper fallbacks. */}
                 {selectedTab === 'probe1' && (
                   <div className="space-y-4">
-                    {segments.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Current Segment</p>
-                        <div className="flex flex-wrap gap-1">
-                          {segments.map((seg) => (
-                            <button
-                              key={seg.id}
-                              onClick={() => handleSegmentSelect(seg)}
-                              className={[
-                                'px-3 py-1.5 rounded text-xs font-medium border transition-colors',
-                                'focus:outline-2 focus:outline-offset-1 focus:outline-blue-500',
-                                currentSegment?.id === seg.id ? 'bg-blue-100 border-blue-400 text-blue-800' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50',
-                              ].join(' ')}
-                              aria-pressed={currentSegment?.id === seg.id}
-                            >
-                              {seg.label || seg.id}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <ResearcherVQAPanel segment={currentSegment} pendingQuestion={null} />
+                    <p className="text-xs text-gray-500">
+                      Probe 1 visual Q&A is answered by Gemini on the participant's device. Use the
+                      Live Event Log below to follow VQA questions and answers as they happen.
+                    </p>
 
                     {/* Helper Fallback Logger */}
                     <div className="border-2 rounded-lg p-4 shadow-sm" style={{ borderColor: '#D9534F', backgroundColor: '#FEF2F2' }}>

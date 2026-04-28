@@ -25,7 +25,6 @@ import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.js
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
 import DecoupledRoleSelector from '../components/decoupled/DecoupledRoleSelector.jsx';
 import DecoupledWaitingScreen from '../components/decoupled/DecoupledWaitingScreen.jsx';
-import ControlLockBanner from '../components/decoupled/ControlLockBanner.jsx';
 
 const COLORS = {
   navy: '#1F3864',
@@ -69,8 +68,6 @@ export default function Probe3Page() {
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
   const [pipelineVideos, setPipelineVideos] = useState([]);
-  // M6: see Probe2bPage for rationale.
-  const [controlOwner, setControlOwner] = useState('creator');
   const { audioEnabled, speechRate } = useAccessibility();
 
   // Suggestion system state
@@ -142,6 +139,30 @@ export default function Probe3Page() {
   // skips scenes the participant has marked for removal.
   const playbackEditState = useMemo(() => filterClipsByKept(editState, keptScenes), [editState, keptScenes]);
 
+  // Same orderedScenes derivation as Probe 2a/2b — keeps the creator's scene
+  // block list in sync with the helper's edits (deletes, reorders, splits).
+  const sceneIdToSegment = useMemo(() => {
+    const m = new Map();
+    for (const s of segments) m.set(s.id, s);
+    return m;
+  }, [segments]);
+
+  const orderedScenes = useMemo(() => {
+    if (!editState?.clips || editState.clips.length === 0) return segments;
+    const seen = new Set();
+    const out = [];
+    for (const clip of editState.clips) {
+      const baseId = typeof clip.id === 'string' && clip.id.includes('-split-')
+        ? clip.id.slice(0, clip.id.lastIndexOf('-split-'))
+        : clip.id;
+      const seg = sceneIdToSegment.get(baseId);
+      if (!seg || seen.has(seg.id)) continue;
+      seen.add(seg.id);
+      out.push(seg);
+    }
+    return out.length > 0 ? out : segments;
+  }, [editState, segments, sceneIdToSegment]);
+
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
 
@@ -173,7 +194,14 @@ export default function Probe3Page() {
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
-  const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
+  const handleSeek = useCallback((time) => {
+    playerRef.current?.seek(time);
+    wsRelayService.sendData({
+      type: 'SEEK',
+      time,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role]);
   const handleQuestion = useCallback((question) => setPendingQuestion(question), []);
 
   const handleSelectionChange = useCallback((videoId, isSelected) => {
@@ -230,14 +258,8 @@ export default function Probe3Page() {
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
 
-  // M14 + M6: see Probe2bPage.jsx for rationale.
+  // Both creator and helper edit freely; see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
-    if (role && controlOwner !== role) {
-      announce(
-        `You don't have control of the edits right now. Tap Take control to start editing.`
-      );
-      return;
-    }
     const newState = {
       clips,
       captions,
@@ -254,20 +276,7 @@ export default function Probe3Page() {
       changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role, controlOwner]);
-
-  const handleTakeControl = useCallback(() => {
-    if (!role) return;
-    if (controlOwner === role) return;
-    setControlOwner(role);
-    wsRelayService.sendData({
-      type: 'CONTROL_TAKEN',
-      newOwner: role,
-      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
-    });
-    logEvent(EventTypes.CONTROL_TAKEN, role === 'creator' ? Actors.CREATOR : Actors.HELPER, { newOwner: role });
-    announce('You now have control of the edits.');
-  }, [role, controlOwner, logEvent]);
+  }, [role]);
 
   const handleHelperTaskStatus = useCallback((taskId, status) => {
     setFeedItems((prev) => prev.map((item) => item.id === taskId ? { ...item, status } : item));
@@ -447,14 +456,6 @@ export default function Probe3Page() {
           break;
         case 'PROJECT_CREATED':
           setSelectedVideos(msg.videoIds);
-          break;
-        case 'CONTROL_TAKEN':
-          if (msg.newOwner) {
-            setControlOwner(msg.newOwner);
-            if (msg.newOwner !== currentRole) {
-              announce(`${msg.newOwner.charAt(0).toUpperCase() + msg.newOwner.slice(1)} now has control of the edits.`);
-            }
-          }
           break;
         case 'TASK_TO_HELPER': {
           const item = {
@@ -820,12 +821,6 @@ export default function Probe3Page() {
             pageTitle="Probe 3: Proactive AI — Creator"
             description="This works like the previous two-phone setup, but now AI will suggest improvements inside relevant scenes as you edit. When a suggestion appears, you must choose who handles it: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
           />
-          <ControlLockBanner
-            role={role}
-            controlOwner={controlOwner}
-            onTakeControl={handleTakeControl}
-            accentColor={COLORS.purple}
-          />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
               ref={playerRef}
@@ -837,7 +832,7 @@ export default function Probe3Page() {
             />
           </div>
           <SceneBlockList
-            scenes={segments}
+            scenes={orderedScenes}
             playerRef={playerRef}
             currentTime={currentTime}
             isPlaying={isPlaying}
@@ -927,8 +922,6 @@ export default function Probe3Page() {
                     text: task.instruction,
                     segment: task.segmentName,
                     segmentId: task.segmentId,
-                    category: task.category,
-                    priority: task.priority,
                     actor: 'CREATOR',
                   });
                 }}
@@ -942,12 +935,6 @@ export default function Probe3Page() {
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto">
-          <ControlLockBanner
-            role={role}
-            controlOwner={controlOwner}
-            onTakeControl={handleTakeControl}
-            accentColor={COLORS.purple}
-          />
           <HelperDevice
             videoRef={playerRef}
             videoData={projectData}

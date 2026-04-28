@@ -1,11 +1,11 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { buildAllSegments, getTotalDuration } from '../../utils/buildInitialSources.js';
+import { Actors } from '../../utils/eventTypes.js';
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
 import MockColourControls from '../shared/MockColourControls.jsx';
-import MockFramingControls from '../shared/MockFramingControls.jsx';
 import ActivityFeed from '../probe3/ActivityFeed.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
@@ -165,6 +165,7 @@ export default function DecoupledHelperDevice({
               onSegmentChange={onSegmentChange}
               editState={playbackEditState || editState}
               videoFilter={videoFilter}
+              actor={Actors.HELPER}
             />
             {textOverlays.map(overlay => (
               <TextOverlay
@@ -191,6 +192,7 @@ export default function DecoupledHelperDevice({
             onTextTool={handleTextTool}
             textToolActive={textToolActive}
             clipPerSource
+            actor={Actors.HELPER}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
@@ -218,7 +220,6 @@ export default function DecoupledHelperDevice({
         </div>
         <div className="p-4 bg-white space-y-4">
           <MockColourControls values={colourValues} onAdjust={onColourAdjust} />
-          <MockFramingControls />
         </div>
       </div>
     </div>

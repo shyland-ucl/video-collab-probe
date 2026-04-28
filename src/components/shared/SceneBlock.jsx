@@ -106,7 +106,6 @@ export default function SceneBlock({
           (description ? `${description} ` : '') +
           (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
         }
-        aria-expanded={isExpanded}
         className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
           isExpanded ? 'border-b-2' : ''
         } ${isRemoved ? 'bg-gray-50 opacity-60' : ''}`}

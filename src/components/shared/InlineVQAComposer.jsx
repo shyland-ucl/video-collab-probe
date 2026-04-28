@@ -45,7 +45,7 @@ export default function InlineVQAComposer({ onSubmit, disabled, accentColor = '#
         ref={voiceButtonRef}
         onClick={toggleListening}
         aria-label={isListening ? 'Stop listening' : 'Voice input — speak your question'}
-        aria-expanded={isListening}
+        aria-pressed={isListening}
         className={`flex items-center justify-center rounded transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
           isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
         }`}

@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { loadPipelineVideos } from '../services/pipelineApi.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
@@ -8,6 +7,7 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
+import { wsRelayService } from '../services/wsRelayService.js';
 import ttsService from '../services/ttsService.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
@@ -15,20 +15,15 @@ import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import SceneBlockList from '../components/shared/SceneBlockList.jsx';
 import Probe1SceneActions from '../components/probe1/Probe1SceneActions.jsx';
-import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 
 export default function Probe1Page() {
   const { setCondition, logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
   const playerRef = useRef(null);
-  const [searchParams] = useSearchParams();
-  const isResearcher = searchParams.get('mode') === 'researcher';
 
   const [data, setData] = useState(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [currentSegment, setCurrentSegment] = useState(null);
-  const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
 
   // Phase: 'library' → 'exploring'
@@ -44,6 +39,14 @@ export default function Probe1Page() {
     loadDescriptions().then(setData).catch(console.error);
     loadPipelineVideos().then(setPipelineVideos).catch(() => {});
   }, [setCondition, logEvent]);
+
+  // Connect as 'participant' so EventLoggerContext.logEvent broadcasts can
+  // reach the researcher dashboard. Probe 1 has no peer to pair with — the
+  // participant role exists for exactly this case.
+  useEffect(() => {
+    wsRelayService.connect('participant');
+    return () => wsRelayService.disconnect();
+  }, []);
 
   const projectData = useMemo(() => {
     if (selectedVideos) {
@@ -96,7 +99,6 @@ export default function Probe1Page() {
   }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
-  const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
   const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
   const handlePlay = useCallback(() => playerRef.current?.play(), []);
   const handlePause = useCallback(() => playerRef.current?.pause(), []);
@@ -131,73 +133,36 @@ export default function Probe1Page() {
     announce('Project created. Explore scenes below.');
   }, [logEvent]);
 
-  // VQA handler — Gemini + WoZ override
-  const answeredRef = useRef(false);
-  useEffect(() => {
-    window.__vqaReceiveAnswer = (answer) => {
-      if (answeredRef.current) return;
-      answeredRef.current = true;
-      // Find which scene is expanded — append to its VQA history
-      if (currentSegment) {
-        setVqaHistories((prev) => ({
-          ...prev,
-          [currentSegment.id]: [...(prev[currentSegment.id] || []), { role: 'ai', text: answer, source: 'researcher' }],
-        }));
-      }
-      logEvent(EventTypes.VQA_ANSWER, Actors.RESEARCHER, { answer, source: 'researcher_override' });
-      if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
-    };
-    return () => { delete window.__vqaReceiveAnswer; };
-  }, [currentSegment, logEvent, audioEnabled, speechRate]);
-
   const handleAskAI = useCallback(async (question, scene) => {
-    answeredRef.current = false;
-    setPendingQuestion(question);
-    // Add user question to VQA history
     setVqaHistories((prev) => ({
       ...prev,
       [scene.id]: [...(prev[scene.id] || []), { role: 'user', text: question }],
     }));
 
-    // Try Gemini
     const videoEl = playerRef.current?.video;
-    if (videoEl) {
-      try {
-        const frame = captureFrame(videoEl);
-        const segDesc = scene.descriptions?.level_1 || '';
-        const answer = await askGemini(frame, question, { segmentDescription: segDesc });
-        if (!answeredRef.current) {
-          answeredRef.current = true;
-          setVqaHistories((prev) => ({
-            ...prev,
-            [scene.id]: [...(prev[scene.id] || []), { role: 'ai', text: answer, source: 'gemini' }],
-          }));
-          logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
-          if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
-        }
-      } catch (err) {
-        // Gemini failed — surface a visible "researcher is checking" status
-        // so the participant knows their question wasn't dropped. The
-        // researcher's WoZ override (window.__vqaReceiveAnswer) appends the
-        // real answer later. Without this cue, the user previously saw the
-        // Thinking spinner vanish with nothing replacing it (M7).
-        if (!answeredRef.current) {
-          setVqaHistories((prev) => ({
-            ...prev,
-            [scene.id]: [...(prev[scene.id] || []), {
-              role: 'system',
-              text: 'AI could not answer right now. Researcher is checking your question.',
-            }],
-          }));
-          logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, {
-            error: err?.message || 'gemini_failure',
-            source: 'fallback_pending_woz',
-          });
-          announce('AI could not answer. Researcher is checking your question.');
-        }
-      }
+    if (!videoEl) return;
+    try {
+      const frame = captureFrame(videoEl);
+      const segDesc = scene.descriptions?.level_1 || '';
+      const answer = await askGemini(frame, question, { segmentDescription: segDesc });
+      setVqaHistories((prev) => ({
+        ...prev,
+        [scene.id]: [...(prev[scene.id] || []), { role: 'ai', text: answer, source: 'gemini' }],
+      }));
+      logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
+      if (audioEnabled) ttsService.speak(answer, { rate: speechRate });
+    } catch (err) {
+      const failMsg = 'AI could not answer right now. Try rephrasing your question.';
+      setVqaHistories((prev) => ({
+        ...prev,
+        [scene.id]: [...(prev[scene.id] || []), { role: 'system', text: failMsg }],
+      }));
+      logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, {
+        error: err?.message || 'gemini_failure',
+        source: 'gemini_failure',
+      });
+      announce(failMsg);
     }
-    setPendingQuestion(null);
   }, [logEvent, audioEnabled, speechRate]);
 
   // Track play/pause state
@@ -237,7 +202,6 @@ export default function Probe1Page() {
               src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
               segments={segments}
               onTimeUpdate={handleTimeUpdate}
-              onSegmentChange={handleSegmentChange}
               editState={editState}
             />
           </div>
@@ -284,12 +248,6 @@ export default function Probe1Page() {
         </div>
       )}
 
-      {/* Researcher WoZ panel */}
-      {isResearcher && (
-        <div className="max-w-7xl mx-auto px-4 pb-4">
-          <ResearcherVQAPanel segment={currentSegment} pendingQuestion={pendingQuestion} />
-        </div>
-      )}
     </div>
   );
 }

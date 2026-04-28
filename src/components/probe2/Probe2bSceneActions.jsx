@@ -7,6 +7,7 @@ import ttsService from '../../services/ttsService.js';
 import InlineVQAComposer from '../shared/InlineVQAComposer.jsx';
 import DetailLevelSelector from '../shared/DetailLevelSelector.jsx';
 import TaskRouterPanel from '../shared/TaskRouterPanel.jsx';
+import EditByMyselfPanel from './EditByMyselfPanel.jsx';
 
 export default function Probe2bSceneActions({
   scene,
@@ -27,6 +28,13 @@ export default function Probe2bSceneActions({
   onLevelChange,
   helperName = 'helper',
   accentColor = '#5CB85C',
+  // Aligning with Probe 2a: the rich EditByMyselfPanel needs live editState,
+  // an onEditChange setter, and an undo callback to behave the same as 2a's
+  // creator-side edits.
+  editState = null,
+  onEditChange,
+  onUndoEdit,
+  canUndoEdit = false,
 }) {
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [showSendHelper, setShowSendHelper] = useState(false);
@@ -105,15 +113,6 @@ export default function Probe2bSceneActions({
     announce(newKept ? `Scene ${index + 1} kept.` : `Scene ${index + 1} marked for removal.`);
   }, [scene, index, isKept, logEvent, onToggleKeep]);
 
-  const handleSelfEdit = useCallback(
-    (action) => {
-      logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action, segmentId: scene.id, currentTime });
-      if (onEditSelf) onEditSelf(scene, action);
-      announce(`${action} on scene ${index + 1}.`);
-    },
-    [scene, index, currentTime, logEvent, onEditSelf]
-  );
-
   return (
     <>
       {/* Detail level selector */}
@@ -139,7 +138,6 @@ export default function Probe2bSceneActions({
       <div>
         <button
           onClick={() => setShowAskAI(!showAskAI)}
-          aria-expanded={showAskAI}
           className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '48px' }}
         >
@@ -153,51 +151,38 @@ export default function Probe2bSceneActions({
         )}
       </div>
 
-      {/* Edit by myself */}
+      {/* Edit by myself — blue (creator/self) */}
       <div>
         <button
           onClick={() => setShowEditPanel(!showEditPanel)}
-          aria-expanded={showEditPanel}
-          className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '48px' }}
+          className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+          style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
         >
           {showEditPanel ? 'Hide Edit Options' : 'Edit by Myself'}
         </button>
         {showEditPanel && (
-          <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-2">
-            <button
-              onClick={handleKeepDiscard}
-              className={`w-full py-2 text-sm rounded font-medium transition-colors ${
-                isKept ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-              }`}
-              style={{ minHeight: '44px' }}
-              aria-label={isKept ? `Scene ${index + 1}: kept. Tap to discard` : `Scene ${index + 1}: discarded. Tap to keep`}
-              aria-pressed={isKept}
-            >
-              {isKept ? 'Keep (tap to discard)' : 'Discarded (tap to keep)'}
-            </button>
-            {['Trim', 'Split', 'Move', 'Add Caption', 'Add Note'].map((action) => (
-              <button
-                key={action}
-                onClick={() => handleSelfEdit(action.toLowerCase().replace(' ', '_'))}
-                className="w-full py-2 text-sm rounded bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px' }}
-                aria-label={`${action} scene ${index + 1}`}
-              >
-                {action}
-              </button>
-            ))}
-          </div>
+          <EditByMyselfPanel
+            scene={scene}
+            index={index}
+            currentTime={currentTime}
+            editState={editState}
+            onEditChange={onEditChange}
+            onEditSelf={onEditSelf}
+            isKept={isKept}
+            onKeepDiscardClick={handleKeepDiscard}
+            onUndoEdit={onUndoEdit}
+            canUndoEdit={canUndoEdit}
+            logEvent={logEvent}
+          />
         )}
       </div>
 
-      {/* Ask AI to edit — toggle */}
+      {/* Ask AI to edit — amber (AI) */}
       <div>
         <button
           onClick={() => setShowAskAIEdit(!showAskAIEdit)}
-          aria-expanded={showAskAIEdit}
-          className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '48px' }}
+          className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+          style={{ backgroundColor: '#F0AD4E', minHeight: '48px' }}
         >
           {showAskAIEdit ? 'Close AI Edit' : 'Ask AI to Edit'}
         </button>
@@ -220,29 +205,27 @@ export default function Probe2bSceneActions({
         )}
       </div>
 
-      {/* Send to Helper */}
+      {/* Ask Helper to Edit — green (helper / accent) */}
       <div>
         <button
           onClick={() => setShowSendHelper(!showSendHelper)}
-          aria-expanded={showSendHelper}
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: accentColor, minHeight: '48px' }}
         >
-          {showSendHelper ? 'Cancel' : `Send to ${helperName}`}
+          {showSendHelper ? 'Cancel' : `Ask ${helperName} to edit`}
         </button>
         {showSendHelper && (
           <TaskRouterPanel
-            idPrefix="task-2b"
-            submitLabel={`Send to ${helperName}`}
+            submitLabel={`Ask ${helperName} to edit`}
             accentColor={accentColor}
-            onSubmit={({ instruction, category, priority }) => {
+            onSubmit={({ instruction }) => {
               logEvent(EventTypes.TASK_ROUTE_HELPER, Actors.CREATOR, {
-                segmentId: scene.id, instruction, category, priority,
+                segmentId: scene.id, instruction,
               });
               if (onSendToHelper) {
-                onSendToHelper({ segmentId: scene.id, segmentName: scene.name, instruction, category, priority });
+                onSendToHelper({ segmentId: scene.id, segmentName: scene.name, instruction });
               }
-              announce(`Task sent to ${helperName}.`);
+              announce(`Asked ${helperName} to edit.`);
               setShowSendHelper(false);
             }}
           />

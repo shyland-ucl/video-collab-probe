@@ -19,24 +19,8 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
   const { logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
 
-  // Expose global function for WoZ to send answers (researcher override)
-  useEffect(() => {
-    window.__vqaReceiveAnswer = (answer) => {
-      if (answeredRef.current) return;
-      answeredRef.current = true;
-      clearTimeout(timeoutRef.current);
-      setThinking(false);
-      setMessages((prev) => [...prev, { role: 'ai', text: answer, source: 'researcher' }]);
-      logEvent(EventTypes.VQA_ANSWER, Actors.RESEARCHER, { answer, source: 'researcher_override' });
-      if (audioEnabled) {
-        ttsService.speak(answer, { rate: speechRate });
-      }
-    };
-    return () => {
-      delete window.__vqaReceiveAnswer;
-      clearTimeout(timeoutRef.current);
-    };
-  }, [logEvent, audioEnabled, speechRate]);
+  // Cleanup the pending Gemini timeout on unmount.
+  useEffect(() => () => clearTimeout(timeoutRef.current), []);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -58,19 +42,19 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
       onQuestion(text);
     }
 
-    // Start a 15s timeout — if no answer arrives, show error
+    // 15s timeout — if Gemini doesn't respond, show a graceful failure.
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       if (!answeredRef.current) {
         answeredRef.current = true;
         setThinking(false);
-        const errMsg = 'Could not get an answer. A researcher may respond shortly.';
+        const errMsg = 'AI could not answer right now. Try rephrasing your question.';
         setMessages((prev) => [...prev, { role: 'ai', text: errMsg, source: 'error' }]);
+        logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, { error: 'timeout', source: 'gemini_timeout' });
         announce(errMsg);
       }
     }, 15000);
 
-    // Try Gemini VLM first, fall back to WoZ
     const videoEl = playerRef?.current?.video;
     if (videoEl) {
       const frame = captureFrame(videoEl);
@@ -88,7 +72,17 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
           }
         })
         .catch((err) => {
-          announce('AI could not answer. Waiting for researcher.');
+          if (answeredRef.current) return;
+          answeredRef.current = true;
+          clearTimeout(timeoutRef.current);
+          setThinking(false);
+          const errMsg = 'AI could not answer right now. Try rephrasing your question.';
+          setMessages((prev) => [...prev, { role: 'ai', text: errMsg, source: 'error' }]);
+          logEvent(EventTypes.VQA_ANSWER, Actors.SYSTEM, {
+            error: err?.message || 'gemini_failure',
+            source: 'gemini_failure',
+          });
+          announce(errMsg);
         });
     }
   }, [logEvent, onQuestion, playerRef, currentSegment, audioEnabled, speechRate]);

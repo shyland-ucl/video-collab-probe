@@ -12,7 +12,7 @@ const SOURCE_COLORS = [
  * Mock iMovie/CapCut-style video editor for the research probe.
  * Supports multiple video sources — clips from different files on one timeline.
  */
-export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive, clipPerSource = false }) {
+export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive, clipPerSource = false, actor = Actors.CREATOR }) {
   const { logEvent } = useEventLogger();
 
   // Initialize from editState prop if available, otherwise empty arrays.
@@ -90,10 +90,21 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     if (sourcesChanged) setSources(editState.sources);
   }, [editState]);
 
-  // Initialize clips + sources when initialSources arrives (async data load)
+  // Initialize clips + sources when initialSources arrives (async data load).
+  // Critical: if editState already has clips, the parent is the source of
+  // truth (e.g. the helper mode opens mid-session with the creator's current
+  // edits). Without this guard, didInit derived a fresh initial state from
+  // initialSources, broadcast it via onEditChange, and clobbered the
+  // creator's prior edits — and any further helper edits were applied on
+  // top of the wrong base, so switching back to creator showed neither set
+  // of changes correctly.
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) return;
+    if (editState?.clips && editState.clips.length > 0) {
+      didInit.current = true;
+      return;
+    }
     if (initialSources.length === 0 && segments.length === 0) return;
 
     // Multi-source init: initialSources carry segments per video
@@ -229,7 +240,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
       setClips((prev) => [...prev, newClip]);
       setImporting(false);
 
-      logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, {
+      logEvent(EventTypes.IMPORT_VIDEO, actor, {
         sourceId,
         fileName: file.name,
         duration,
@@ -271,13 +282,18 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
       return;
     }
     saveSnapshot();
-    const clipA = { ...clip, endTime: currentTime, trimEnd: 0, id: clip.id + '-a' };
-    const clipB = { ...clip, startTime: currentTime, trimStart: 0, id: clip.id + '-b' };
+    // Use the same split-id convention as `applyOperation` (sceneEditOps.js):
+    // first half keeps the original clip id, second half gets `-split-{ts}`.
+    // Probe2Page.orderedScenes maps both halves back to the parent segment
+    // through the same suffix; if the helper used a different scheme, the
+    // segment would silently disappear from the creator's scene list.
+    const clipA = { ...clip, endTime: currentTime, trimEnd: 0 };
+    const clipB = { ...clip, startTime: currentTime, trimStart: 0, id: `${clip.id}-split-${Date.now()}` };
     const newClips = [...clips];
     newClips.splice(selectedClipIndex, 1, clipA, clipB);
     setClips(newClips);
     setSelectedClipIndex(selectedClipIndex);
-    logEvent(EventTypes.SPLIT, Actors.CREATOR, {
+    logEvent(EventTypes.SPLIT, actor, {
       clipId: clip.id,
       clipName: clip.name,
       splitTime: currentTime,
@@ -292,7 +308,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     const newClips = clips.filter((_, i) => i !== selectedClipIndex);
     setClips(newClips);
     setSelectedClipIndex(null);
-    logEvent(EventTypes.DELETE_CLIP, Actors.CREATOR, {
+    logEvent(EventTypes.DELETE_CLIP, actor, {
       clipId: clip.id,
       clipName: clip.name,
     });
@@ -307,7 +323,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     [newClips[idx - 1], newClips[idx]] = [newClips[idx], newClips[idx - 1]];
     setClips(newClips);
     setSelectedClipIndex(idx - 1);
-    logEvent(EventTypes.REORDER, Actors.CREATOR, {
+    logEvent(EventTypes.REORDER, actor, {
       clipId: clips[selectedClipIndex].id,
       clipName: clips[selectedClipIndex].name,
       direction: 'left',
@@ -323,7 +339,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     [newClips[idx], newClips[idx + 1]] = [newClips[idx + 1], newClips[idx]];
     setClips(newClips);
     setSelectedClipIndex(idx + 1);
-    logEvent(EventTypes.REORDER, Actors.CREATOR, {
+    logEvent(EventTypes.REORDER, actor, {
       clipId: clips[selectedClipIndex].id,
       clipName: clips[selectedClipIndex].name,
       direction: 'right',
@@ -345,7 +361,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     setUndoStack((u) => u.slice(0, -1));
     restoreSnapshot(prev);
     setSelectedClipIndex(null);
-    logEvent(EventTypes.UNDO, Actors.CREATOR, {});
+    logEvent(EventTypes.UNDO, actor, {});
     announce('Undo');
   };
 
@@ -363,7 +379,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     setRedoStack((r) => r.slice(0, -1));
     restoreSnapshot(next);
     setSelectedClipIndex(null);
-    logEvent(EventTypes.REDO, Actors.CREATOR, {});
+    logEvent(EventTypes.REDO, actor, {});
     announce('Redo');
   };
 
@@ -379,7 +395,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
       endTime: captionEnd,
     };
     setCaptions((prev) => [...prev, newCaption]);
-    logEvent(EventTypes.ADD_CAPTION, Actors.CREATOR, {
+    logEvent(EventTypes.ADD_CAPTION, actor, {
       captionId: newCaption.id,
       text: newCaption.text,
       startTime: captionStart,
@@ -393,7 +409,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     const cap = captions.find((c) => c.id === capId);
     saveSnapshot();
     setCaptions((prev) => prev.filter((c) => c.id !== capId));
-    logEvent(EventTypes.REMOVE_CAPTION, Actors.CREATOR, {
+    logEvent(EventTypes.REMOVE_CAPTION, actor, {
       captionId: capId,
       text: cap?.text,
     });
@@ -452,7 +468,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
             },
           ]);
           setRedoStack([]);
-          logEvent(EventTypes.TRIM, Actors.CREATOR, {
+          logEvent(EventTypes.TRIM, actor, {
             clipId: updatedClip.id,
             clipName: updatedClip.name,
             side,
