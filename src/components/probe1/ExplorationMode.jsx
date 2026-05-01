@@ -263,7 +263,7 @@ export default function ExplorationMode({
     setCurrentLevel(next);
     playTone(440);
     announceDescription(segment, next);
-    logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: currentLevel, to: next });
+    logEvent(EventTypes.DESCRIPTION_LEVEL_CHANGE, Actors.CREATOR, { from: currentLevel, to: next });
   }, [currentLevel, segment, announceDescription, logEvent]);
 
   const decreaseLevel = useCallback(() => {
@@ -272,7 +272,7 @@ export default function ExplorationMode({
     setCurrentLevel(next);
     playTone(440);
     announceDescription(segment, next);
-    logEvent(EventTypes.CHANGE_GRANULARITY, Actors.CREATOR, { from: currentLevel, to: next });
+    logEvent(EventTypes.DESCRIPTION_LEVEL_CHANGE, Actors.CREATOR, { from: currentLevel, to: next });
   }, [currentLevel, segment, announceDescription, logEvent]);
 
   const handleAskQuestion = useCallback(() => {

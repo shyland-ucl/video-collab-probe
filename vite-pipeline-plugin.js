@@ -216,8 +216,12 @@ export default function pipelinePlugin() {
           }
 
           const projectDir = path.join(WORKSPACE, id);
-          const promptPath = path.join(__dirname, 'pipeline', 'prompts', 'description_generation.txt');
-          const promptTemplate = await fs.readFile(promptPath, 'utf-8');
+          const promptsDir = path.join(__dirname, 'pipeline', 'prompts');
+          const [sharedStyle, descPrompt] = await Promise.all([
+            fs.readFile(path.join(promptsDir, '_shared_style.txt'), 'utf-8'),
+            fs.readFile(path.join(promptsDir, 'description_generation.txt'), 'utf-8'),
+          ]);
+          const promptTemplate = `${sharedStyle.trim()}\n\n${descPrompt.trim()}\n`;
 
           const result = await generateDescriptions(projectDir, project.segments, promptTemplate,
             (cur, tot) => console.log(`[pipeline] ${id}: descriptions ${cur}/${tot}`)

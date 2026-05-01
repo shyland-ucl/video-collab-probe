@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 
 const actionIcons = {
   play: '▶',
@@ -13,12 +13,19 @@ const actionIcons = {
   default: '•',
 };
 
+const AWARENESS_DEBOUNCE_MS = 1500;
+
 function formatTimestamp(ts) {
   const date = new Date(ts);
   return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-export default function WorkspaceAwareness({ activities = [] }) {
+function truncate(text, n = 120) {
+  const s = String(text || '');
+  return s.length > n ? s.slice(0, n) : s;
+}
+
+export default function WorkspaceAwareness({ activities = [], onAwarenessViewed }) {
   const scrollRef = useRef(null);
 
   // Auto-scroll to bottom on new activity
@@ -27,6 +34,20 @@ export default function WorkspaceAwareness({ activities = [] }) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [activities.length]);
+
+  // Per-entry debounce so a TalkBack swipe back-and-forth across the same
+  // activity line produces a few well-spaced events, not a flood.
+  const lastEmitRef = useRef(new Map());
+  const emitAwareness = useCallback((payload) => {
+    if (!onAwarenessViewed) return;
+    const key = `${payload.element}:${payload.index ?? ''}:${payload.trigger}`;
+    const now = Date.now();
+    const prev = lastEmitRef.current.get(key) || 0;
+    if (now - prev < AWARENESS_DEBOUNCE_MS) return;
+    lastEmitRef.current.set(key, now);
+    const { index: _omitIdx, ...forward } = payload;
+    onAwarenessViewed(forward);
+  }, [onAwarenessViewed]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
@@ -51,7 +72,23 @@ export default function WorkspaceAwareness({ activities = [] }) {
             return (
               <div
                 key={i}
-                className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs"
+                className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-gray-50 text-xs focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                role="article"
+                tabIndex={0}
+                onFocus={() => emitAwareness({
+                  element: 'workspace_awareness',
+                  index: i,
+                  entry_actor: activity.actor,
+                  entry_description: truncate(activity.data),
+                  trigger: 'focus',
+                })}
+                onClick={() => emitAwareness({
+                  element: 'workspace_awareness',
+                  index: i,
+                  entry_actor: activity.actor,
+                  entry_description: truncate(activity.data),
+                  trigger: 'tap',
+                })}
               >
                 <span className="shrink-0 text-sm" aria-hidden="true">{icon}</span>
                 <div className="flex-1 min-w-0">

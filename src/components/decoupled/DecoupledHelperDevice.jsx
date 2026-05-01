@@ -38,6 +38,10 @@ export default function DecoupledHelperDevice({
   onAIUndo,
   peerEditNotification = null,
   onSuggestionResponse,
+  // Engagement-only AWARENESS_VIEWED. Forwarded into ActivityFeed so each
+  // task/AI-edit/creator-activity entry the helper focuses or taps fires
+  // an event attributed to the helper's role at the page level.
+  onAwarenessViewed,
   children,
 }) {
   const handleOverlayChange = useCallback((nextTextOverlays) => {
@@ -147,6 +151,7 @@ export default function DecoupledHelperDevice({
           onAIReview={onAIReview}
           onAIUndo={onAIUndo}
           onSuggestionResponse={onSuggestionResponse}
+          onAwarenessViewed={onAwarenessViewed}
         />
       </div>
 

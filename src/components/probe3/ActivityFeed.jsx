@@ -1,9 +1,48 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 
-export default function ActivityFeed({ items, creatorActivities, onTaskStatus, onAIReview, onAIUndo, onSuggestionResponse }) {
+const AWARENESS_DEBOUNCE_MS = 1500;
+
+function truncate(text, n = 120) {
+  const s = String(text || '');
+  return s.length > n ? s.slice(0, n) : s;
+}
+
+export default function ActivityFeed({
+  items,
+  creatorActivities,
+  onTaskStatus,
+  onAIReview,
+  onAIUndo,
+  onSuggestionResponse,
+  // Engagement-only AWARENESS_VIEWED. Page wires this to logEvent with the
+  // viewing role. Optional: feed renders normally if absent.
+  onAwarenessViewed,
+}) {
   const handleStatus = useCallback((taskId, status) => {
     onTaskStatus?.(taskId, status);
   }, [onTaskStatus]);
+
+  // Per-entry debounce so a TalkBack swipe back-and-forth across the same
+  // item produces a few well-spaced events, not a flood.
+  const lastEmitRef = useRef(new Map());
+  const emitAwareness = useCallback((payload) => {
+    if (!onAwarenessViewed) return;
+    const key = `${payload.element}:${payload.entry_id || ''}:${payload.index ?? ''}:${payload.trigger}`;
+    const now = Date.now();
+    const prev = lastEmitRef.current.get(key) || 0;
+    if (now - prev < AWARENESS_DEBOUNCE_MS) return;
+    lastEmitRef.current.set(key, now);
+    const { entry_id: _omitId, index: _omitIdx, ...forward } = payload;
+    onAwarenessViewed(forward);
+  }, [onAwarenessViewed]);
+
+  // Map ActivityFeed item types to entry_actor for the log payload. The
+  // visible label drives this: helper_task is "From Creator", suggestion_task
+  // and ai_edit are AI-originated.
+  const itemEntryActor = (item) => {
+    if (item.type === 'helper_task') return 'CREATOR';
+    return 'AI';
+  };
 
   return (
     <div>
@@ -11,7 +50,28 @@ export default function ActivityFeed({ items, creatorActivities, onTaskStatus, o
       {items.length > 0 ? (
         <div className="divide-y divide-gray-100">
           {items.map((item) => (
-            <div key={item.id} className="px-4 py-3">
+            <div
+              key={item.id}
+              className="px-4 py-3 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+              role="article"
+              tabIndex={0}
+              onFocus={() => emitAwareness({
+                element: 'activity_feed_entry',
+                scene_id: item.segmentId,
+                entry_id: item.id,
+                entry_actor: itemEntryActor(item),
+                entry_description: truncate(item.text),
+                trigger: 'focus',
+              })}
+              onClick={() => emitAwareness({
+                element: 'activity_feed_entry',
+                scene_id: item.segmentId,
+                entry_id: item.id,
+                entry_actor: itemEntryActor(item),
+                entry_description: truncate(item.text),
+                trigger: 'tap',
+              })}
+            >
               {item.type === 'helper_task' ? (
                 /* Helper task from creator */
                 <div>
@@ -156,13 +216,35 @@ export default function ActivityFeed({ items, creatorActivities, onTaskStatus, o
         </div>
       )}
 
-      {/* Creator Activity — always at bottom */}
+      {/* Creator Activity — always at bottom. Each entry is independently
+          focusable so engagement at the activity-line level is captured. */}
       <div className="px-4 py-3 bg-[#f3e8ff] border-t border-[#e9d5ff]">
         <div className="font-semibold text-[#7c3aed] text-xs uppercase tracking-wide mb-2">Creator Activity</div>
         {creatorActivities.length > 0 ? (
           <ul className="space-y-1 max-h-32 overflow-y-auto">
             {creatorActivities.slice(-10).reverse().map((a, i) => (
-              <li key={i} className="text-xs text-gray-600">{a.data}</li>
+              <li
+                key={i}
+                className="text-xs text-gray-600 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+                role="article"
+                tabIndex={0}
+                onFocus={() => emitAwareness({
+                  element: 'activity_feed_entry',
+                  index: i,
+                  entry_actor: a.actor || 'CREATOR',
+                  entry_description: truncate(a.data),
+                  trigger: 'focus',
+                })}
+                onClick={() => emitAwareness({
+                  element: 'activity_feed_entry',
+                  index: i,
+                  entry_actor: a.actor || 'CREATOR',
+                  entry_description: truncate(a.data),
+                  trigger: 'tap',
+                })}
+              >
+                {a.data}
+              </li>
             ))}
           </ul>
         ) : (

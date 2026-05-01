@@ -122,12 +122,15 @@ export default function Probe3Page() {
   }, [selectedVideos]);
 
   const projectData = useMemo(() => {
-    if (selectedVideos && data) {
-      return {
-        videos: data.videos
-          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
-          : [data.video],
-      };
+    // selectedVideos is an array of full video objects (sample or pipeline)
+    // once import or peer-sync has resolved it. Use it directly so pipeline
+    // videos (whose ids don't exist in sample `data.videos`) keep their
+    // segments. While selectedVideos is still string-ids from PROJECT_CREATED,
+    // fall through to `data` — the resolver useEffect below replaces it with
+    // objects shortly.
+    if (selectedVideos && Array.isArray(selectedVideos) && selectedVideos.length > 0
+        && typeof selectedVideos[0] === 'object') {
+      return { videos: selectedVideos };
     }
     return data;
   }, [data, selectedVideos]);
@@ -294,6 +297,15 @@ export default function Probe3Page() {
     logEvent(EventTypes.AI_EDIT_UNDONE, Actors.HELPER, { text: item.text });
     announce(`Undid AI edit: ${item.text}`);
   }, [logEvent]);
+
+  // Engagement-only AWARENESS_VIEWED. The viewing role is attributed via
+  // the standard `actor` field; the original entry's actor lives in the
+  // payload's `entry_actor` field. RQ2: did the participant engage with
+  // the awareness layer (versus just having data available)?
+  const handleAwarenessViewed = useCallback((payload) => {
+    const viewerActor = role === 'creator' ? Actors.CREATOR : Actors.HELPER;
+    logEvent(EventTypes.AWARENESS_VIEWED, viewerActor, payload);
+  }, [logEvent, role]);
 
   // --- Suggestion handlers (creator side) ---
   const handleSuggestionDismiss = useCallback(() => {
@@ -858,6 +870,7 @@ export default function Probe3Page() {
                 return next;
               });
             }}
+            onAwarenessViewed={handleAwarenessViewed}
             renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
               <Probe3SceneActions
                 scene={scene}
@@ -875,14 +888,15 @@ export default function Probe3Page() {
                 )}
                 helperName="helper"
                 onSuggestionRoute={(suggestion, channel) => {
-                  const timeToRespond = Date.now() - (suggestionDeployTimeRef.current[suggestion.id] || Date.now());
+                  // Probe3SceneActions already fires SUGGESTION_ROUTE_*
+                  // (with category) when the creator taps a routing button,
+                  // so this callback only does bookkeeping — no logEvent.
+                  // Previously the helper branch fired SUGGESTION_ROUTED,
+                  // which split helper-routing data across two event types
+                  // and broke the §8.3 SHR coding cleanliness.
                   if (channel === 'self') {
-                    logEvent(EventTypes.SUGGESTION_ROUTE_SELF, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
                     setNotedSuggestions((prev) => [...prev, suggestion]);
-                  } else if (channel === 'ai') {
-                    logEvent(EventTypes.SUGGESTION_ROUTE_AI, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
                   } else if (channel === 'helper') {
-                    logEvent(EventTypes.SUGGESTION_ROUTED, Actors.CREATOR, { suggestionId: suggestion.id, timeToRespond });
                     wsRelayService.sendData({ type: 'SUGGESTION_ROUTED_TO_HELPER', suggestion, actor: 'CREATOR' });
                     setNotedSuggestions((prev) => [...prev, { ...suggestion, routedToHelper: true }]);
                   }
@@ -954,6 +968,7 @@ export default function Probe3Page() {
             onTaskStatus={handleHelperTaskStatus}
             onAIReview={handleAIReview}
             onAIUndo={handleAIUndo}
+            onAwarenessViewed={handleAwarenessViewed}
             peerEditNotification={peerEditNotification}
             onSuggestionResponse={handleHelperSuggestionResponse}
           />

@@ -154,7 +154,17 @@ export default function Probe2bSceneActions({
       {/* Edit by myself — blue (creator/self) */}
       <div>
         <button
-          onClick={() => setShowEditPanel(!showEditPanel)}
+          onClick={() => {
+            // Symmetric with 2a — emit TASK_ROUTE_SELF on open so the
+            // channel-selection distribution covers all three branches.
+            if (!showEditPanel) {
+              logEvent(EventTypes.TASK_ROUTE_SELF, Actors.CREATOR, {
+                segmentId: scene.id,
+                currentTime,
+              });
+            }
+            setShowEditPanel(!showEditPanel);
+          }}
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
         >

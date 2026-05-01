@@ -1,7 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import ttsService from '../../services/ttsService.js';
 import { announce } from '../../utils/announcer.js';
+
+const AWARENESS_DEBOUNCE_MS = 1500;
 
 function formatDuration(seconds) {
   const s = Math.round(seconds || 0);
@@ -33,9 +35,31 @@ export default function SceneBlock({
   // header on full collapse — otherwise focus falls to <body> when the
   // expanded actions region unmounts (Lan 2026-04-26).
   headerRef,
+  // Engagement-only AWARENESS_VIEWED. Page wires this to logEvent with the
+  // viewing role. Fires on focus/tap of individual entries, never on expand
+  // (availability is captured by EDIT_STATE_UPDATE). Safe no-op if absent
+  // so SceneBlock stays usable in probes that don't surface awareness.
+  onAwarenessViewed,
 }) {
   const actionsRef = useRef(null);
   const { audioEnabled, speechRate } = useAccessibility();
+
+  // Per-element-instance debounce so a TalkBack swipe back-and-forth across
+  // the same entry produces a few well-spaced events, not a flood. Keyed by
+  // `${scene_id}:${element}:${index}` per spec; also keyed by trigger so a
+  // tap right after a focus still registers.
+  const lastEmitRef = useRef(new Map());
+  const emitAwareness = useCallback((payload) => {
+    if (!onAwarenessViewed) return;
+    const key = `${payload.scene_id}:${payload.element}:${payload.index ?? ''}:${payload.trigger}`;
+    const now = Date.now();
+    const prev = lastEmitRef.current.get(key) || 0;
+    if (now - prev < AWARENESS_DEBOUNCE_MS) return;
+    lastEmitRef.current.set(key, now);
+    // Drop the index helper key before forwarding — it's a debounce-only field.
+    const { index: _omit, ...forward } = payload;
+    onAwarenessViewed(forward);
+  }, [onAwarenessViewed]);
 
   const duration = (scene.end_time || 0) - (scene.start_time || 0);
   const levelKey = `level_${currentLevel}`;
@@ -209,23 +233,79 @@ export default function SceneBlock({
             </div>
           )}
 
-          {/* Awareness section (Probe 2b/3) */}
+          {/* Awareness section (Probe 2b/3). Each entry is independently
+              focusable so TalkBack lands on it as its own item, and emits
+              an engagement-level AWARENESS_VIEWED on focus or tap. */}
           {awareness?.actionLog?.length > 0 && (
             <div className="mb-3 pb-3 border-b border-gray-100" aria-label="Activity on this scene">
               {awareness.helperActivity && (
-                <p className="text-xs text-amber-700 font-medium mb-1" role="status">
+                <p
+                  className="text-xs text-amber-700 font-medium mb-1 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+                  role="status"
+                  tabIndex={0}
+                  onFocus={() => emitAwareness({
+                    element: 'helper_activity',
+                    scene_id: scene.id,
+                    trigger: 'focus',
+                  })}
+                  onClick={() => emitAwareness({
+                    element: 'helper_activity',
+                    scene_id: scene.id,
+                    trigger: 'tap',
+                  })}
+                >
                   {awareness.helperActivity}
                 </p>
               )}
               <ul className="space-y-1">
-                {awareness.actionLog.map((entry, i) => (
-                  <li key={i} className="text-xs text-gray-500">
-                    <span className="font-medium">[{entry.actor}]</span> {entry.description}
-                  </li>
-                ))}
+                {awareness.actionLog.map((entry, i) => {
+                  const desc = String(entry.description || '');
+                  const truncated = desc.length > 120 ? desc.slice(0, 120) : desc;
+                  return (
+                    <li
+                      key={i}
+                      className="text-xs text-gray-500 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+                      role="article"
+                      tabIndex={0}
+                      onFocus={() => emitAwareness({
+                        element: 'action_log_entry',
+                        scene_id: scene.id,
+                        index: i,
+                        entry_actor: entry.actor,
+                        entry_description: truncated,
+                        trigger: 'focus',
+                      })}
+                      onClick={() => emitAwareness({
+                        element: 'action_log_entry',
+                        scene_id: scene.id,
+                        index: i,
+                        entry_actor: entry.actor,
+                        entry_description: truncated,
+                        trigger: 'tap',
+                      })}
+                    >
+                      <span className="font-medium">[{entry.actor}]</span> {entry.description}
+                    </li>
+                  );
+                })}
               </ul>
               {awareness.taskStatus && (
-                <p className="text-xs mt-1">
+                <p
+                  className="text-xs mt-1 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+                  tabIndex={0}
+                  onFocus={() => emitAwareness({
+                    element: 'task_status',
+                    scene_id: scene.id,
+                    task_status_value: awareness.taskStatus,
+                    trigger: 'focus',
+                  })}
+                  onClick={() => emitAwareness({
+                    element: 'task_status',
+                    scene_id: scene.id,
+                    task_status_value: awareness.taskStatus,
+                    trigger: 'tap',
+                  })}
+                >
                   <span className="font-medium">Task: </span>
                   <span
                     className={`px-1.5 py-0.5 rounded text-xs ${

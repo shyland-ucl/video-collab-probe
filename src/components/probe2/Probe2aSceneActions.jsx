@@ -161,7 +161,20 @@ export default function Probe2aSceneActions({
       {/* Edit by myself — blue (creator/self), aligned with Probe 2b */}
       <div>
         <button
-          onClick={() => setShowEditPanel(!showEditPanel)}
+          onClick={() => {
+            // Fire TASK_ROUTE_SELF only on opening so the channel-selection
+            // distribution (self/AI/helper) covers all three branches in 2a.
+            // Without this, "self" was only inferable from EDIT_ACTION
+            // sequences and was easy to miss when the creator opened the
+            // panel and backed out.
+            if (!showEditPanel) {
+              logEvent(EventTypes.TASK_ROUTE_SELF, Actors.CREATOR, {
+                segmentId: scene.id,
+                currentTime,
+              });
+            }
+            setShowEditPanel(!showEditPanel);
+          }}
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
         >

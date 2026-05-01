@@ -54,9 +54,13 @@ async function main() {
     process.exit(1);
   }
 
-  // Load prompt
-  const promptPath = path.join(__dirname, '..', 'pipeline', 'prompts', 'description_generation.txt');
-  const promptTemplate = await fs.readFile(promptPath, 'utf-8');
+  // Load prompt = shared style block + description-specific task.
+  const promptsDir = path.join(__dirname, '..', 'pipeline', 'prompts');
+  const [sharedStyle, descPrompt] = await Promise.all([
+    fs.readFile(path.join(promptsDir, '_shared_style.txt'), 'utf-8'),
+    fs.readFile(path.join(promptsDir, 'description_generation.txt'), 'utf-8'),
+  ]);
+  const promptTemplate = `${sharedStyle.trim()}\n\n${descPrompt.trim()}\n`;
 
   console.log(`Generating descriptions for ${project.segments.length} segments...`);
   console.log(`Model: ${process.env.GEMINI_MODEL || 'gemini-2.5-pro'}`);

@@ -101,31 +101,39 @@ export default function Probe2bPage() {
     } catch { return []; }
   }, [sessionDyadId]);
 
-  // Try loading project state from Phase 2a
+  // Try loading project state from Phase 2a. Resolves against the merged
+  // sample + pipeline pool so 2a sessions that used pipeline footage carry
+  // forward; gated on selectedVideos === null so a later pipelineVideos
+  // load doesn't overwrite the user's manual library selection in 2b.
   useEffect(() => {
+    if (selectedVideos !== null) return;
     const savedState = loadProjectState();
-    if (savedState && data) {
-      // Apply saved state
+    if (savedState && (data || pipelineVideos.length > 0)) {
       if (savedState.editState) {
         setEditState(savedState.editState);
       }
-      if (savedState.selectedVideoIds && data.videos) {
-        const resolved = data.videos.filter((v) => savedState.selectedVideoIds.includes(v.id));
+      if (savedState.selectedVideoIds) {
+        const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
+        const pool = [...pipelineVideos, ...sampleVideos];
+        const resolved = pool.filter((v) => savedState.selectedVideoIds.includes(v.id));
         if (resolved.length > 0) {
           setSelectedVideos(resolved);
         }
       }
       announce('Project state loaded from Phase 2a');
     }
-  }, [data]);
+  }, [data, pipelineVideos, selectedVideos]);
 
   const projectData = useMemo(() => {
-    if (selectedVideos && data) {
-      return {
-        videos: data.videos
-          ? data.videos.filter((v) => selectedVideos.some((sv) => sv.id === v.id))
-          : [data.video],
-      };
+    // selectedVideos is an array of full video objects (sample or pipeline)
+    // once import or peer-sync has resolved it. Use it directly so pipeline
+    // videos (whose ids don't exist in sample `data.videos`) keep their
+    // segments. While selectedVideos is still string-ids from PROJECT_CREATED,
+    // fall through to `data` — the resolver useEffect below replaces it with
+    // objects shortly.
+    if (selectedVideos && Array.isArray(selectedVideos) && selectedVideos.length > 0
+        && typeof selectedVideos[0] === 'object') {
+      return { videos: selectedVideos };
     }
     return data;
   }, [data, selectedVideos]);
@@ -360,6 +368,15 @@ export default function Probe2bPage() {
     logEvent(EventTypes.AI_EDIT_UNDONE, Actors.HELPER, { text: item.text });
     announce(`Undid AI edit: ${item.text}`);
   }, [logEvent]);
+
+  // Engagement-only AWARENESS_VIEWED. The viewing role is attributed via
+  // the standard `actor` field; the original entry's actor lives in the
+  // payload's `entry_actor` field. RQ2: did the participant engage with
+  // the awareness layer (versus just having data available)?
+  const handleAwarenessViewed = useCallback((payload) => {
+    const viewerActor = role === 'creator' ? Actors.CREATOR : Actors.HELPER;
+    logEvent(EventTypes.AWARENESS_VIEWED, viewerActor, payload);
+  }, [logEvent, role]);
 
   // WebSocket setup
   const unsubscribeRef = useRef({ data: null, connected: null, disconnected: null });
@@ -792,6 +809,7 @@ export default function Probe2bPage() {
                 return next;
               });
             }}
+            onAwarenessViewed={handleAwarenessViewed}
             renderSceneActions={({ scene, index, currentLevel, onLevelChange, currentTime: ct, isPlaying: ip, onSeek: os, onPlay: op, onPause: opp }) => (
               <Probe2bSceneActions
                 scene={scene}
@@ -874,6 +892,7 @@ export default function Probe2bPage() {
             onTaskStatus={handleHelperTaskStatus}
             onAIReview={handleAIReview}
             onAIUndo={handleAIUndo}
+            onAwarenessViewed={handleAwarenessViewed}
             peerEditNotification={peerEditNotification}
           />
         </div>

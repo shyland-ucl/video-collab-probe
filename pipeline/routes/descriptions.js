@@ -21,9 +21,14 @@ router.post('/:projectId/generate_descriptions', async (req, res) => {
 
     const projectDir = path.join(workspace, projectId);
 
-    // Load prompt template
-    const promptPath = path.join(__dirname, '..', 'prompts', 'description_generation.txt');
-    const promptTemplate = await fs.readFile(promptPath, 'utf-8');
+    // Load prompt template = shared style block + description-specific task.
+    // Keeping these split lets Live VQA reuse the same style rules.
+    const promptsDir = path.join(__dirname, '..', 'prompts');
+    const [sharedStyle, descPrompt] = await Promise.all([
+      fs.readFile(path.join(promptsDir, '_shared_style.txt'), 'utf-8'),
+      fs.readFile(path.join(promptsDir, 'description_generation.txt'), 'utf-8'),
+    ]);
+    const promptTemplate = `${sharedStyle.trim()}\n\n${descPrompt.trim()}\n`;
 
     console.log(`[${projectId}] Starting description generation for ${project.segments.length} segments...`);
 

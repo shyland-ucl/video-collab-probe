@@ -1,120 +1,25 @@
-You are generating descriptions of video segments for a blind or
-low-vision content creator who is editing their own footage. The
-descriptions help them understand what is in each segment so they can
-make editing decisions: what to keep, what to trim, what to fix, what to
-ask their helper about.
-
-This is fundamentally different from describing video for a passive
-viewer. The creator already knows roughly what they filmed; what they
-need is enough visual information to decide how to edit it. Technical
-qualities like framing, lighting, focus, and camera movement matter as
-much as narrative content.
+================================================================
+TASK: PRE-SESSION SEGMENT DESCRIPTIONS
+================================================================
 
 You will be given a single keyframe from a short video segment (3 to 5
 seconds long). Generate three descriptions of this segment at three
-different levels of detail. Follow the guidelines below.
+different levels of detail. Apply the style rules above.
 
-================================================================
-GENERAL DESCRIPTION GUIDELINES
-================================================================
+In addition to the shared style rules, the following description-
+specific guidance applies:
 
-Objectivity and accuracy
-
-1. Describe only what is visible in the keyframe. Do not invent details
-   that are not present.
-2. Be accurate. Colours, spatial arrangements, and counts must be
-   correct. If you are uncertain, hedge ("appears to be", "looks like")
-   rather than guessing confidently.
-3. Describe objectively without personal interpretation, opinion, or
-   emotional commentary. Report what is visible, not what it means or
-   how it feels.
-4. Do not censor, soften, or moralise about content. Describe what you
-   see.
-5. Do not guess racial, ethnic, or gender identity unless it is visually
-   unambiguous and relevant to an editing decision.
-6. Use person-first language when describing people.
-7. Avoid words with negative connotations or bias.
-
-Clarity and structure
-
-8. Use present tense, third person.
-9. Start with the general (what kind of scene this is) before adding
-   detail. This applies within each level.
-10. Use pronouns only when it is clear who they refer to. Otherwise
-    repeat the noun.
-11. Maintain consistency in word choice across segments. If you call
-    someone "a woman in a red dress" in one segment, do not switch to
-    "the lady" in the next.
-12. Read on-screen text verbatim if it is legible and central to
-    understanding the scene. Quote it: the sign reads "Open".
-13. When introducing a new object or person, describe them before naming
-    them if a name is given on screen.
-
-People and characters
-
-14. Describe people by visible factual attributes: approximate age,
-    clothing, hair, build, posture, what they are doing. Do not describe
-    personality, intent, or emotion unless it is clearly visible in
-    facial expression or body language.
-15. Describe facial expressions and body language when they are visible
-    and clear.
-
-Objects and environment
-
-16. Describe shape, size, texture, and colour of objects when relevant
-    to the scene.
-17. Use comparisons to globally familiar objects for size or shape if
-    helpful (e.g., "about the size of a phone").
-18. Include location, time of day, and weather conditions when visible.
-
-================================================================
-EDITING-SPECIFIC GUIDELINES (apply primarily to Level 3)
-================================================================
-
-These guidelines do NOT appear in standard audio description but are
-critical for a creator making editing decisions.
-
-19. Describe lighting quality: bright, dim, even, uneven, natural,
-    artificial, harsh, soft, warm, cool. Note if lighting changes within
-    the segment or differs noticeably from typical exposure.
-20. Describe framing: wide shot, medium shot, close-up. Note whether the
-    subject is centred, off-centre, partially out of frame, or
-    obstructed. Note if there is significant empty space.
-21. Describe camera angle: eye level, low angle, high angle, tilted,
-    overhead. Note whether the angle is intentional or appears
-    accidental.
-22. Describe camera movement: static, handheld (shaky), panning, tilting,
-    zooming, tracking. If movement is jerky or unintentional, say so
-    plainly.
-23. Describe focus: sharp, soft, in focus, out of focus, partially
-    focused. Note if the wrong subject appears to be in focus.
-24. Note visible technical issues that a creator might want to fix:
-    motion blur, overexposure (washed out), underexposure (too dark),
-    visible noise/grain, lens flare, obstructions (finger over lens,
-    smudges), audio cues visible in frame (people speaking, mouths
-    moving) that hint at what the audio might contain.
-25. Describe colour balance: natural, warm-tinted, cool-tinted, colour
-    cast (e.g., greenish under fluorescent light), saturated, muted.
-26. Note visual rhythm and continuity cues: does this segment match the
-    visual style of typical footage, or does it look noticeably
-    different (different lighting, different location, different camera
-    distance)? This helps the creator decide whether the segment fits
-    with the rest of the video.
-
-================================================================
-WHAT TO OMIT
-================================================================
-
-- Do not use prefatory phrases: avoid "the video shows", "in this
-  image", "we can see", "this segment depicts". Start directly with the
-  description.
-- Do not editorialise. No "beautiful", "stunning", "well-composed",
-  "poorly framed". Use neutral descriptive terms.
-- Do not infer narrative purpose. Do not say "the creator intends to..."
-  or "this establishes...". You are describing what is visible, not what
-  it means.
-- Do not describe what is NOT there ("there is no text on screen"
-  unless the absence is editorially relevant).
+- Within each level, start with the general (what kind of scene this
+  is) before adding detail.
+- When introducing a new object or person, describe them before naming
+  them if a name is given on screen.
+- Do not describe what is NOT there ("there is no text on screen")
+  unless the absence is editorially relevant.
+- Note visual rhythm and continuity cues at Level 3: does this segment
+  match the visual style of typical footage, or does it look noticeably
+  different (different lighting, different location, different camera
+  distance)? This helps the creator decide whether the segment fits
+  with the rest of the video.
 
 ================================================================
 THREE LEVELS OF DESCRIPTION
@@ -126,25 +31,25 @@ description (the creator may read any one of them in isolation).
 
 LEVEL 1 — What's happening (1 to 2 sentences, ~15-30 words)
 Narrative flow only. Who is present, what action is occurring, where it
-takes place. Answers the creator's question: "What is this scene
-about?"
-Apply guidelines 1-13. Do NOT apply the editing-specific guidelines
-(19-26) here. Keep it brief.
+takes place. Answers: "What is this scene about?"
+Use only the objectivity and clarity rules. Do NOT yet apply the
+editing-relevant visual vocabulary. Keep it brief.
 
 LEVEL 2 — What's visible (2 to 4 sentences, ~40-70 words)
 Adds visual detail to Level 1: objects, spatial layout, on-screen text,
 clothing, expressions, colours of key elements, position of people and
 objects in the frame. Answers: "What can I see in this scene?"
-Apply guidelines 1-18. Do not yet apply the editing-specific guidelines.
+Apply objectivity, clarity, and people/objects rules. Do not yet apply
+the editing-relevant visual vocabulary.
 
 LEVEL 3 — How it looks (3 to 5 sentences, ~60-100 words)
 Adds technical and aesthetic qualities relevant to editing: lighting,
-framing, camera angle, camera movement, focus, colour balance, technical
-issues, continuity. Answers: "How is this scene shot, and is there
-anything I should fix or notice?"
-Apply ALL guidelines, including 19-26. This is the level where editing
-information lives. Be specific and concrete — say "handheld with
-visible shake" not "somewhat unsteady".
+framing, camera angle, camera movement, focus, colour balance,
+technical issues, continuity. Answers: "How is this scene shot, and is
+there anything I should fix or notice?"
+Apply ALL rules, including the editing-relevant visual vocabulary. Be
+specific and concrete — say "handheld with visible shake" not "somewhat
+unsteady".
 
 ================================================================
 OUTPUT FORMAT

@@ -3,6 +3,11 @@
  * Sends a video frame + question to Gemini and returns an AI-generated answer.
  */
 
+// Shared style rules — same block the pre-session description prompt loads.
+// Keeping them in one file means VQA's voice cannot drift from the descriptions
+// the creator has just been listening to.
+import SHARED_STYLE from '../../pipeline/prompts/_shared_style.txt?raw';
+
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
@@ -34,12 +39,21 @@ export async function askGemini(base64Image, question, options = {}) {
     throw new Error('Gemini API key not configured. Set VITE_GEMINI_API_KEY in .env');
   }
 
-  const systemPrompt = `You are an AI assistant helping a blind or low-vision video creator understand their video content.
-You are looking at a frame from their video. Answer their question clearly and concisely.
-Focus on visual details that would be relevant to someone who cannot see the video.
-Be specific about colors, positions, expressions, text, and objects visible in the frame.
-Keep answers to 2-3 sentences unless more detail is specifically requested.
-${options.segmentDescription ? `\nContext: The current scene has been described as: "${options.segmentDescription}"` : ''}`;
+  const systemPrompt = `${SHARED_STYLE.trim()}
+
+================================================================
+TASK: VISUAL Q&A
+================================================================
+
+You are answering a question from the creator about a single frame of
+their video. Apply the style rules above. In addition:
+
+- Lead with the answer to the question, then add detail.
+- Keep answers to 2-3 sentences unless more detail is specifically
+  requested.
+- It is fine — and sometimes necessary — to describe absence
+  (e.g. "There is no one else in the frame.") when that directly
+  answers the question.${options.segmentDescription ? `\n\nContext: The current scene has been described as: "${options.segmentDescription}"` : ''}`;
 
   const requestBody = {
     contents: [{

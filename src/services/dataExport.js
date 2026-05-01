@@ -35,7 +35,7 @@ export async function exportSessionData(events, sessionMetadata) {
 
     if (condition === 'probe1') {
       const descEvents = conditionEvents.filter((e) =>
-        ['DESCRIPTION_VIEWED', 'DESCRIPTION_SPOKEN', 'DESCRIPTION_LEVEL_CHANGE', 'DESCRIPTION_FLAGGED'].includes(e.eventType)
+        ['DESCRIPTION_VIEWED', 'DESCRIPTION_SPOKEN', 'DESCRIPTION_LEVEL_CHANGE', 'CHANGE_GRANULARITY', 'DESCRIPTION_FLAGGED'].includes(e.eventType)
       );
       folder.file('description_interactions.json', JSON.stringify(descEvents, null, 2));
 

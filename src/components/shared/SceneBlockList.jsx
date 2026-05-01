@@ -32,6 +32,9 @@ export default function SceneBlockList({
   // wipe per-scene chat history so re-opening starts fresh and TalkBack
   // doesn't have to swipe past N stale Q+A bubbles (Lan 2026-04-27).
   onSceneClose,
+  // Engagement-only AWARENESS_VIEWED. Forwarded to each SceneBlock so the
+  // page (which knows the viewer's role) can attribute the event correctly.
+  onAwarenessViewed,
 }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
   // Where the latest expansion came from. Drives focus behavior in SceneBlock:
@@ -251,6 +254,7 @@ export default function SceneBlockList({
                 accentColor={accentColor}
                 isRemoved={false}
                 headerRef={(el) => { headerRefs.current[i] = el; }}
+                onAwarenessViewed={onAwarenessViewed}
               >
                 {renderSceneActions && renderSceneActions({
                   scene,
