@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
-import { loadPipelineVideos } from '../services/pipelineApi.js';
+import { loadPipelineVideos, fetchAssignments } from '../services/pipelineApi.js';
+import { findAssignmentsForDyad } from '../utils/dyadId.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -32,12 +33,28 @@ export default function Probe1Page() {
   const [vqaHistories, setVqaHistories] = useState({});
 
   const [pipelineVideos, setPipelineVideos] = useState([]);
+  // Server-side dyad assignments. null = still loading / unfetched;
+  // {} = fetched but no assignments. The library filter waits for this
+  // before applying strict scoping so the first render doesn't briefly
+  // show the wrong set.
+  const [serverAssignments, setServerAssignments] = useState(null);
 
   useEffect(() => {
     setCondition('probe1');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe1' });
     loadDescriptions().then(setData).catch(console.error);
     loadPipelineVideos().then(setPipelineVideos).catch(() => {});
+    fetchAssignments()
+      .then((a) => setServerAssignments(a || {}))
+      .catch(() => {
+        // Server unreachable — fall back to local cache so library still
+        // works in degraded mode.
+        try {
+          setServerAssignments(JSON.parse(localStorage.getItem('pipelineAssignments') || '{}'));
+        } catch {
+          setServerAssignments({});
+        }
+      });
   }, [setCondition, logEvent]);
 
   // Connect as 'participant' so EventLoggerContext.logEvent broadcasts can
@@ -66,37 +83,43 @@ export default function Probe1Page() {
     return projectData.video?.title || 'Untitled Video';
   }, [projectData]);
 
-  // Get dyad ID from session config for filtering assigned videos
-  const sessionDyadId = useMemo(() => {
-    try {
-      const stored = localStorage.getItem('sessionConfig');
-      return stored ? JSON.parse(stored).dyadId : null;
-    } catch { return null; }
-  }, []);
-
-  // Get researcher-assigned project IDs for this dyad
-  const assignedProjectIds = useMemo(() => {
-    try {
-      const assignments = JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
-      return assignments[sessionDyadId] || [];
-    } catch { return []; }
-  }, [sessionDyadId]);
-
   const allVideos = useMemo(() => {
     const sampleVideos = data
       ? (data.videos || (data.video ? [data.video] : []))
       : [];
 
-    // If researcher has assigned specific videos to this dyad, filter pipeline videos
+    // Read sessionConfig fresh each time so dyadId picks up any change
+    // since mount. Use the assignments fetched from the server (with
+    // case-insensitive + trimmed key lookup so D01 / d01 / "D01 " all match).
+    // While serverAssignments is null (still fetching), fall back to
+    // unfiltered behaviour so the library isn't empty during the brief
+    // load window.
+    let dyadId = null;
+    let assignedIds = [];
+    try {
+      const cfg = JSON.parse(localStorage.getItem('sessionConfig') || '{}');
+      dyadId = (cfg.dyadId || '').trim() || null;
+      if (dyadId && serverAssignments) {
+        // findAssignmentsForDyad handles "2" ↔ "D02" ↔ "02" etc. so a
+        // hurried session-setup typo doesn't empty the library.
+        assignedIds = findAssignmentsForDyad(serverAssignments, dyadId);
+      }
+    } catch { /* fall through to unfiltered behaviour */ }
+
     let filteredPipeline = pipelineVideos;
-    if (sessionDyadId && assignedProjectIds.length > 0) {
+    let filteredSamples = sampleVideos;
+    if (dyadId && serverAssignments) {
       filteredPipeline = pipelineVideos.filter(
-        (v) => assignedProjectIds.includes(v._projectId) || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+        (v) => assignedIds.includes(v._projectId)
+          || assignedIds.includes(`pipeline-${v._projectId}`)
+          || assignedIds.includes(v.id)
       );
+      const chosen = sampleVideos.find((v) => v.id === 'video-sample');
+      filteredSamples = chosen ? [chosen] : sampleVideos.slice(0, 1);
     }
 
-    return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+    return [...filteredPipeline, ...filteredSamples];
+  }, [data, pipelineVideos, serverAssignments]);
 
   const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
   const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);

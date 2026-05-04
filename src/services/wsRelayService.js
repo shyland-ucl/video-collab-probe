@@ -42,13 +42,22 @@ class WsRelayService {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = `${protocol}//${window.location.host}/__ws_relay`;
 
-    this.ws = new WebSocket(url);
+    // Use a local `ws` reference for every listener. Under React StrictMode
+    // (and any rapid disconnect/reconnect cycle) `this.ws` can be replaced
+    // by a newer socket before the old one's events fire, which previously
+    // caused `this.ws?.send(...)` in the open handler to target a not-yet-
+    // open new socket and throw InvalidStateError. The `this.ws !== ws`
+    // guard makes every callback ignore events from a stale socket.
+    const ws = new WebSocket(url);
+    this.ws = ws;
 
-    this.ws.addEventListener('open', () => {
-      this.ws?.send(JSON.stringify({ type: 'JOIN', role }));
+    ws.addEventListener('open', () => {
+      if (this.ws !== ws) return;
+      ws.send(JSON.stringify({ type: 'JOIN', role }));
     });
 
-    this.ws.addEventListener('message', (event) => {
+    ws.addEventListener('message', (event) => {
+      if (this.ws !== ws) return;
       let msg;
       try {
         msg = JSON.parse(event.data);
@@ -69,11 +78,20 @@ class WsRelayService {
       this.onDataCallbacks.forEach((cb) => cb(msg));
     });
 
-    this.ws.addEventListener('close', () => {
+    ws.addEventListener('close', () => {
+      if (this.ws !== ws) return;
       this._emitDisconnected();
     });
 
-    this.ws.addEventListener('error', (err) => {
+    ws.addEventListener('error', (err) => {
+      // Suppress noise from a socket that's already being torn down (or
+      // has been superseded by a newer socket — happens under React
+      // StrictMode's intentional double-mount in dev). Real errors on
+      // the active socket still surface.
+      const tearingDown = ws.readyState === WebSocket.CLOSING
+        || ws.readyState === WebSocket.CLOSED;
+      if (tearingDown) return;
+      if (this.ws !== ws) return;
       console.error('WS relay error:', err);
     });
   }
@@ -111,7 +129,23 @@ class WsRelayService {
     // onData/onConnected/onDisconnected. Persistent listeners (e.g. the
     // event-broadcast wiring inside EventLoggerProvider) need to survive
     // page transitions where one page disconnects and the next reconnects.
-    this.ws?.close();
+    //
+    // Closing while the socket is still CONNECTING throws a browser-side
+    // error ("WebSocket is closed before the connection is established").
+    // This happens under React StrictMode's intentional double-mount in
+    // dev. Defer the close to the open event so the handshake completes
+    // before we tear down — the close still happens, just without the
+    // noisy error.
+    const ws = this.ws;
+    if (ws) {
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.addEventListener('open', () => {
+          try { ws.close(); } catch { /* ignore */ }
+        }, { once: true });
+      } else if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+    }
     this.ws = null;
     this.isPeerConnected = false;
   }

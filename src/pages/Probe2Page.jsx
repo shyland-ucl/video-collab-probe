@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
-import { loadPipelineVideos } from '../services/pipelineApi.js';
+import { loadPipelineVideos, fetchAssignments } from '../services/pipelineApi.js';
+import { findAssignmentsForDyad } from '../utils/dyadId.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -69,11 +70,21 @@ export default function Probe2Page() {
   // change should be visible in the creator's playback too).
   const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
 
+  // Server-side dyad assignments — see Probe1Page for rationale.
+  const [serverAssignments, setServerAssignments] = useState(null);
+
   useEffect(() => {
     setCondition('probe2a');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe2a' });
     loadDescriptions().then(setData).catch(console.error);
     loadPipelineVideos().then(setPipelineVideos).catch(() => {});
+    fetchAssignments()
+      .then((a) => setServerAssignments(a || {}))
+      .catch(() => {
+        try {
+          setServerAssignments(JSON.parse(localStorage.getItem('pipelineAssignments') || '{}'));
+        } catch { setServerAssignments({}); }
+      });
     // Always restore the announcer on unmount in case the participant
     // navigates away while the device is still in helper mode.
     return () => { setAnnouncerMuted(false); };
@@ -147,18 +158,33 @@ export default function Probe2Page() {
     } catch { return []; }
   }, [sessionDyadId]);
 
-  // Library candidates: pipeline (filtered by assignment) + sample.
+  // Library candidates: pipeline (filtered by server assignment) + sample.
   const libraryVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
+
+    let dyadId = null;
+    let assignedIds = [];
+    try {
+      const cfg = JSON.parse(localStorage.getItem('sessionConfig') || '{}');
+      dyadId = (cfg.dyadId || '').trim() || null;
+      if (dyadId && serverAssignments) {
+        assignedIds = findAssignmentsForDyad(serverAssignments, dyadId);
+      }
+    } catch { /* fall through */ }
+
     let filteredPipeline = pipelineVideos;
-    if (sessionDyadId && assignedProjectIds.length > 0) {
+    let filteredSamples = sampleVideos;
+    if (dyadId && serverAssignments) {
       filteredPipeline = pipelineVideos.filter(
-        (v) => assignedProjectIds.includes(v._projectId)
-          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+        (v) => assignedIds.includes(v._projectId)
+          || assignedIds.includes(`pipeline-${v._projectId}`)
+          || assignedIds.includes(v.id)
       );
+      const chosen = sampleVideos.find((v) => v.id === 'video-sample');
+      filteredSamples = chosen ? [chosen] : sampleVideos.slice(0, 1);
     }
-    return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+    return [...filteredPipeline, ...filteredSamples];
+  }, [data, pipelineVideos, serverAssignments]);
 
   // The "active" project data — once a selection has been imported, narrow
   // to it; otherwise use the full sample dataset (used during the library

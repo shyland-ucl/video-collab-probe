@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { createProject, readProject, writeProject, listProjects, deleteProject } from './pipeline/services/projectStore.js';
 import { getVideoMeta, segmentVideo, resegment } from './pipeline/services/segmentation.js';
 import { generateDescriptions, generateVideoMeta } from './pipeline/services/geminiDescriptions.js';
+import { readAssignments, writeAssignments } from './pipeline/services/assignmentsStore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -312,6 +313,28 @@ export default function pipelinePlugin() {
           res.json(probeData);
         } catch (err) {
           res.status(500).json({ error: err.message });
+        }
+      });
+
+      // ── Dyad → project assignments (server-side, cross-origin) ──
+      // Replaces the per-origin localStorage scheme so the researcher
+      // dashboard on one origin and probe pages on another (LAN IP /
+      // tunnel) share the same assignment table.
+      app.get('/assignments', async (req, res) => {
+        try {
+          res.json(await readAssignments(WORKSPACE));
+        } catch (err) {
+          res.status(500).json({ error: err.message });
+        }
+      });
+
+      app.put('/assignments', async (req, res) => {
+        try {
+          const body = req.body || {};
+          await writeAssignments(WORKSPACE, body);
+          res.json({ ok: true, assignments: body });
+        } catch (err) {
+          res.status(400).json({ error: err.message });
         }
       });
 

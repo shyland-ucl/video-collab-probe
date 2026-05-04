@@ -1,0 +1,191 @@
+================================================================
+TASK: PROBE 3 SUGGESTION BANK GENERATION (multimodal video input)
+================================================================
+
+You are given an entire short video (typically 15 to 90 seconds) that a
+blind or low-vision creator has filmed and wants to edit. Unlike the
+description-generation task, you have access to the full video stream
+(visual + audio + temporal motion), not just a single keyframe per
+segment. Use that to spot things a single frame cannot show:
+continuity, pacing, audio glitches, motion problems, repetition,
+moments that change.
+
+Your job is to produce a small bank of 6 to 8 observations the creator
+could act on during editing.
+
+================================================================
+HOW THIS BANK WILL BE USED
+================================================================
+
+This bank is for the third condition of a research probe study. During
+the session a researcher will deploy the suggestions one at a time to
+the creator. The creator does not see all suggestions at once, and
+they cannot apply any suggestion directly. For each one, they pick
+one of four routes:
+
+  - I'll Do It (route to themselves)
+  - Ask AI to Fix (route to the AI)
+  - Ask [helper name] to fix (route to their sighted helper)
+  - Dismiss
+
+Therefore each suggestion must:
+
+  1. Stand alone without context from the other suggestions.
+  2. Read naturally regardless of which of the four routes is chosen.
+  3. Describe an observation the creator can decide what to do with —
+     not a directive instruction. ("Scene 4 has a phone in the
+     foreground that obstructs the stage" reads well with all four
+     routes; "Trim scene 4 to remove the foreground obstruction" only
+     reads well with two of them.)
+
+================================================================
+THREE CATEGORIES (you must produce at least one of each)
+================================================================
+
+ISSUE FLAGS — technical problems the creator probably wants to fix.
+  Examples: motion blur on the subject, persistent over- or
+  underexposure, focus pull on the wrong subject, foreground
+  obstructions, distracting audio glitches, jarring jump cuts that
+  appear unintentional, sustained handheld shake.
+  Reserve this category for things that are objectively wrong, not
+  things that are merely stylistic choices.
+
+STRUCTURAL — observations about how the video is organised as a
+whole. The temporal-aware view is the point of this category.
+  Examples: a single shot that runs almost unchanged for the entire
+  clip and might be trimmed; the most visually distinct moment
+  arrives last and might be moved earlier; two segments cover the
+  same content; the opening takes longer than necessary to establish
+  the scene.
+
+CREATIVE — aesthetic observations the creator might want to consider.
+  Examples: the framing stays at one distance throughout (variety),
+  no clear opening or closing beat, opportunities for an inserted
+  cutaway, lighting changes that could be emphasised or smoothed.
+  Frame these as openings to consider, not problems.
+
+================================================================
+WRITING RULES
+================================================================
+
+1. Each suggestion is one sentence, 12 to 30 words. Concise.
+
+2. Tie each suggestion to a specific scene index (zero-based) using
+   `relatedScene`. Use an array of indices when the observation spans
+   multiple segments (e.g. "Scenes 3 and 4 cover the same...").
+   REQUIRED: `relatedScene` must reference at least one valid index
+   from the segments list. Do NOT default every suggestion to
+   `relatedScene: 0` — that means you have ignored the segmentation.
+   If the segments list is missing or empty, return
+   {"error": "segments list required"} and produce no suggestions.
+
+3. Be observational, not directive. Lead with what is visible or
+   audible; let the creator decide the action.
+   GOOD: "Scene 1 has visible motion blur on the foreground figure
+   that obscures the stage."
+   BAD: "Trim scene 1 because of motion blur."
+
+   Imply an action without naming one. Every suggestion must point at
+   at least one editorial opening the creator could take (trim,
+   reorder, add cutaway, add caption, change framing, smooth a
+   transition, etc.) without prescribing the specific action. Pure
+   state-of-the-shot observations with no implied direction are too
+   inert and waste a bank slot.
+   INERT: "The framing remains a wide shot, with no close-ups."
+   LIVE: "Every scene is framed at the same wide distance from one
+   camera position; varied framing or a cutaway could improve visual
+   rhythm."
+
+4. Stay factual. Do not invent text on screen, brand names, song
+   titles, lyrics, or activity types. If a piece of text is unclear,
+   describe it as unclear; do not transcribe a guess. If you cannot
+   identify whether someone is singing or speaking from the audio,
+   say "performing" or "addressing the audience" rather than asserting
+   the content type.
+
+5. Audio-aware but visually grounded. You can hear the audio in the
+   video. If you flag an audio issue (clipping, sudden cut, wind
+   noise), say so plainly. Do not flag stylistic audio choices.
+
+   Activity-naming guard: when a person on stage is holding a
+   microphone, NEVER call them "the speaker" or describe what they
+   say as a "spoken interaction" unless you can clearly distinguish
+   spoken-word content from singing in the audio. Default to "the
+   performer" / "the singer" / "performing" / "singing into the
+   microphone". If the audio shifts from singing to speaking
+   (or vice versa) at a specific moment, that is itself a useful
+   structural observation — describe the shift, do not retroactively
+   relabel one half as "spoken" and the other as "musical".
+
+6. Colour names: use direct colour names for stage and event
+   lighting — magenta, purple, green, orange, blue. Do NOT use
+   "pink", "warm", "cool" for stage lighting; reserve warm/cool
+   only for naturalistic light. This stays consistent with the
+   description track on the same video.
+
+7. Apply the same general style rules as the description-generation
+   task: present tense, third person, no editorialising ("beautiful",
+   "stunning", "poorly framed"), no narrative purpose inference ("the
+   creator intends to...", "this establishes..."), no prefatory
+   phrases ("the video shows...", "we can see...").
+
+8. Do not duplicate observations — across segments OR across
+   suggestions in the bank.
+   - Cross-segment: if two segments share the same issue, write one
+     suggestion that names both via the `relatedScene` array.
+   - Within-bank: if two suggestions point at the same underlying
+     property of the video (e.g. "monotonous framing" restated as a
+     framing observation, a single-shot observation, and a
+     no-close-ups observation), keep one and use the remaining bank
+     slots for genuinely different observations. The bank should
+     surface diverse editing openings, not the same opening rephrased
+     multiple ways.
+
+9. Distribute across categories. Aim for roughly:
+     2 to 3 issue flags
+     2 to 3 structural
+     2 to 3 creative
+   Total 6 to 8. Always include at least one of each. If the video
+   genuinely lacks material in a category (e.g. no technical issues
+   at all), produce only one item there and stretch the others.
+
+================================================================
+INPUT YOU WILL RECEIVE
+================================================================
+
+You will be given:
+  - The full video file as a multimodal input.
+  - A `segments` list with each segment's id, index (zero-based),
+    label, start_seconds, and end_seconds. Use these for
+    `relatedScene` references — the index field is what you cite.
+
+Optional context the researcher may also pass through:
+  - `creator_goals`: 2 to 3 free-text things the creator said they
+    wanted to "change or get right" about this video. If present, let
+    these guide your selection — favour suggestions that touch the
+    creator's stated goals — but do not invent observations that
+    aren't supported by what's in the video.
+
+================================================================
+OUTPUT FORMAT
+================================================================
+
+Respond with valid JSON only, matching this schema exactly. Do not
+wrap in markdown code fences. Do not include preamble or explanation.
+
+{
+  "suggestions": [
+    {
+      "id": "sug_001",
+      "category": "issue" | "structural" | "creative",
+      "text": "string — one observational sentence, 12 to 30 words",
+      "relatedScene": 0 | [0, 1] | etc.
+    }
+  ]
+}
+
+`id` values are zero-padded sequential strings (`sug_001`, `sug_002`,
+…). `relatedScene` is either a single integer or an array of integers
+referring to segment `index` values.
+
+Produce 6 to 8 items. No more, no fewer.

@@ -6,6 +6,7 @@ import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../u
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
 import VoiceNoteRecorder from './VoiceNoteRecorder.jsx';
+import useSceneSoundPlayback from '../../hooks/useSceneSoundPlayback.js';
 // MarkList removed — marks still logged but no longer shown in UI
 
 export default function CreatorMode({
@@ -32,6 +33,9 @@ export default function CreatorMode({
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
   const computedSources = useMemo(() => buildInitialSources(videoData), [videoData]);
   const audioPlayerRef = useRef(null);
+
+  // Drive placeholder sound playback while a clip with attached audio plays.
+  useSceneSoundPlayback({ editState, currentTime, isPlaying, segments });
 
   // Track which segment we're marking a voice note for
   const [recordingForSegment, setRecordingForSegment] = useState(null);

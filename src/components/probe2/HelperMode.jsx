@@ -11,6 +11,7 @@ import MockColourControls from '../shared/MockColourControls.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
 import useTextOverlay from '../../hooks/useTextOverlay.js';
+import useSceneSoundPlayback from '../../hooks/useSceneSoundPlayback.js';
 
 export default function HelperMode({
   playerRef,
@@ -74,6 +75,9 @@ export default function HelperMode({
 
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
+
+  // Drive placeholder sound playback while a clip with attached audio plays.
+  useSceneSoundPlayback({ editState: playbackEditState || editState, currentTime, isPlaying, segments });
 
   const handleReturnClick = useCallback(() => {
     returnModalTriggerRef.current = document.activeElement;
@@ -185,7 +189,8 @@ export default function HelperMode({
         />
       )}
 
-      {/* Colour & Framing Controls */}
+      {/* Colour & Framing Controls. Sound now lives on the editor
+          toolbar (alongside Add Caption / T Text in MockEditorVisual). */}
       <div
         role="region"
         aria-label="Visual adjustments"

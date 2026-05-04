@@ -40,6 +40,11 @@ export default function SceneBlock({
   // (availability is captured by EDIT_STATE_UPDATE). Safe no-op if absent
   // so SceneBlock stays usable in probes that don't surface awareness.
   onAwarenessViewed,
+  // True if this scene has an AI suggestion attached (Probe 3 only, after
+  // analysis trigger). Renders a small purple AI badge in the header and
+  // appends "AI suggestion available" to the aria-label so a TalkBack
+  // creator can find the scenes worth opening by swiping the scene list.
+  hasSuggestion = false,
 }) {
   const actionsRef = useRef(null);
   const { audioEnabled, speechRate } = useAccessibility();
@@ -115,6 +120,7 @@ export default function SceneBlock({
           override of M3 trade-off, 2026-04-26). */}
       <button
         ref={headerRef}
+        data-scene-index={index}
         onClick={() => {
           if (isExpanded) {
             onCollapse();
@@ -127,12 +133,15 @@ export default function SceneBlock({
         aria-label={
           `Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ` +
           (isRemoved ? 'Removed from edit. ' : '') +
+          (hasSuggestion ? 'AI suggestion available. ' : '') +
           (description ? `${description} ` : '') +
           (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
         }
         className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
           isExpanded ? 'border-b-2' : ''
-        } ${isRemoved ? 'bg-gray-50 opacity-60' : ''}`}
+        } ${isRemoved ? 'bg-gray-50 opacity-60' : ''} ${
+          hasSuggestion && !isRemoved ? 'ring-2 ring-purple-300 ring-offset-1' : ''
+        }`}
         style={isExpanded ? { borderBottomColor: accentColor, minHeight: '48px' } : { minHeight: '48px' }}
       >
         {/* Scene header row */}
@@ -146,6 +155,14 @@ export default function SceneBlock({
             <span className={`font-medium text-sm truncate ${isRemoved ? 'line-through text-gray-500' : ''}`}>
               {scene.name}
             </span>
+            {hasSuggestion && !isRemoved && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700 flex-shrink-0"
+                aria-hidden="true"
+              >
+                <span className="mr-0.5">✨</span>AI
+              </span>
+            )}
             {isRemoved && (
               <span
                 className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 flex-shrink-0"
@@ -333,9 +350,9 @@ export default function SceneBlock({
             onClick={onCollapse}
             className="w-full mt-3 py-2 text-sm text-gray-600 hover:text-gray-900 font-medium rounded border border-gray-200 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
             style={{ minHeight: '44px' }}
-            aria-label="Close scene actions"
+            aria-label="Back to scene description"
           >
-            Close
+            Back
           </button>
         </div>
       )}

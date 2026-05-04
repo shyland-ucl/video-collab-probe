@@ -10,6 +10,7 @@ import ActivityFeed from '../probe3/ActivityFeed.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
 import useTextOverlay from '../../hooks/useTextOverlay.js';
+import useSceneSoundPlayback from '../../hooks/useSceneSoundPlayback.js';
 
 export default function DecoupledHelperDevice({
   condition = 'probe2b',
@@ -62,6 +63,9 @@ export default function DecoupledHelperDevice({
   });
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
+
+  // Drive placeholder sound playback while a clip with attached audio plays.
+  useSceneSoundPlayback({ editState: playbackEditState || editState, currentTime, isPlaying, segments });
 
   // Visual toast for peer edits
   const [toastVisible, setToastVisible] = useState(false);
@@ -213,7 +217,9 @@ export default function DecoupledHelperDevice({
         />
       )}
 
-      {/* Colour & Framing Controls */}
+      {/* Colour & Framing Controls. Sound now lives on the editor
+          toolbar (alongside Add Caption / T Text in MockEditorVisual)
+          rather than as a separate card here — request 2026-05-04. */}
       <div
         role="region"
         aria-label="Visual adjustments"

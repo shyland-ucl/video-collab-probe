@@ -8,7 +8,11 @@ import {
   deleteClip,
   getClipForScene,
   getCaptionsForScene,
+  setClipSound,
+  getSoundForScene,
+  SOUND_LIBRARY,
 } from '../../utils/sceneEditOps.js';
+import { previewSound } from '../../services/sampleSounds.js';
 
 /**
  * Scene-block-scoped self-edit panel for BLV creators. Shared by Probe 2a and
@@ -36,6 +40,7 @@ export default function EditByMyselfPanel({
 
   const clip = getClipForScene(editState, scene.id);
   const captions = getCaptionsForScene(editState, scene.id);
+  const currentSound = getSoundForScene(editState, scene.id);
   const editsAvailable = !!editState && !!clip && typeof onEditChange === 'function';
   const clipCountForScene = (editState?.clips || []).filter(
     (c) => c.id === scene.id || (typeof c.id === 'string' && c.id.startsWith(`${scene.id}-split-`))
@@ -79,15 +84,15 @@ export default function EditByMyselfPanel({
 
       <div role="group" aria-label={`Edit operations for scene ${index + 1}`} className="space-y-2">
         <Section
-          label={`Split${clipCountForScene > 1 ? ` (${clipCountForScene} clips)` : ''}`}
+          label={`Trim${clipCountForScene > 1 ? ` (${clipCountForScene} clips)` : ''}`}
           open={openSection === 'split'}
           onToggle={() => setOpenSection((v) => (v === 'split' ? null : 'split'))}
-          ariaPrefix="Split"
+          ariaPrefix="Trim"
         >
           <p className="text-sm text-gray-600 mb-2">
-            Splits this scene into two clips at the current playback time, or at
-            the midpoint if the video isn't playing. Pair with Remove to drop
-            part of a scene.
+            Trims this scene at the current playback time, or at the midpoint
+            if the video isn't playing. The scene is split into two clips —
+            pair with Remove to drop the part you don't want.
           </p>
           <p
             className="text-xs text-gray-500 mb-2"
@@ -100,13 +105,13 @@ export default function EditByMyselfPanel({
             onClick={() => {
               const at = (clip && currentTime > clip.startTime && currentTime < clip.endTime) ? currentTime : null;
               apply((s) => splitClip(s, scene.id, at), 'split', { splitAt: at ?? 'midpoint' });
-              announce(`Scene ${index + 1} split into two clips.`);
+              announce(`Scene ${index + 1} trimmed at this point.`);
             }}
             disabled={!editsAvailable}
             className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
             style={{ minHeight: '44px' }}
           >
-            Split here
+            Trim here
           </button>
         </Section>
 
@@ -173,6 +178,97 @@ export default function EditByMyselfPanel({
           >
             Add caption
           </button>
+        </Section>
+
+        <Section
+          label={`Add sound${currentSound ? ` (${currentSound.name})` : ''}`}
+          open={openSection === 'sound'}
+          onToggle={() => setOpenSection((v) => (v === 'sound' ? null : 'sound'))}
+          ariaPrefix="Add sound"
+        >
+          <p className="text-sm text-gray-600 mb-2">
+            Add a placeholder sound or music track to this scene. Sample
+            audio plays when you add it so you can hear what you're attaching.
+          </p>
+          {currentSound && (
+            <p
+              className="text-sm text-gray-800 bg-purple-50 border border-purple-200 rounded px-3 py-2 mb-2"
+              role="status"
+              aria-label={`Current sound on scene ${index + 1}: ${currentSound.name}`}
+            >
+              <span aria-hidden="true">🎶 </span>
+              Current sound: <span className="font-medium">{currentSound.name}</span>
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {SOUND_LIBRARY.map((sound) => {
+              const active = currentSound?.id === sound.id;
+              return (
+                <button
+                  key={sound.id}
+                  onClick={() => {
+                    apply(
+                      (s) => setClipSound(s, scene.id, { ...sound, addedBy: 'creator' }),
+                      'add_sound',
+                      { soundId: sound.id, soundName: sound.name },
+                    );
+                    if (logEvent) {
+                      logEvent(EventTypes.ADD_SOUND, Actors.CREATOR, {
+                        segmentId: scene.id, soundId: sound.id, soundName: sound.name,
+                      });
+                    }
+                    previewSound(sound.id);
+                    announce(`${sound.name} added to scene ${index + 1}.`);
+                  }}
+                  disabled={!editsAvailable}
+                  aria-pressed={active}
+                  aria-label={`Add ${sound.name} to scene ${index + 1}${active ? ', already added' : ''}`}
+                  className={`py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+                    active
+                      ? 'bg-purple-600 text-white border-purple-700'
+                      : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+                  } disabled:opacity-50`}
+                  style={{ minHeight: '44px' }}
+                >
+                  {sound.label}
+                </button>
+              );
+            })}
+          </div>
+          {currentSound && (
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <button
+                onClick={() => {
+                  previewSound(currentSound.id);
+                  announce(`Previewing ${currentSound.name}.`);
+                }}
+                className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ minHeight: '44px' }}
+                aria-label={`Preview ${currentSound.name}`}
+              >
+                <span aria-hidden="true">▶ </span>Preview
+              </button>
+              <button
+                onClick={() => {
+                  apply((s) => setClipSound(s, scene.id, null), 'remove_sound', {
+                    soundId: currentSound.id,
+                  });
+                  if (logEvent) {
+                    logEvent(EventTypes.REMOVE_SOUND, Actors.CREATOR, {
+                      segmentId: scene.id, soundId: currentSound.id,
+                    });
+                  }
+                  announce(`Sound removed from scene ${index + 1}.`);
+                }}
+                disabled={!editsAvailable}
+                className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                style={{ minHeight: '44px' }}
+                aria-label={`Remove sound from scene ${index + 1}`}
+              >
+                Remove
+              </button>
+            </div>
+          )}
         </Section>
       </div>
 

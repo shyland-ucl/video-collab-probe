@@ -127,6 +127,43 @@ export function deleteClip(editState, sceneId) {
 }
 
 /**
+ * Sound library — placeholder catalogue surfaced to both creator and helper.
+ * Replace with real audio assets when the feature graduates from placeholder.
+ */
+export const SOUND_LIBRARY = [
+  { id: 'background_music', name: 'Background music', label: '🎵 Music' },
+  { id: 'sound_effect', name: 'Sound effect', label: '🔊 Effect' },
+];
+
+export function getSoundById(soundId) {
+  return SOUND_LIBRARY.find((s) => s.id === soundId) || null;
+}
+
+/**
+ * Attach a sound entry to a clip (or all clips matching a scene id after split).
+ * Pass `sound = null` to clear. Sound shape: { id, name, addedBy }.
+ *
+ * Splits create new clip ids of the form `${sceneId}-split-${ts}`; we update
+ * every clip that originated from sceneId so post-split timelines stay in sync.
+ */
+export function setClipSound(editState, sceneId, sound) {
+  const clips = (editState.clips || []).map((c) => {
+    const matches = c.id === sceneId
+      || (typeof c.id === 'string' && c.id.startsWith(`${sceneId}-split-`));
+    return matches ? { ...c, sound: sound || null } : c;
+  });
+  return { ...editState, clips };
+}
+
+export function getSoundForScene(editState, sceneId) {
+  const clip = (editState?.clips || []).find(
+    (c) => c.id === sceneId
+      || (typeof c.id === 'string' && c.id.startsWith(`${sceneId}-split-`))
+  );
+  return clip?.sound || null;
+}
+
+/**
  * Single dispatcher for both AI-accept and self-edit paths. Maps a free-form
  * operation key (from `ai_edits_prepared` keys, Gemini drafts, or self-edit
  * buttons) to the matching scene-edit op. Returns a new editState; never
@@ -162,6 +199,15 @@ export function applyOperation(editState, sceneId, operation, options = {}) {
     case 'add_caption':
     case 'caption':
       return addCaption(editState, sceneId, options.captionText || 'AI-added caption');
+    case 'add_sound':
+    case 'sound': {
+      const sound = options.sound
+        || getSoundById(options.soundId)
+        || SOUND_LIBRARY[0];
+      return setClipSound(editState, sceneId, { ...sound, addedBy: options.addedBy || 'ai' });
+    }
+    case 'remove_sound':
+      return setClipSound(editState, sceneId, null);
     default:
       return editState;
   }

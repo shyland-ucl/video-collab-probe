@@ -222,7 +222,7 @@ export default function Probe2bSceneActions({
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: accentColor, minHeight: '48px' }}
         >
-          {showSendHelper ? 'Cancel' : `Ask ${helperName} to edit`}
+          {showSendHelper ? 'Close Helper Edit' : 'Ask Helper to Edit'}
         </button>
         {showSendHelper && (
           <TaskRouterPanel

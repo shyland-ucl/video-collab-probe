@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
-import { loadPipelineVideos } from '../services/pipelineApi.js';
+import { loadPipelineVideos, fetchAssignments } from '../services/pipelineApi.js';
+import { findAssignmentsForDyad } from '../utils/dyadId.js';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -20,6 +21,9 @@ import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import SceneBlockList from '../components/shared/SceneBlockList.jsx';
 import Probe3SceneActions from '../components/probe3/Probe3SceneActions.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
+import AIAnalysisTriggerCard from '../components/probe3/AIAnalysisTriggerCard.jsx';
+import { playEarcon } from '../utils/earcon.js';
+import { curateSuggestions } from '../utils/curateSuggestions.js';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
@@ -68,6 +72,8 @@ export default function Probe3Page() {
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
   const [pipelineVideos, setPipelineVideos] = useState([]);
+  // Server-side dyad assignments — see Probe1Page for rationale.
+  const [serverAssignments, setServerAssignments] = useState(null);
   const { audioEnabled, speechRate } = useAccessibility();
 
   // Suggestion system state
@@ -78,11 +84,25 @@ export default function Probe3Page() {
   const suggestionDeployTimeRef = useRef({});
   const autoSuggestionTimeoutRef = useRef(null);
 
+  // Participant-triggered AI analysis (Probe 3 v2 — replaces wizard
+  // single-suggestion deployment). One-shot per session; either side
+  // can trigger and the other side mirrors via WS.
+  const [analysisTriggered, setAnalysisTriggered] = useState(false);
+  const [analysisInProgress, setAnalysisInProgress] = useState(false);
+  const [analysisTriggeredBy, setAnalysisTriggeredBy] = useState(null);
+
   useEffect(() => {
     setCondition('probe3');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe3' });
     loadDescriptions().then(setData).catch(console.error);
     loadPipelineVideos().then(setPipelineVideos).catch(() => {});
+    fetchAssignments()
+      .then((a) => setServerAssignments(a || {}))
+      .catch(() => {
+        try {
+          setServerAssignments(JSON.parse(localStorage.getItem('pipelineAssignments') || '{}'));
+        } catch { setServerAssignments({}); }
+      });
   }, [setCondition, logEvent]);
 
   // Resolve pipeline-video assignments for the current dyad (researcher
@@ -120,6 +140,26 @@ export default function Probe3Page() {
     }
     return merged;
   }, [selectedVideos]);
+
+  // Top-3 curation — issue > structural > creative, one per scene.
+  // The full bank from project.json stays available for the wizard
+  // panel; participants only see this narrowed view.
+  const curatedSuggestions = useMemo(
+    () => curateSuggestions(videoSuggestions, 3),
+    [videoSuggestions],
+  );
+
+  // Set of scene indices that carry a curated suggestion. Surfaced into
+  // SceneBlockList so each block can show the "✨ AI" badge + ring on
+  // exactly the scenes worth opening. Empty until analysisTriggered.
+  const sceneIndicesWithSuggestions = useMemo(() => {
+    if (!analysisTriggered) return new Set();
+    return new Set(
+      curatedSuggestions
+        .map((s) => (Array.isArray(s.relatedScene) ? s.relatedScene[0] : s.relatedScene))
+        .filter((i) => typeof i === 'number'),
+    );
+  }, [analysisTriggered, curatedSuggestions]);
 
   const projectData = useMemo(() => {
     // selectedVideos is an array of full video objects (sample or pipeline)
@@ -169,16 +209,30 @@ export default function Probe3Page() {
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
 
+    let dyadId = null;
+    let assignedIds = [];
+    try {
+      const cfg = JSON.parse(localStorage.getItem('sessionConfig') || '{}');
+      dyadId = (cfg.dyadId || '').trim() || null;
+      if (dyadId && serverAssignments) {
+        assignedIds = findAssignmentsForDyad(serverAssignments, dyadId);
+      }
+    } catch { /* fall through */ }
+
     let filteredPipeline = pipelineVideos;
-    if (sessionDyadId && assignedProjectIds.length > 0) {
+    let filteredSamples = sampleVideos;
+    if (dyadId && serverAssignments) {
       filteredPipeline = pipelineVideos.filter(
-        (v) => assignedProjectIds.includes(v._projectId)
-          || assignedProjectIds.includes(`pipeline-${v._projectId}`)
+        (v) => assignedIds.includes(v._projectId)
+          || assignedIds.includes(`pipeline-${v._projectId}`)
+          || assignedIds.includes(v.id)
       );
+      const chosen = sampleVideos.find((v) => v.id === 'video-sample');
+      filteredSamples = chosen ? [chosen] : sampleVideos.slice(0, 1);
     }
 
-    return [...filteredPipeline, ...sampleVideos];
-  }, [data, pipelineVideos, sessionDyadId, assignedProjectIds]);
+    return [...filteredPipeline, ...filteredSamples];
+  }, [data, pipelineVideos, serverAssignments]);
 
   useEffect(() => {
     if (phase !== 'active') return;
@@ -385,6 +439,73 @@ export default function Probe3Page() {
     deploySuggestion(suggestion, Actors.RESEARCHER, 'researcher');
   }, [deploySuggestion]);
 
+  // Participant-triggered AI analysis sequence. Local-only — the
+  // WS broadcast happens in handleTriggerAnalysis once on the side
+  // that initiates. The other side calls runAnalysisSequence(false)
+  // (no rebroadcast) when it receives the AI_ANALYSIS_TRIGGERED msg.
+  const runAnalysisSequence = useCallback((triggerActor) => {
+    if (analysisTriggered || analysisInProgress) return;
+    setAnalysisInProgress(true);
+    setAnalysisTriggeredBy(triggerActor);
+    const intro = 'The AI is analysing your video. This may take a moment.';
+    announce(intro);
+    if (audioEnabled) ttsService.speak(intro, { rate: speechRate });
+
+    // ~3s simulated thinking, then surface the curated bank
+    setTimeout(() => {
+      setAnalysisInProgress(false);
+      setAnalysisTriggered(true);
+      try { playEarcon(880, 200); } catch { /* ignore */ }
+      const sceneCount = curatedSuggestions.length;
+      const done = sceneCount > 0
+        ? `AI analysis complete. ${sceneCount} suggestion${sceneCount === 1 ? '' : 's'} now available next to the relevant scenes.`
+        : 'AI analysis complete. No suggestions surfaced for this video.';
+      announce(done);
+      if (audioEnabled) ttsService.speak(done, { rate: speechRate });
+
+      // Focus + scroll the first suggested scene into view (creator only —
+      // the helper view doesn't have scene blocks, the suggestions render
+      // in the trigger-card list instead). Wait one paint so the badge +
+      // ring decorations have rendered before focus lands.
+      if (role === 'creator' && sceneCount > 0) {
+        const firstIdx = (() => {
+          for (const s of curatedSuggestions) {
+            const i = Array.isArray(s.relatedScene) ? s.relatedScene[0] : s.relatedScene;
+            if (typeof i === 'number') return i;
+          }
+          return null;
+        })();
+        if (firstIdx != null) {
+          requestAnimationFrame(() => {
+            const target = document.querySelector(`[data-scene-index="${firstIdx}"]`);
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Slight delay so the scroll completes before focus —
+              // otherwise iOS Safari sometimes cancels the scroll.
+              setTimeout(() => target.focus({ preventScroll: true }), 250);
+            }
+          });
+        }
+      }
+    }, 3000);
+  }, [analysisTriggered, analysisInProgress, curatedSuggestions, audioEnabled, speechRate, role]);
+
+  const handleTriggerAnalysis = useCallback(() => {
+    if (analysisTriggered || analysisInProgress) return;
+    const triggerActor = role; // 'creator' or 'helper'
+    // Broadcast first so the peer's animation lines up with ours.
+    wsRelayService.sendData({
+      type: 'AI_ANALYSIS_TRIGGERED',
+      triggerActor,
+      triggeredAt: Date.now(),
+    });
+    logEvent(EventTypes.AI_ANALYSIS_TRIGGERED, role === 'creator' ? Actors.CREATOR : Actors.HELPER, {
+      bankSize: videoSuggestions.length,        // full bank
+      curatedSize: curatedSuggestions.length,   // surfaced to participant
+    });
+    runAnalysisSequence(triggerActor);
+  }, [analysisTriggered, analysisInProgress, role, videoSuggestions.length, curatedSuggestions.length, logEvent, runAnalysisSequence]);
+
   useEffect(() => {
     if (role !== 'creator' || phase !== 'active' || !currentSegment || activeSuggestion) return undefined;
 
@@ -426,6 +547,12 @@ export default function Probe3Page() {
 
     unsubscribeRef.current.data = wsRelayService.onData((msg) => {
       switch (msg.type) {
+        case 'AI_ANALYSIS_TRIGGERED':
+          // Peer triggered the analysis sequence — mirror it locally
+          // without re-broadcasting (would loop). The triggerActor field
+          // is the role that initiated, not the side receiving.
+          runAnalysisSequence(msg.triggerActor || 'creator');
+          break;
         case 'PLAY':
           if (currentRole === 'helper') playerRef.current?.play();
           setCreatorActivities((prev) => [...prev, { timestamp: Date.now(), actor: 'CREATOR', action: 'play', data: `Played at ${formatTime(msg.time)}` }]);
@@ -598,7 +725,7 @@ export default function Probe3Page() {
       const peer = currentRole === 'creator' ? 'Helper' : 'Creator';
       announce(`${peer} joined. Loading shared session.`);
     });
-  }, [clearSubscriptions, logEvent]);
+  }, [clearSubscriptions, logEvent, runAnalysisSequence]);
 
   useEffect(() => {
     if (phase === 'waiting' && connected) setPhase('library');
@@ -831,7 +958,15 @@ export default function Probe3Page() {
           <ConditionHeader condition="probe3" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 3: Proactive AI — Creator"
-            description="This works like the previous two-phone setup, but now AI will suggest improvements inside relevant scenes as you edit. When a suggestion appears, you must choose who handles it: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
+            description="This works like the previous two-phone setup, but now you can ask the AI to analyse the video and suggest improvements. Tap Analyse with AI when you're ready. When suggestions appear inside scenes, you must choose who handles each one: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
+          />
+          <AIAnalysisTriggerCard
+            analysisTriggered={analysisTriggered}
+            analysisInProgress={analysisInProgress}
+            onTrigger={handleTriggerAnalysis}
+            suggestionCount={curatedSuggestions.length}
+            triggeredBy={analysisTriggeredBy}
+            selfRole="creator"
           />
           <div aria-hidden="true" className="px-3 pt-3">
             <VideoPlayer
@@ -862,6 +997,7 @@ export default function Probe3Page() {
             vqaHistories={vqaHistories}
             awarenessData={awarenessData}
             keptScenes={keptScenes}
+            sceneIndicesWithSuggestions={sceneIndicesWithSuggestions}
             onSceneClose={(sceneId) => {
               setVqaHistories((prev) => {
                 if (!(sceneId in prev)) return prev;
@@ -883,9 +1019,9 @@ export default function Probe3Page() {
                 onPause={opp}
                 currentLevel={currentLevel}
                 onLevelChange={onLevelChange}
-                suggestions={videoSuggestions.filter(
-                  (s) => deployedSuggestions[s.id] && !deployedSuggestions[s.id].response
-                )}
+                suggestions={analysisTriggered ? curatedSuggestions.filter(
+                  (s) => !deployedSuggestions[s.id] || !deployedSuggestions[s.id].response
+                ) : []}
                 helperName="helper"
                 onSuggestionRoute={(suggestion, channel) => {
                   // Probe3SceneActions already fires SUGGESTION_ROUTE_*
@@ -971,7 +1107,17 @@ export default function Probe3Page() {
             onAwarenessViewed={handleAwarenessViewed}
             peerEditNotification={peerEditNotification}
             onSuggestionResponse={handleHelperSuggestionResponse}
-          />
+          >
+            <AIAnalysisTriggerCard
+              analysisTriggered={analysisTriggered}
+              analysisInProgress={analysisInProgress}
+              onTrigger={handleTriggerAnalysis}
+              suggestionCount={curatedSuggestions.length}
+              triggeredBy={analysisTriggeredBy}
+              selfRole="helper"
+              curatedSuggestions={curatedSuggestions}
+            />
+          </HelperDevice>
         </div>
       )}
 

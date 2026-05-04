@@ -133,6 +133,14 @@ export const EventTypes = Object.freeze({
   COLOUR_ADJUST: 'COLOUR_ADJUST',
   FRAMING_CHANGE: 'FRAMING_CHANGE',
   AWARENESS_VIEWED: 'AWARENESS_VIEWED',
+
+  // Sound / music (placeholder feature, Probe 2a / 2b / 3)
+  ADD_SOUND: 'ADD_SOUND',
+  REMOVE_SOUND: 'REMOVE_SOUND',
+
+  // Participant-triggered AI analysis (Probe 3 v2 — replaces wizard
+  // single-suggestion deployment with on-demand bank reveal).
+  AI_ANALYSIS_TRIGGERED: 'AI_ANALYSIS_TRIGGERED',
 });
 
 /**

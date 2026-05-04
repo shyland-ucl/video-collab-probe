@@ -6,6 +6,7 @@ import { buildAllSegments, getTotalDuration, buildInitialSources } from '../../u
 import VideoPlayer from '../shared/VideoPlayer.jsx';
 import ExplorationMode from '../probe1/ExplorationMode.jsx';
 import TaskRequestModal from '../probe3/TaskRequestModal.jsx';
+import useSceneSoundPlayback from '../../hooks/useSceneSoundPlayback.js';
 
 export default function DecoupledCreatorDevice({
   condition = 'probe2b',
@@ -29,6 +30,9 @@ export default function DecoupledCreatorDevice({
   const { logEvent } = useEventLogger();
   const segments = useMemo(() => buildAllSegments(videoData), [videoData]);
   const videoDuration = useMemo(() => getTotalDuration(videoData), [videoData]);
+
+  // Drive placeholder sound playback while a clip with attached audio plays.
+  useSceneSoundPlayback({ editState, currentTime, isPlaying, segments });
 
   // Task routing state
   const [taskModalRoute, setTaskModalRoute] = useState(null);

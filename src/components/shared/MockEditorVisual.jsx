@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
+import { SOUND_LIBRARY, setClipSound } from '../../utils/sceneEditOps.js';
+import { previewSound } from '../../services/sampleSounds.js';
 
 // Color palette for sources
 const SOURCE_COLORS = [
@@ -26,6 +28,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   const [redoStack, setRedoStack] = useState([]);
   const [selectedClipIndex, setSelectedClipIndex] = useState(null);
   const [showCaptionEditor, setShowCaptionEditor] = useState(false);
+  const [showSoundPanel, setShowSoundPanel] = useState(false);
   const [captionText, setCaptionText] = useState('');
   const [captionStart, setCaptionStart] = useState(0);
   const [captionEnd, setCaptionEnd] = useState(5);
@@ -629,6 +632,20 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
             </button>
           </>
         )}
+        <div className="border-l border-white/30 h-6 mx-1" aria-hidden="true" />
+        <button
+          onClick={() => setShowSoundPanel((v) => !v)}
+          className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
+            showSoundPanel
+              ? 'bg-[#a855f7] text-white'
+              : 'bg-white/20 text-white border border-white/30 hover:bg-white/30'
+          }`}
+          style={{ minHeight: '44px', minWidth: '44px' }}
+          aria-label={showSoundPanel ? 'Hide sound panel' : 'Show sound panel'}
+          aria-pressed={showSoundPanel}
+        >
+          Sound
+        </button>
         <div className="border-l border-white/30 h-6 mx-1" />
         <ToolbarButton
           onClick={handleUndo}
@@ -909,6 +926,100 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
           )}
         </div>
       )}
+
+      {/* Sound Panel — toolbar-toggled, lives under the timeline next to
+          the Caption Editor so the helper has caption / text / sound all
+          in one place. Targets the currently-selected clip; falls back to
+          the clip under the playhead. */}
+      {showSoundPanel && (() => {
+        const targetIndex = selectedClipIndex != null && selectedClipIndex >= 0 && selectedClipIndex < clips.length
+          ? selectedClipIndex
+          : clips.findIndex((c) => currentTime >= c.startTime && currentTime < c.endTime);
+        const targetClip = targetIndex >= 0 ? clips[targetIndex] : null;
+        const currentSound = targetClip?.sound || null;
+        const targetSceneNumber = targetIndex >= 0 ? targetIndex + 1 : null;
+
+        const applySound = (sound) => {
+          if (!targetClip || !onEditChange) return;
+          const next = setClipSound({ clips, captions, sources }, targetClip.id, sound ? { ...sound, addedBy: 'helper' } : null);
+          if (next === undefined) return;
+          setClips(next.clips);
+          onEditChange(next.clips, next.captions, next.sources);
+          if (logEvent) {
+            const event = sound ? EventTypes.ADD_SOUND : EventTypes.REMOVE_SOUND;
+            logEvent(event, actor, {
+              segmentId: targetClip.id,
+              soundId: sound?.id || currentSound?.id,
+              soundName: sound?.name || currentSound?.name,
+            });
+          }
+          if (sound) previewSound(sound.id);
+          announce(sound
+            ? `${sound.name} added to scene ${targetSceneNumber || '?'}.`
+            : `Sound removed from scene ${targetSceneNumber || '?'}.`);
+        };
+
+        return (
+          <div className="mx-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <h3 className="text-white text-sm font-semibold mb-2">Sound</h3>
+            {targetClip ? (
+              <>
+                <p className="text-white/70 text-xs mb-2">
+                  Target: Scene {targetSceneNumber}
+                  {currentSound && (
+                    <span className="ml-2 inline-block px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200">
+                      🎶 {currentSound.name}
+                    </span>
+                  )}
+                </p>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  {SOUND_LIBRARY.map((sound) => {
+                    const active = currentSound?.id === sound.id;
+                    return (
+                      <button
+                        key={sound.id}
+                        onClick={() => applySound(sound)}
+                        aria-pressed={active}
+                        aria-label={`Add ${sound.name} to scene ${targetSceneNumber}${active ? ', already added' : ''}`}
+                        className={`px-3 py-2 text-xs font-bold rounded transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
+                          active
+                            ? 'bg-[#a855f7] text-white'
+                            : 'bg-white/20 text-white border border-white/30 hover:bg-white/30'
+                        }`}
+                        style={{ minHeight: '44px' }}
+                      >
+                        {sound.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {currentSound && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => { previewSound(currentSound.id); announce(`Previewing ${currentSound.name}.`); }}
+                      className="px-3 py-2 text-xs font-bold bg-white/10 text-white border border-white/30 rounded hover:bg-white/20 focus:outline-2 focus:outline-offset-1 focus:outline-white"
+                      style={{ minHeight: '44px' }}
+                      aria-label={`Preview ${currentSound.name}`}
+                    >
+                      ▶ Preview
+                    </button>
+                    <button
+                      onClick={() => applySound(null)}
+                      className="px-3 py-2 text-xs font-bold bg-white/10 text-white border border-white/30 rounded hover:bg-white/20 focus:outline-2 focus:outline-offset-1 focus:outline-white"
+                      style={{ minHeight: '44px' }}
+                      aria-label={`Remove sound from scene ${targetSceneNumber}`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-white/50 text-xs">Select a clip on the timeline (or play one) to add sound.</p>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

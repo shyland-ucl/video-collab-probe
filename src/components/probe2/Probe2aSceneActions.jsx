@@ -246,7 +246,7 @@ export default function Probe2aSceneActions({
           className="w-full py-3 text-sm font-medium rounded text-white transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ backgroundColor: accentColor, minHeight: '48px' }}
         >
-          {showIntentLocker ? 'Cancel Handover' : 'Ask Helper'}
+          {showIntentLocker ? 'Close Helper Edit' : 'Ask Helper to Edit'}
         </button>
         {showIntentLocker && (
           <div

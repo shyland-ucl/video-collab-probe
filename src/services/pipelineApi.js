@@ -72,6 +72,23 @@ export function getWorkspaceUrl(relativePath) {
 }
 
 /**
+ * Server-side dyad assignments. Replaces the per-origin localStorage
+ * scheme so a researcher on one origin and probe phones on another see
+ * the same data. Returns {} on failure (caller decides whether to fall
+ * back to localStorage cache).
+ */
+export async function fetchAssignments() {
+  return request('/api/pipeline/assignments');
+}
+
+export async function saveAssignments(assignments) {
+  return request('/api/pipeline/assignments', {
+    method: 'PUT',
+    body: JSON.stringify(assignments),
+  });
+}
+
+/**
  * Load all pipeline projects as probe-compatible video objects.
  * Returns an array of { id, title, src, duration, segments, _pipeline: true }.
  */
@@ -96,6 +113,11 @@ export async function loadPipelineVideos() {
         _summary: p.ai_summary || null,
         _creationTime: p.source.creation_time || null,
         _uploadedAt: p.uploaded_at || null,
+        // Pre-authored Probe 3 suggestion bank, surfaced for Probe3Page's
+        // `vid.suggestions` aggregation. Bank shape: { id, category,
+        // text, relatedScene }. Empty array if the project doesn't have
+        // a bank yet — Probe3Page's fallback path handles that case.
+        suggestions: p.suggestions || [],
         segments: p.segments.map((seg, i) => ({
           id: seg.id.replace('_', '-'),
           start_time: seg.start_seconds,
@@ -158,6 +180,7 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
     _creationTime: project.source.creation_time || null,
     _uploadedAt: project.uploaded_at || null,
     _status: project.status,
+    suggestions: project.suggestions || [],
     segments: project.segments.map((seg, i) => ({
       id: seg.id.replace('_', '-'),
       start_time: seg.start_seconds,

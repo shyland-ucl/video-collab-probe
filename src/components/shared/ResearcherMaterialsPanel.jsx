@@ -6,6 +6,8 @@ import {
   deleteProject,
   exportForProbe,
   getProject,
+  fetchAssignments,
+  saveAssignments,
 } from '../../services/pipelineApi.js';
 
 const STATUS_LABELS = {
@@ -16,16 +18,22 @@ const STATUS_LABELS = {
   ready_for_probe: { label: 'Ready', color: 'bg-green-100 text-green-700' },
 };
 
-function getAssignments() {
+// Local cache key — only used as a fallback if the server fetch fails
+// (offline / dev-server down). Server is the source of truth.
+const LOCAL_CACHE_KEY = 'pipelineAssignments';
+
+function readLocalCache() {
   try {
-    return JSON.parse(localStorage.getItem('pipelineAssignments') || '{}');
+    return JSON.parse(localStorage.getItem(LOCAL_CACHE_KEY) || '{}');
   } catch {
     return {};
   }
 }
 
-function saveAssignments(assignments) {
-  localStorage.setItem('pipelineAssignments', JSON.stringify(assignments));
+function writeLocalCache(assignments) {
+  try {
+    localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(assignments));
+  } catch { /* quota or disabled */ }
 }
 
 function formatDate(isoString) {
@@ -46,7 +54,7 @@ function formatDate(isoString) {
 export default function ResearcherMaterialsPanel() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [assignments, setAssignments] = useState(getAssignments);
+  const [assignments, setAssignments] = useState({});
   const [assigningDyad, setAssigningDyad] = useState({});
   const [generating, setGenerating] = useState({});
   const [deleting, setDeleting] = useState({});
@@ -73,6 +81,60 @@ export default function ResearcherMaterialsPanel() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Fetch assignments from server on mount. Auto-migrate any
+  // pre-existing localStorage assignments if the server has none yet —
+  // one-time transition from the old per-origin localStorage scheme.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const serverAssignments = await fetchAssignments();
+        if (cancelled) return;
+
+        const localCache = readLocalCache();
+        const serverEmpty = Object.keys(serverAssignments).length === 0;
+        const localHasData = Object.keys(localCache).length > 0;
+
+        if (serverEmpty && localHasData) {
+          // Migrate localStorage → server. Best-effort; if the PUT
+          // fails, we still set state from local cache so the UI works.
+          try {
+            await saveAssignments(localCache);
+            if (!cancelled) {
+              setAssignments(localCache);
+              writeLocalCache(localCache);
+              console.log('[assignments] migrated from localStorage to server');
+            }
+          } catch (err) {
+            console.warn('[assignments] migration failed:', err.message);
+            if (!cancelled) setAssignments(localCache);
+          }
+        } else {
+          setAssignments(serverAssignments);
+          writeLocalCache(serverAssignments);
+        }
+      } catch (err) {
+        // Server unreachable — fall back to local cache so UI still works
+        console.warn('[assignments] server fetch failed, using local cache:', err.message);
+        if (!cancelled) setAssignments(readLocalCache());
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Persist any assignment change to the server (and mirror to localStorage
+  // as a degraded-mode cache). Call this from every handler that mutates
+  // `assignments`.
+  const persistAssignments = useCallback(async (next) => {
+    setAssignments(next);
+    writeLocalCache(next);
+    try {
+      await saveAssignments(next);
+    } catch (err) {
+      setError(`Could not save assignments to server: ${err.message}. Local copy kept.`);
+    }
+  }, []);
 
   // ── Upload handler ──
   const handleUpload = useCallback(
@@ -119,17 +181,17 @@ export default function ResearcherMaterialsPanel() {
   // ── Assign / unassign ──
   const handleAssign = useCallback(
     (projectId, dyadId) => {
-      if (!dyadId.trim()) return;
+      const trimmed = dyadId.trim();
+      if (!trimmed) return;
       const updated = { ...assignments };
-      if (!updated[dyadId]) updated[dyadId] = [];
-      if (!updated[dyadId].includes(projectId)) {
-        updated[dyadId].push(projectId);
+      if (!updated[trimmed]) updated[trimmed] = [];
+      if (!updated[trimmed].includes(projectId)) {
+        updated[trimmed].push(projectId);
       }
-      setAssignments(updated);
-      saveAssignments(updated);
+      persistAssignments(updated);
       setAssigningDyad((prev) => ({ ...prev, [projectId]: '' }));
     },
-    [assignments]
+    [assignments, persistAssignments]
   );
 
   const handleUnassign = useCallback(
@@ -139,10 +201,9 @@ export default function ResearcherMaterialsPanel() {
         updated[dyadId] = updated[dyadId].filter((id) => id !== projectId);
         if (updated[dyadId].length === 0) delete updated[dyadId];
       }
-      setAssignments(updated);
-      saveAssignments(updated);
+      persistAssignments(updated);
     },
-    [assignments]
+    [assignments, persistAssignments]
   );
 
   const getDyadsForProject = useCallback(
@@ -191,8 +252,7 @@ export default function ResearcherMaterialsPanel() {
           updated[dyadId] = updated[dyadId].filter((id) => id !== projectId);
           if (updated[dyadId].length === 0) delete updated[dyadId];
         }
-        setAssignments(updated);
-        saveAssignments(updated);
+        await persistAssignments(updated);
         setConfirmDelete(null);
         await refresh();
       } catch (err) {
@@ -201,7 +261,7 @@ export default function ResearcherMaterialsPanel() {
         setDeleting((prev) => ({ ...prev, [projectId]: false }));
       }
     },
-    [assignments, refresh]
+    [assignments, refresh, persistAssignments]
   );
 
   if (loading) {

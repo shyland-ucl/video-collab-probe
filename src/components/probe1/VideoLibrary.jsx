@@ -147,8 +147,7 @@ export default function VideoLibrary({
             <button
               key={video.id}
               type="button"
-              aria-pressed={isSelected}
-              aria-label={`${video.title}. ${summary}. ${durationText}.${readOnly ? ' Selected by creator.' : ''}`}
+              aria-label={`${isSelected ? 'Selected' : 'Not selected'}. ${video.title}. ${summary}. ${durationText}.${readOnly ? ' Selected by creator.' : ''}`}
               onClick={() => toggleSelect(video.id)}
               disabled={readOnly}
               className={`w-full text-left p-4 rounded-xl border-2 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 ${

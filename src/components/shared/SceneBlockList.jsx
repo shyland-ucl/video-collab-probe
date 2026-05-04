@@ -35,6 +35,11 @@ export default function SceneBlockList({
   // Engagement-only AWARENESS_VIEWED. Forwarded to each SceneBlock so the
   // page (which knows the viewer's role) can attribute the event correctly.
   onAwarenessViewed,
+  // Set<number> of scene array-indices that have an AI suggestion attached.
+  // SceneBlock renders a small "✨ AI" badge in the header and adds an aria
+  // hint so a TalkBack creator can find suggestion-bearing scenes by swiping
+  // the list. Empty set = no decoration (default before analysis trigger).
+  sceneIndicesWithSuggestions,
 }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
   // Where the latest expansion came from. Drives focus behavior in SceneBlock:
@@ -255,6 +260,7 @@ export default function SceneBlockList({
                 isRemoved={false}
                 headerRef={(el) => { headerRefs.current[i] = el; }}
                 onAwarenessViewed={onAwarenessViewed}
+                hasSuggestion={sceneIndicesWithSuggestions?.has(i) || false}
               >
                 {renderSceneActions && renderSceneActions({
                   scene,

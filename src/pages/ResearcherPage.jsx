@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
+import { loadPipelineVideos, fetchAssignments } from '../services/pipelineApi.js';
+import { findAssignmentsForDyad } from '../utils/dyadId.js';
 import { serialiseProjectState } from '../utils/projectState.js';
 import { wsRelayService } from '../services/wsRelayService.js';
 import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
@@ -78,6 +80,8 @@ export default function ResearcherPage() {
   // Probe 1 state — Probe 1 is fully Gemini-driven now; the dashboard
   // only logs the helper fallback (when the creator turns to the helper).
   const [data, setData] = useState(null);
+  const [pipelineVideos, setPipelineVideos] = useState([]);
+  const [serverAssignments, setServerAssignments] = useState(null);
   const [helperFallbackNote, setHelperFallbackNote] = useState('');
 
   // Probe 2a state
@@ -227,6 +231,14 @@ export default function ResearcherPage() {
 
   useEffect(() => {
     loadDescriptions().then(setData).catch(console.error);
+    // Load pipeline videos + dyad assignments so the wizard's Probe 3
+    // suggestion panel can source banks from the participant's actual
+    // assigned footage (not just sample data, which was the previous
+    // behaviour and silently broke for any non-sample video).
+    loadPipelineVideos().then(setPipelineVideos).catch(() => {});
+    fetchAssignments()
+      .then((a) => setServerAssignments(a || {}))
+      .catch(() => setServerAssignments({}));
   }, []);
 
   useEffect(() => {
@@ -263,15 +275,43 @@ export default function ResearcherPage() {
     return Array.from(types).sort();
   }, [events]);
 
-  // Suggestions for Probe 3
+  // Suggestions for Probe 3 — aggregate banks from every assigned
+  // pipeline video for the current dyad, plus any sample video that
+  // ships its own suggestions. Previously this only iterated sample
+  // data and silently returned empty for participant footage, which
+  // is why the wizard panel never saw the festival/club banks.
   const videoSuggestions = useMemo(() => {
-    if (!data) return [];
-    const allVids = data.videos || (data.video ? [data.video] : []);
-    for (const v of allVids) {
-      if (v.suggestions && v.suggestions.length > 0) return v.suggestions;
+    const merged = [];
+
+    // Pipeline videos assigned to the current dyad
+    if (serverAssignments && pipelineVideos.length > 0) {
+      const dyadId = (sessionConfig.dyadId || '').trim();
+      const assignedIds = dyadId
+        ? findAssignmentsForDyad(serverAssignments, dyadId)
+        : [];
+      const matchedPipeline = assignedIds.length > 0
+        ? pipelineVideos.filter(
+            (v) => assignedIds.includes(v._projectId)
+              || assignedIds.includes(`pipeline-${v._projectId}`)
+              || assignedIds.includes(v.id)
+          )
+        : pipelineVideos; // No dyad set → show all pipeline banks (pre-session browsing)
+      for (const v of matchedPipeline) {
+        if (v.suggestions && v.suggestions.length > 0) merged.push(...v.suggestions);
+      }
     }
-    return [];
-  }, [data]);
+
+    // Sample videos with baked-in suggestions (currently none after
+    // tonight's cleanup, but preserved for backwards compatibility)
+    if (data) {
+      const sampleVids = data.videos || (data.video ? [data.video] : []);
+      for (const v of sampleVids) {
+        if (v.suggestions && v.suggestions.length > 0) merged.push(...v.suggestions);
+      }
+    }
+
+    return merged;
+  }, [data, pipelineVideos, serverAssignments, sessionConfig]);
 
   const handleSessionToggle = useCallback(() => {
     if (sessionActive) {
