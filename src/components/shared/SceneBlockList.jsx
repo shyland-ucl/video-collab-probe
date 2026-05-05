@@ -7,6 +7,28 @@ import GlobalControlsBar from './GlobalControlsBar.jsx';
 import SceneBlock from './SceneBlock.jsx';
 import { LEVELS } from '../../utils/detailLevels.js';
 
+const FOCUS_SCROLL_GUARD_MS = 350;
+const FOCUS_SCROLL_RESTORE_DELAYS = [0, 16, 64, 160, 320];
+const VISIBILITY_TOLERANCE_PX = 2;
+const HORIZONTAL_SWIPE_THRESHOLD_PX = 10;
+const HORIZONTAL_SWIPE_LOCK_MS = 550;
+const MANUAL_SCROLL_ALLOW_MS = 600;
+
+function getContentTop(container, target) {
+  const containerRect = container.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  return targetRect.top - containerRect.top + container.scrollTop;
+}
+
+function isFullyVisibleAtScrollTop(container, target, scrollTop) {
+  const top = getContentTop(container, target) - scrollTop;
+  const bottom = top + target.getBoundingClientRect().height;
+  return (
+    top >= -VISIBILITY_TOLERANCE_PX
+    && bottom <= container.clientHeight + VISIBILITY_TOLERANCE_PX
+  );
+}
+
 export default function SceneBlockList({
   scenes = [],
   playerRef,
@@ -40,6 +62,16 @@ export default function SceneBlockList({
   // hint so a TalkBack creator can find suggestion-bearing scenes by swiping
   // the list. Empty set = no decoration (default before analysis trigger).
   sceneIndicesWithSuggestions,
+  // When the page is doing single-segment playback ("Play from here"), it
+  // sets this true so we skip the auto-expand-next-scene effect. Without
+  // it, a video timeUpdate tick that lands a few ms past the segment end
+  // (the player's tick can be ~100-200ms wide) lets us expand the next
+  // block before the page-level pause takes effect.
+  disableAutoFollow = false,
+  // Day 1 fix #3: { [sceneId]: { text, actor, timestamp } } map of scenes
+  // that were edited recently. Drives the amber "Edited" badge + the
+  // "What changed" line prepended to the description.
+  editedScenes = {},
 }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
   // Where the latest expansion came from. Drives focus behavior in SceneBlock:
@@ -49,6 +81,12 @@ export default function SceneBlockList({
   const [expandSource, setExpandSource] = useState('user');
   const [currentLevel, setCurrentLevel] = useState(1);
   const listRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  const stableScrollTopRef = useRef(0);
+  const focusScrollGuardRef = useRef(null);
+  const focusRestoreTimersRef = useRef([]);
+  const touchScrollLockRef = useRef(null);
+  const manualScrollAllowedUntilRef = useRef(0);
   // Refs to each SceneBlock's collapsed-header button. Used to restore
   // focus when a scene is fully collapsed — otherwise the browser drops
   // focus to <body> and TalkBack/VoiceOver swipe-navigates from page top
@@ -56,6 +94,164 @@ export default function SceneBlockList({
   const headerRefs = useRef([]);
   const prevExpandedRef = useRef(null);
   const { logEvent } = useEventLogger();
+
+  const clearFocusRestoreTimers = useCallback(() => {
+    focusRestoreTimersRef.current.forEach((timer) => clearTimeout(timer));
+    focusRestoreTimersRef.current = [];
+  }, []);
+
+  const restoreGuardedScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const activeTouchLock = touchScrollLockRef.current?.horizontal ? touchScrollLockRef.current : null;
+    const guard = activeTouchLock || focusScrollGuardRef.current;
+    if (!container || !guard) return;
+    if (performance.now() > guard.expiresAt) {
+      if (touchScrollLockRef.current === guard) touchScrollLockRef.current = null;
+      if (focusScrollGuardRef.current === guard) focusScrollGuardRef.current = null;
+      stableScrollTopRef.current = container.scrollTop;
+      return;
+    }
+    if (Math.abs(container.scrollTop - guard.scrollTop) > VISIBILITY_TOLERANCE_PX) {
+      container.scrollTop = guard.scrollTop;
+    }
+    stableScrollTopRef.current = guard.scrollTop;
+  }, []);
+
+  const scheduleGuardedScrollRestore = useCallback(() => {
+    clearFocusRestoreTimers();
+    focusRestoreTimersRef.current = FOCUS_SCROLL_RESTORE_DELAYS.map((delay) => (
+      setTimeout(restoreGuardedScroll, delay)
+    ));
+  }, [clearFocusRestoreTimers, restoreGuardedScroll]);
+
+  const allowManualScroll = useCallback(() => {
+    manualScrollAllowedUntilRef.current = performance.now() + MANUAL_SCROLL_ALLOW_MS;
+  }, []);
+
+  const shouldPinFocusedSceneScroll = useCallback((container, scrollTop) => {
+    const active = document.activeElement;
+    if (!(active instanceof Element) || !container.contains(active)) return false;
+
+    const header = active.closest('[data-scene-index]');
+    if (!header || !container.contains(header)) return false;
+
+    const index = Number(header.getAttribute('data-scene-index'));
+    if (!Number.isFinite(index)) return false;
+
+    const adjacentHeaders = [headerRefs.current[index - 1], headerRefs.current[index + 1]];
+    return adjacentHeaders.some((candidate) => (
+      candidate && isFullyVisibleAtScrollTop(container, candidate, scrollTop)
+    ));
+  }, []);
+
+  useEffect(() => clearFocusRestoreTimers, [clearFocusRestoreTimers]);
+
+  useEffect(() => {
+    stableScrollTopRef.current = scrollContainerRef.current?.scrollTop || 0;
+  }, [scenes.length]);
+
+  const handleListFocusCapture = useCallback((event) => {
+    const container = scrollContainerRef.current;
+    const target = event.target;
+    if (!container || !(target instanceof Element)) return;
+
+    const sceneHeader = target.closest('[data-scene-index]');
+    if (!sceneHeader || !container.contains(sceneHeader)) return;
+
+    const stableScrollTop = touchScrollLockRef.current?.scrollTop ?? stableScrollTopRef.current;
+    if (!isFullyVisibleAtScrollTop(container, sceneHeader, stableScrollTop)) {
+      focusScrollGuardRef.current = null;
+      return;
+    }
+
+    focusScrollGuardRef.current = {
+      scrollTop: stableScrollTop,
+      expiresAt: performance.now() + FOCUS_SCROLL_GUARD_MS,
+    };
+    scheduleGuardedScrollRestore();
+  }, [scheduleGuardedScrollRestore]);
+
+  const handleListScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const activeTouchLock = touchScrollLockRef.current?.horizontal ? touchScrollLockRef.current : null;
+    const guard = activeTouchLock || focusScrollGuardRef.current;
+    if (!container) return;
+    const now = performance.now();
+
+    if (guard && now <= guard.expiresAt) {
+      restoreGuardedScroll();
+      return;
+    }
+
+    const manualScrollAllowed = now <= manualScrollAllowedUntilRef.current;
+    if (!manualScrollAllowed && shouldPinFocusedSceneScroll(container, stableScrollTopRef.current)) {
+      if (Math.abs(container.scrollTop - stableScrollTopRef.current) > VISIBILITY_TOLERANCE_PX) {
+        container.scrollTop = stableScrollTopRef.current;
+      }
+      return;
+    }
+
+    focusScrollGuardRef.current = null;
+    touchScrollLockRef.current = null;
+    stableScrollTopRef.current = container.scrollTop;
+  }, [restoreGuardedScroll, shouldPinFocusedSceneScroll]);
+
+  const handleTouchStart = useCallback((event) => {
+    const container = scrollContainerRef.current;
+    const touch = event.touches?.[0];
+    if (!container || !touch) return;
+    if (event.touches.length > 1) allowManualScroll();
+    touchScrollLockRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      scrollTop: container.scrollTop,
+      horizontal: false,
+      expiresAt: performance.now() + HORIZONTAL_SWIPE_LOCK_MS,
+    };
+  }, []);
+
+  const handleTouchMove = useCallback((event) => {
+    const container = scrollContainerRef.current;
+    const touch = event.touches?.[0];
+    const lock = touchScrollLockRef.current;
+    if (!container || !touch || !lock) return;
+
+    const dx = touch.clientX - lock.startX;
+    const dy = touch.clientY - lock.startY;
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    if (!lock.horizontal && absDy > HORIZONTAL_SWIPE_THRESHOLD_PX && absDy > absDx) {
+      allowManualScroll();
+      touchScrollLockRef.current = null;
+      return;
+    }
+
+    if (lock.horizontal || (absDx > HORIZONTAL_SWIPE_THRESHOLD_PX && absDx > absDy)) {
+      lock.horizontal = true;
+      lock.expiresAt = performance.now() + HORIZONTAL_SWIPE_LOCK_MS;
+      if (event.cancelable) event.preventDefault();
+      if (Math.abs(container.scrollTop - lock.scrollTop) > VISIBILITY_TOLERANCE_PX) {
+        container.scrollTop = lock.scrollTop;
+      }
+      stableScrollTopRef.current = lock.scrollTop;
+    }
+  }, [allowManualScroll]);
+
+  const handleTouchEnd = useCallback(() => {
+    const lock = touchScrollLockRef.current;
+    if (!lock) return;
+    if (!lock.horizontal) {
+      touchScrollLockRef.current = null;
+      return;
+    }
+    lock.expiresAt = performance.now() + HORIZONTAL_SWIPE_LOCK_MS;
+    scheduleGuardedScrollRestore();
+  }, [scheduleGuardedScrollRestore]);
+
+  const handleWheel = useCallback(() => {
+    allowManualScroll();
+  }, [allowManualScroll]);
 
   const totalDuration = scenes.reduce(
     (sum, s) => sum + ((s.end_time || 0) - (s.start_time || 0)),
@@ -130,6 +326,7 @@ export default function SceneBlockList({
   // autoFollowed=true), and TalkBack reads the focused button on its own.
   useEffect(() => {
     if (!isPlaying || expandedIndex === null) return;
+    if (disableAutoFollow) return;
     const activeIndex = scenes.findIndex(
       (s) => currentTime >= s.start_time && currentTime < s.end_time
     );
@@ -137,7 +334,7 @@ export default function SceneBlockList({
       setExpandSource('auto');
       setExpandedIndex(activeIndex);
     }
-  }, [currentTime, isPlaying, scenes, expandedIndex]);
+  }, [currentTime, isPlaying, scenes, expandedIndex, disableAutoFollow]);
 
   // Pause read-out: when playback transitions playing → paused while a
   // scene is expanded, announce the current scene's description so the
@@ -178,7 +375,11 @@ export default function SceneBlockList({
       // the actions region before we move focus back to the header —
       // otherwise the unmount races and focus snaps to <body>.
       const raf = requestAnimationFrame(() => {
-        headerRefs.current[prev]?.focus();
+        // Day 1 Android fix: preventScroll so the browser doesn't trigger
+        // a scroll-into-view animation that competes with TalkBack's own
+        // scroll behaviour, producing the "scroll past then snap back"
+        // jitter on focus restoration.
+        headerRefs.current[prev]?.focus({ preventScroll: true });
       });
       if (sceneId && onSceneClose) onSceneClose(sceneId);
       return () => cancelAnimationFrame(raf);
@@ -223,7 +424,7 @@ export default function SceneBlockList({
   }, [anyExpanded]);
 
   return (
-    <div ref={listRef} className="flex flex-col min-h-0">
+    <div ref={listRef} className="flex flex-col flex-1 min-h-0">
       <GlobalControlsBar
         sceneCount={scenes.length}
         videoCount={videoCount}
@@ -231,9 +432,40 @@ export default function SceneBlockList({
       />
 
       <div
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-2"
-        role="list"
+        ref={scrollContainerRef}
+        className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2"
+        role="group"
         aria-label={`${scenes.filter((s) => keptScenes[s.id] !== false).length} scenes`}
+        onFocusCapture={handleListFocusCapture}
+        onScroll={handleListScroll}
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchEnd}
+        // Day 1 Android fix: prevent the "swipe right scrolls past target
+        // and snaps back" jitter Gemini's report described.
+        //   - `scrollBehavior: auto` disables smooth-scroll animation, so
+        //     TalkBack's scroll-into-view is instant.
+        //   - `overscrollBehavior: contain` prevents scroll chaining to
+        //     the outer layout (which would expose Chrome's address bar
+        //     and cause the "whole interface scrolls" symptom).
+        //   - `overflowAnchor: none` disables Chrome's automatic scroll
+        //     anchoring, which can re-position the scroll target
+        //     mid-animation when scene-block heights re-measure (the
+        //     overshoot-then-snap-back pattern reported).
+        //   - `scrollPaddingTop` gives focus-into-view a small buffer so
+        //     the focused scene header lands just below the video, not
+        //     glued to the very top of the scroll viewport.
+        style={{
+          scrollBehavior: 'auto',
+          overscrollBehavior: 'contain',
+          overflowAnchor: 'none',
+          scrollPaddingTop: '12px',
+          scrollPaddingBottom: '12px',
+          touchAction: 'pan-y',
+          WebkitOverflowScrolling: 'touch',
+        }}
       >
         {scenes.map((scene, i) => {
           // Removed scenes are dropped from the rendered list entirely so
@@ -244,7 +476,7 @@ export default function SceneBlockList({
           // the engine never lands on a removed scene's time range.
           if (keptScenes[scene.id] === false) return null;
           return (
-            <div key={scene.id || i} role="listitem">
+            <div key={scene.id || i}>
               <SceneBlock
                 scene={scene}
                 index={i}
@@ -261,6 +493,7 @@ export default function SceneBlockList({
                 headerRef={(el) => { headerRefs.current[i] = el; }}
                 onAwarenessViewed={onAwarenessViewed}
                 hasSuggestion={sceneIndicesWithSuggestions?.has(i) || false}
+                editSummary={editedScenes[scene.id] || null}
               >
                 {renderSceneActions && renderSceneActions({
                   scene,

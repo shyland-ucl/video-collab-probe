@@ -217,7 +217,7 @@ export default function DecoupledCreatorDevice({
       </div>
 
       {/* Video player — visual only */}
-      <div aria-hidden="true">
+      <div aria-hidden="true" inert="" className="pointer-events-none">
         <VideoPlayer
           ref={videoRef}
           src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}

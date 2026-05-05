@@ -50,3 +50,19 @@ export function colourValuesToFilter(values) {
   const s = (1 + saturation / 100).toFixed(3);
   return `brightness(${b}) contrast(${c}) saturate(${s})`;
 }
+
+/**
+ * Day 1 fix #4: zoom + rotate live in the same `values` bag the helper's
+ * MockColourControls produces. Mapping them to a CSS transform here keeps
+ * VideoPlayer ignorant of the slider range (100..250% / -180..180°).
+ *
+ * Returns undefined when nothing has been adjusted so the player doesn't
+ * carry an unnecessary inline style.
+ */
+export function colourValuesToTransform(values) {
+  if (!values) return undefined;
+  const { zoom = 100, rotate = 0 } = values;
+  if (zoom === 100 && rotate === 0) return undefined;
+  const scale = (zoom / 100).toFixed(3);
+  return `scale(${scale}) rotate(${rotate}deg)`;
+}

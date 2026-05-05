@@ -121,10 +121,41 @@ export default function Probe1Page() {
     return [...filteredPipeline, ...filteredSamples];
   }, [data, pipelineVideos, serverAssignments]);
 
-  const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
-  const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
-  const handlePlay = useCallback(() => playerRef.current?.play(), []);
-  const handlePause = useCallback(() => playerRef.current?.pause(), []);
+  // Day 1 fix #2: bounded "Play this scene" — pause at scene.end_time so
+  // the participant doesn't hear the next scene's audio kick in unannounced.
+  // Keep stopAt set after the boundary pause so disableAutoFollow stays on
+  // until the user takes an explicit next action; otherwise the ~250ms
+  // window before the isPlaying poll catches up lets auto-follow expand
+  // the next scene.
+  const [playingSegmentEnd, setPlayingSegmentEnd] = useState(null);
+  const handleTimeUpdate = useCallback((time) => {
+    setCurrentTime(time);
+    setPlayingSegmentEnd((stopAt) => {
+      if (stopAt != null && time >= stopAt - 0.05) {
+        playerRef.current?.pause();
+        return stopAt;
+      }
+      return stopAt;
+    });
+  }, []);
+  const handleSeek = useCallback((time) => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.seek(time);
+  }, []);
+  const handlePlay = useCallback(() => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.play();
+  }, []);
+  const handlePause = useCallback(() => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.pause();
+  }, []);
+  const handlePlaySegment = useCallback((scene) => {
+    if (!scene) return;
+    playerRef.current?.seek(scene.start_time);
+    playerRef.current?.play();
+    setPlayingSegmentEnd(scene.end_time);
+  }, []);
 
   const handleImport = useCallback((videos) => {
     setSelectedVideos(videos);
@@ -212,20 +243,28 @@ export default function Probe1Page() {
       )}
 
       {phase === 'exploring' && (
-        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+        <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 max-w-lg mx-auto w-full">
           <ConditionHeader condition="probe1" />
           <OnboardingBrief
             pageTitle="Probe 1: Solo Creator — Scene Explorer"
             description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also ask AI a question about what is happening in a scene, or flag a description if it seems wrong. Use the Play All button to listen to every scene description in order."
           />
-          {/* Video player — visual reference, hidden from screen readers */}
-          <div aria-hidden="true" className="px-3 pt-3">
+          {/* Day 1 fix #1: video sits at the top in the page flex column.
+              The container is `h-[100dvh] flex flex-col overflow-hidden`,
+              so this wrapper takes its natural 16:9 height and the
+              SceneBlockList below takes the remaining space with its own
+              internal scroll. Result: video stays pinned at top because the
+              scene list scrolls inside its own box, NOT at the window
+              level — no sticky CSS, no banner overlap. */}
+          <div aria-hidden="true" inert="" className="px-3 pt-3 flex-shrink-0 pointer-events-none">
             <VideoPlayer
               ref={playerRef}
               src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
               segments={segments}
               onTimeUpdate={handleTimeUpdate}
               editState={editState}
+              maxHeight="32vh"
             />
           </div>
 
@@ -238,6 +277,7 @@ export default function Probe1Page() {
             onSeek={handleSeek}
             onPlay={handlePlay}
             onPause={handlePause}
+            disableAutoFollow={playingSegmentEnd != null || isPlaying}
             accentColor="#2B579A"
             videoCount={selectedVideos?.length || 1}
             vqaHistories={vqaHistories}
@@ -261,6 +301,7 @@ export default function Probe1Page() {
                 onSeek={os}
                 onPlay={op}
                 onPause={opp}
+                onPlaySegment={handlePlaySegment}
                 onAskAI={handleAskAI}
                 currentLevel={currentLevel}
                 onLevelChange={onLevelChange}
@@ -268,6 +309,7 @@ export default function Probe1Page() {
               />
             )}
           />
+          </div>
         </div>
       )}
 

@@ -8,8 +8,9 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce, setAnnouncerMuted } from '../utils/announcer.js';
 import { buildAllSegments, buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
-import { filterClipsByKept, colourValuesToFilter } from '../utils/editStateView.js';
-import { applyOperation } from '../utils/sceneEditOps.js';
+import { filterClipsByKept, colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
+import { applyOperation, getClipMuted } from '../utils/sceneEditOps.js';
+import { describeEditOp } from '../utils/projectOverview.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -68,7 +69,24 @@ export default function Probe2Page() {
   // Helper-mode colour adjustments. Lives at the page so the visual filter
   // persists when the device is handed back to the creator (the helper's
   // change should be visible in the creator's playback too).
-  const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0 });
+  // Day 1 fix #4: zoom + rotate live alongside colour values; same WS message
+  // shape (COLOUR_UPDATE) so the slider broadcasts work without a new wire.
+  const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 });
+  // Day 1 fix #3: per-scene edit stamp so SceneBlock can render an "Edited"
+  // badge + a "What changed" prepend on the description. Keys are scene ids;
+  // values are { text, actor, timestamp }.
+  const [editedScenes, setEditedScenes] = useState({});
+  const stampSceneEdit = useCallback((sceneId, operation, opts = {}) => {
+    if (!sceneId) return;
+    setEditedScenes((prev) => ({
+      ...prev,
+      [sceneId]: {
+        text: describeEditOp(operation, opts),
+        actor: opts.actor || 'You',
+        timestamp: Date.now(),
+      },
+    }));
+  }, []);
 
   // Server-side dyad assignments — see Probe1Page for rationale.
   const [serverAssignments, setServerAssignments] = useState(null);
@@ -245,11 +263,59 @@ export default function Probe2Page() {
     });
   }, [logEvent]);
 
-  const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
+  // When the participant taps "Play from here" on a scene block, we only
+  // want THAT segment to play; once playback reaches its end, pause without
+  // advancing into the next scene. State (not a ref) so we can also pass
+  // a `disableAutoFollow` flag to SceneBlockList — without it, a timeUpdate
+  // tick that lands past the boundary (the player's tick can be ~100-200ms
+  // wide) would let the auto-follow effect expand the next scene before
+  // our pause takes effect. Cleared on manual play/pause/seek.
+  const [playingSegmentEnd, setPlayingSegmentEnd] = useState(null);
+
+  const handleTimeUpdate = useCallback((time) => {
+    setCurrentTime(time);
+    setPlayingSegmentEnd((stopAt) => {
+      // 0.05s pre-roll keeps us inside the current segment's range when
+      // the tick fires before the boundary; the disableAutoFollow flag
+      // covers the case where it fires past it.
+      // Day 1 fix: do NOT clear stopAt on the boundary pause. If we
+      // clear, `disableAutoFollow` flips back to false BEFORE the
+      // page-level isPlaying poll catches up, opening a ~250ms window
+      // where the auto-follow effect can still see isPlaying=true +
+      // disableAutoFollow=false and expand the next scene. Keeping
+      // stopAt set holds disableAutoFollow=true until the user takes
+      // an explicit action (Play from here / global play / seek), which
+      // is exactly the "stay on this scene when finished" behaviour
+      // requested.
+      if (stopAt != null && time >= stopAt - 0.05) {
+        playerRef.current?.pause();
+        return stopAt;
+      }
+      return stopAt;
+    });
+  }, []);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
-  const handleSeek = useCallback((time) => playerRef.current?.seek(time), []);
-  const handlePlay = useCallback(() => playerRef.current?.play(), []);
-  const handlePause = useCallback(() => playerRef.current?.pause(), []);
+  const handleSeek = useCallback((time) => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.seek(time);
+  }, []);
+  const handlePlay = useCallback(() => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.play();
+  }, []);
+  const handlePause = useCallback(() => {
+    setPlayingSegmentEnd(null);
+    playerRef.current?.pause();
+  }, []);
+  // Single-segment playback used by SceneBlock's "Play from here". Differs
+  // from handlePlay in that it parks the segment end so playback pauses at
+  // the boundary instead of advancing into the next scene.
+  const handlePlaySegment = useCallback((scene) => {
+    if (!scene) return;
+    playerRef.current?.seek(scene.start_time);
+    playerRef.current?.play();
+    setPlayingSegmentEnd(scene.end_time);
+  }, []);
 
   const editStateRef = useRef(null);
   useEffect(() => { editStateRef.current = editState; }, [editState]);
@@ -448,7 +514,8 @@ export default function Probe2Page() {
       });
       return next;
     });
-  }, [currentTime, logEvent]);
+    stampSceneEdit(scene.id, action, { actor: 'You' });
+  }, [currentTime, logEvent, stampSceneEdit]);
 
   const handleToggleKeep = useCallback((sceneId) => {
     setKeptScenes((prev) => ({ ...prev, [sceneId]: prev[sceneId] === false ? true : false }));
@@ -456,7 +523,10 @@ export default function Probe2Page() {
 
   const handleColourAdjust = useCallback((property, value) => {
     setColourValues((prev) => ({ ...prev, [property]: value }));
-  }, []);
+    if (currentSegment?.id) {
+      stampSceneEdit(currentSegment.id, property, { value, actor: 'Helper' });
+    }
+  }, [currentSegment, stampSceneEdit]);
 
   // Derived: editState filtered to kept clips only (Removed scenes are
   // skipped during playback). Memoised so VideoPlayer's playback engine
@@ -466,6 +536,13 @@ export default function Probe2Page() {
     [editState, keptScenes]
   );
   const videoFilter = useMemo(() => colourValuesToFilter(colourValues), [colourValues]);
+  const videoTransform = useMemo(() => colourValuesToTransform(colourValues), [colourValues]);
+  // Day 1 D4: per-scene mute of the original audio. The flag lives on the
+  // active clip; the VideoPlayer applies it to the underlying <video>.
+  const audioMuted = useMemo(
+    () => (currentSegment ? getClipMuted(editState, currentSegment.id) : false),
+    [editState, currentSegment],
+  );
 
   // Derive the scene block order from editState.clips so reorders/deletes
   // pushed by the researcher dashboard visually appear in the participant's
@@ -509,18 +586,28 @@ export default function Probe2Page() {
     if (transitionDirection === 'toHelper') {
       setMode('helper');
       logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'helper', handoverMode });
-      // Speak the announcement first, *then* mute. The helper sees an on-screen
-      // banner with the same instruction, so silencing the live region after
-      // hand-off prevents VoiceOver/TalkBack from interrupting them while they
-      // edit. Restored when the device returns.
-      announce('Switched to Helper mode. Phone handed to helper.');
-      setTimeout(() => setAnnouncerMuted(true), 800);
+      // Day 1 fix #9: web apps can't toggle Android TalkBack, so we (a) silence
+      // our own live region and (b) read out an explicit gesture cue first.
+      // Helper hears "phone handed over, you can disable TalkBack now with…"
+      // before our announcer goes quiet, so they don't have to remember the
+      // gesture themselves mid-hand-off.
+      announce(
+        'Phone handed to helper. Helper, app announcements are now paused. ' +
+          'To silence TalkBack itself, hold both volume keys for three seconds, ' +
+          'or use a triple-finger triple-tap. Tap Return Device when finished.',
+      );
+      setTimeout(() => setAnnouncerMuted(true), 1500);
     } else {
       setAnnouncerMuted(false);
       setMode('creator');
       setHandoverMode(null);
       logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'creator' });
-      announce('Switched to Creator mode.');
+      // Day 1 fix #9: when the device comes back, prompt the helper to re-enable
+      // TalkBack so the BLV creator's screen reader works again on hand-back.
+      announce(
+        'Phone returned to creator. App announcements are on again. ' +
+          'If TalkBack was turned off, please re-enable it with the same gesture.',
+      );
     }
     setTransitionDirection(null);
   }, [transitionDirection, handoverMode, logEvent]);
@@ -567,14 +654,21 @@ export default function Probe2Page() {
           <VideoLibrary videos={libraryVideos} onImport={handleImport} />
         </>
       ) : mode === 'creator' ? (
-        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+        <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 max-w-lg mx-auto w-full">
           <ConditionHeader condition="probe2" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 2a: Shared Device — Creator"
             description="You and your helper share one phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you have three choices: Edit by Myself to remove, split, move, or caption the scene (with Undo if you change your mind); Ask AI to Edit to speak an instruction and confirm the result; or Ask Helper to tell your helper out loud what you want and hand the phone over. When the helper is done, they will return the device to you."
           />
-          {/* Video player — hidden from screen readers */}
-          <div aria-hidden="true" className="px-3 pt-3">
+          {/* Day 1 fix #1: video pinned at top via flex layout. The
+              container is `h-[100dvh] flex flex-col overflow-hidden`, so
+              this wrapper keeps its natural 16:9 height while the
+              SceneBlockList below takes the remaining space with its own
+              internal scroll. The scene list scrolls inside its own box
+              (not at window level), so the video stays pinned without
+              sticky CSS and without overlapping content. */}
+          <div aria-hidden="true" inert="" className="px-3 pt-3 flex-shrink-0 pointer-events-none">
             <VideoPlayer
               ref={playerRef}
               src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
@@ -583,6 +677,9 @@ export default function Probe2Page() {
               onSegmentChange={handleSegmentChange}
               editState={playbackEditState}
               videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              audioMuted={audioMuted}
+              maxHeight="32vh"
             />
           </div>
 
@@ -599,8 +696,10 @@ export default function Probe2Page() {
             onPause={handlePause}
             accentColor="#5CB85C"
             videoCount={selectedVideos?.length || 1}
+            disableAutoFollow={playingSegmentEnd != null || isPlaying}
             vqaHistories={vqaHistories}
             keptScenes={keptScenes}
+            editedScenes={editedScenes}
             onSceneClose={(sceneId) => {
               setVqaHistories((prev) => {
                 if (!(sceneId in prev)) return prev;
@@ -619,6 +718,7 @@ export default function Probe2Page() {
                 onSeek={os}
                 onPlay={op}
                 onPause={opp}
+                onPlaySegment={handlePlaySegment}
                 onAskAI={handleAskAI}
                 onAskAIEdit={handleAskAIEdit}
                 onHandover={handleHandover}
@@ -635,6 +735,7 @@ export default function Probe2Page() {
               />
             )}
           />
+          </div>
         </div>
       ) : (
         <div className="p-3 max-w-lg mx-auto w-full">
@@ -660,6 +761,7 @@ export default function Probe2Page() {
             editState={editState}
             playbackEditState={playbackEditState}
             videoFilter={videoFilter}
+            videoTransform={videoTransform}
             colourValues={colourValues}
             onColourAdjust={handleColourAdjust}
             onEditChange={handleEditChange}

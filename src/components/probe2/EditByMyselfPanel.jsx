@@ -10,6 +10,8 @@ import {
   getCaptionsForScene,
   setClipSound,
   getSoundForScene,
+  setClipMuted,
+  getClipMuted,
   SOUND_LIBRARY,
 } from '../../utils/sceneEditOps.js';
 import { previewSound } from '../../services/sampleSounds.js';
@@ -41,6 +43,7 @@ export default function EditByMyselfPanel({
   const clip = getClipForScene(editState, scene.id);
   const captions = getCaptionsForScene(editState, scene.id);
   const currentSound = getSoundForScene(editState, scene.id);
+  const isMuted = getClipMuted(editState, scene.id);
   const editsAvailable = !!editState && !!clip && typeof onEditChange === 'function';
   const clipCountForScene = (editState?.clips || []).filter(
     (c) => c.id === scene.id || (typeof c.id === 'string' && c.id.startsWith(`${scene.id}-split-`))
@@ -181,94 +184,120 @@ export default function EditByMyselfPanel({
         </Section>
 
         <Section
-          label={`Add sound${currentSound ? ` (${currentSound.name})` : ''}`}
+          label={`Sound${currentSound ? ' (added)' : ''}${isMuted ? ' • original muted' : ''}`}
           open={openSection === 'sound'}
           onToggle={() => setOpenSection((v) => (v === 'sound' ? null : 'sound'))}
-          ariaPrefix="Add sound"
+          ariaPrefix="Sound"
         >
           <p className="text-sm text-gray-600 mb-2">
-            Add a placeholder sound or music track to this scene. Sample
-            audio plays when you add it so you can hear what you're attaching.
+            Two simple actions: attach a placeholder sound to this scene, or
+            mute the scene's original audio so a different track can stand in.
           </p>
-          {currentSound && (
-            <p
-              className="text-sm text-gray-800 bg-purple-50 border border-purple-200 rounded px-3 py-2 mb-2"
-              role="status"
-              aria-label={`Current sound on scene ${index + 1}: ${currentSound.name}`}
-            >
-              <span aria-hidden="true">🎶 </span>
-              Current sound: <span className="font-medium">{currentSound.name}</span>
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            {SOUND_LIBRARY.map((sound) => {
-              const active = currentSound?.id === sound.id;
-              return (
+
+          {/* Add / Remove sound — single generic action per Day 1 D4 */}
+          {(() => {
+            const sound = SOUND_LIBRARY[0];
+            const active = currentSound?.id === sound.id;
+            return (
+              <div className="space-y-2">
                 <button
-                  key={sound.id}
                   onClick={() => {
-                    apply(
-                      (s) => setClipSound(s, scene.id, { ...sound, addedBy: 'creator' }),
-                      'add_sound',
-                      { soundId: sound.id, soundName: sound.name },
-                    );
-                    if (logEvent) {
-                      logEvent(EventTypes.ADD_SOUND, Actors.CREATOR, {
-                        segmentId: scene.id, soundId: sound.id, soundName: sound.name,
+                    if (active) {
+                      apply((s) => setClipSound(s, scene.id, null), 'remove_sound', {
+                        soundId: currentSound.id,
                       });
+                      if (logEvent) {
+                        logEvent(EventTypes.REMOVE_SOUND, Actors.CREATOR, {
+                          segmentId: scene.id, soundId: currentSound.id,
+                        });
+                      }
+                      announce(`Sound removed from scene ${index + 1}.`);
+                    } else {
+                      apply(
+                        (s) => setClipSound(s, scene.id, { ...sound, addedBy: 'creator' }),
+                        'add_sound',
+                        { soundId: sound.id, soundName: sound.name },
+                      );
+                      if (logEvent) {
+                        logEvent(EventTypes.ADD_SOUND, Actors.CREATOR, {
+                          segmentId: scene.id, soundId: sound.id, soundName: sound.name,
+                        });
+                      }
+                      previewSound(sound.id);
+                      announce(`Sound added to scene ${index + 1}.`);
                     }
-                    previewSound(sound.id);
-                    announce(`${sound.name} added to scene ${index + 1}.`);
                   }}
                   disabled={!editsAvailable}
                   aria-pressed={active}
-                  aria-label={`Add ${sound.name} to scene ${index + 1}${active ? ', already added' : ''}`}
-                  className={`py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+                  aria-label={
+                    active
+                      ? `Remove sound from scene ${index + 1}`
+                      : `Add a sound to scene ${index + 1}`
+                  }
+                  className={`w-full py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
                     active
                       ? 'bg-purple-600 text-white border-purple-700'
                       : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
                   } disabled:opacity-50`}
                   style={{ minHeight: '44px' }}
                 >
-                  {sound.label}
+                  {active ? 'Remove sound' : 'Add sound'}
                 </button>
+                {active && (
+                  <button
+                    onClick={() => {
+                      previewSound(currentSound.id);
+                      announce(`Previewing ${currentSound.name}.`);
+                    }}
+                    className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                    style={{ minHeight: '44px' }}
+                    aria-label={`Preview ${currentSound.name}`}
+                  >
+                    <span aria-hidden="true">▶ </span>Preview added sound
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Mute / Unmute the *original* scene audio (Day 1 D4) */}
+          <button
+            onClick={() => {
+              const next = !isMuted;
+              apply(
+                (s) => setClipMuted(s, scene.id, next),
+                next ? 'mute' : 'unmute',
+                { muted: next },
               );
-            })}
-          </div>
-          {currentSound && (
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button
-                onClick={() => {
-                  previewSound(currentSound.id);
-                  announce(`Previewing ${currentSound.name}.`);
-                }}
-                className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px' }}
-                aria-label={`Preview ${currentSound.name}`}
-              >
-                <span aria-hidden="true">▶ </span>Preview
-              </button>
-              <button
-                onClick={() => {
-                  apply((s) => setClipSound(s, scene.id, null), 'remove_sound', {
-                    soundId: currentSound.id,
-                  });
-                  if (logEvent) {
-                    logEvent(EventTypes.REMOVE_SOUND, Actors.CREATOR, {
-                      segmentId: scene.id, soundId: currentSound.id,
-                    });
-                  }
-                  announce(`Sound removed from scene ${index + 1}.`);
-                }}
-                disabled={!editsAvailable}
-                className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-                style={{ minHeight: '44px' }}
-                aria-label={`Remove sound from scene ${index + 1}`}
-              >
-                Remove
-              </button>
-            </div>
-          )}
+              if (logEvent) {
+                logEvent(
+                  next ? EventTypes.MUTE_SCENE_AUDIO : EventTypes.UNMUTE_SCENE_AUDIO,
+                  Actors.CREATOR,
+                  { segmentId: scene.id },
+                );
+              }
+              announce(
+                next
+                  ? `Original audio muted on scene ${index + 1}.`
+                  : `Original audio unmuted on scene ${index + 1}.`,
+              );
+            }}
+            disabled={!editsAvailable}
+            aria-pressed={isMuted}
+            aria-label={
+              isMuted
+                ? `Unmute the original audio for scene ${index + 1}`
+                : `Mute the original audio for scene ${index + 1}`
+            }
+            className={`w-full mt-3 py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+              isMuted
+                ? 'bg-amber-600 text-white border-amber-700'
+                : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+            } disabled:opacity-50`}
+            style={{ minHeight: '44px' }}
+          >
+            {isMuted ? 'Unmute original audio' : 'Mute original audio'}
+          </button>
         </Section>
       </div>
 

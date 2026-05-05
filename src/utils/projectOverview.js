@@ -243,6 +243,170 @@ function trimsChanged(prevClips = [], nextClips = []) {
   });
 }
 
+function findFirstDifferingIndex(prevClips, nextClips) {
+  const len = Math.min(prevClips.length, nextClips.length);
+  for (let i = 0; i < len; i += 1) {
+    if (prevClips[i]?.id !== nextClips[i]?.id) return i;
+  }
+  return -1;
+}
+
+function findDeletedSceneIndex(prevClips, nextClips) {
+  const nextIds = new Set(nextClips.map((c) => c.id));
+  return prevClips.findIndex((c) => !nextIds.has(c.id));
+}
+
+function findSplitSceneIndex(prevClips, nextClips) {
+  // splitClip replaces clip at idx with `first` (same id) and inserts `second`
+  // (id ending in -split-) right after. The first differing index points at
+  // the new `second` clip; the original is at i - 1.
+  const i = findFirstDifferingIndex(prevClips, nextClips);
+  if (i === -1) return Math.max(0, prevClips.length - 1);
+  // Prefer the original clip's prev-index when we can resolve it.
+  const splitClip = nextClips[i];
+  if (splitClip && typeof splitClip.id === 'string') {
+    const baseId = splitClip.id.replace(/-split-\d+$/, '');
+    const origIdx = prevClips.findIndex((c) => c.id === baseId);
+    if (origIdx !== -1) return origIdx;
+  }
+  return Math.max(0, i - 1);
+}
+
+function findReorderedSceneInfo(prevClips, nextClips) {
+  const i = findFirstDifferingIndex(prevClips, nextClips);
+  if (i === -1) return null;
+  const movedClipId = nextClips[i]?.id;
+  if (!movedClipId) return null;
+  const fromIndex = prevClips.findIndex((c) => c.id === movedClipId);
+  if (fromIndex === -1 || fromIndex === i) return null;
+  return {
+    fromIndex,
+    toIndex: i,
+    direction: fromIndex > i ? 'earlier' : 'later',
+  };
+}
+
+function findTrimmedSceneIndex(prevClips, nextClips) {
+  for (let i = 0; i < prevClips.length; i += 1) {
+    const prev = prevClips[i];
+    const next = nextClips[i];
+    if (!next || prev.id !== next.id) continue;
+    if (prev.trimStart !== next.trimStart || prev.trimEnd !== next.trimEnd) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function findCaptionChangeSceneIndex(prevCaptions, nextCaptions, prevClips, nextClips) {
+  if (nextCaptions.length > prevCaptions.length) {
+    const prevIds = new Set(prevCaptions.map((c) => c.id));
+    const added = nextCaptions.find((c) => !prevIds.has(c.id));
+    if (added?.sceneId) {
+      const idx = nextClips.findIndex((c) => c.id === added.sceneId);
+      if (idx !== -1) return idx;
+    }
+  } else if (nextCaptions.length < prevCaptions.length) {
+    const nextIds = new Set(nextCaptions.map((c) => c.id));
+    const removed = prevCaptions.find((c) => !nextIds.has(c.id));
+    if (removed?.sceneId) {
+      const idx = prevClips.findIndex((c) => c.id === removed.sceneId);
+      if (idx !== -1) return idx;
+    }
+  }
+  return -1;
+}
+
+function findSoundChange(prevClips, nextClips) {
+  if (prevClips.length !== nextClips.length) return null;
+  for (let i = 0; i < prevClips.length; i += 1) {
+    const prev = prevClips[i];
+    const next = nextClips[i];
+    if (!next || prev.id !== next.id) continue;
+    const prevSound = prev.sound || null;
+    const nextSound = next.sound || null;
+    if (!prevSound && nextSound) return { type: 'added', index: i, sound: nextSound };
+    if (prevSound && !nextSound) return { type: 'removed', index: i, sound: prevSound };
+    if (prevSound && nextSound && prevSound.id !== nextSound.id) {
+      return { type: 'changed', index: i, sound: nextSound };
+    }
+  }
+  return null;
+}
+
+function sceneLabel(index) {
+  return `scene ${index + 1}`;
+}
+
+/**
+ * Day 1 fix #3: short, human-readable label for a single scene-level edit.
+ * The result is what we render in the SceneBlock's "What changed:" line and
+ * include in the TalkBack-readable aria-label on the header.
+ *
+ * Operations include both editState ops (split, delete, move, captions, sound)
+ * and the visual adjustments wired through COLOUR_UPDATE (brightness, contrast,
+ * saturation, zoom, rotate). The latter are passed with `value` and a sign
+ * so we can render "+15" / "-5" / "120%".
+ */
+export function describeEditOp(operation, options = {}) {
+  if (!operation) return 'Edited';
+  const op = String(operation).toLowerCase();
+  const value = options.value;
+  const num = typeof value === 'number' ? value : null;
+  switch (op) {
+    case 'trim':
+    case 'trim_start':
+      return 'Trimmed start';
+    case 'trim_end':
+      return 'Trimmed end';
+    case 'split':
+      return 'Trimmed at this point';
+    case 'delete':
+    case 'remove':
+    case 'discard':
+      return 'Removed from edit';
+    case 'reorder':
+    case 'move_earlier':
+    case 'move_up':
+      return 'Moved earlier';
+    case 'move_later':
+    case 'move_down':
+      return 'Moved later';
+    case 'add_caption':
+    case 'caption':
+      return 'Caption added';
+    case 'remove_caption':
+      return 'Caption removed';
+    case 'add_sound':
+    case 'sound':
+      return 'Sound added';
+    case 'remove_sound':
+      return 'Sound removed';
+    case 'mute':
+    case 'mute_audio':
+      return 'Original audio muted';
+    case 'unmute':
+    case 'unmute_audio':
+      return 'Original audio unmuted';
+    case 'brightness':
+      return num != null ? `Brightness ${num >= 0 ? '+' : ''}${num}` : 'Brightness changed';
+    case 'contrast':
+      return num != null ? `Contrast ${num >= 0 ? '+' : ''}${num}` : 'Contrast changed';
+    case 'saturation':
+      return num != null ? `Saturation ${num >= 0 ? '+' : ''}${num}` : 'Saturation changed';
+    case 'zoom':
+      return num != null ? `Zoom ${num}%` : 'Zoom changed';
+    case 'rotate':
+      return num != null ? `Rotated ${num}°` : 'Rotation changed';
+    case 'success':
+    case 'researcher_response':
+    case 'visual_adjust':
+      return 'AI fix applied';
+    default:
+      return `${op.replace(/_/g, ' ')} applied`;
+  }
+}
+
 export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Collaborator') {
   const prevClips = prevState?.clips || [];
   const nextClips = nextState?.clips || [];
@@ -260,40 +424,66 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     actionText = 'imported new footage';
     promptText = 'Check the timeline to review the new source material.';
   } else if (nextClips.length > prevClips.length) {
-    actionText = 'split a clip';
+    const idx = findSplitSceneIndex(prevClips, nextClips);
+    actionText = idx >= 0 ? `split ${sceneLabel(idx)}` : 'split a clip';
     promptText = 'Check the timeline to review the new clip boundaries.';
   } else if (nextClips.length < prevClips.length) {
-    actionText = 'deleted a clip';
+    const idx = findDeletedSceneIndex(prevClips, nextClips);
+    actionText = idx >= 0 ? `deleted ${sceneLabel(idx)}` : 'deleted a clip';
     promptText = 'Check the timeline to confirm the updated sequence.';
   } else if (prevClips.map((clip) => clip.id).join('|') !== nextClips.map((clip) => clip.id).join('|')) {
-    actionText = 'reordered the clips';
+    const info = findReorderedSceneInfo(prevClips, nextClips);
+    if (info) {
+      actionText = `moved ${sceneLabel(info.fromIndex)} ${info.direction}`;
+    } else {
+      actionText = 'reordered the clips';
+    }
     promptText = 'Check the timeline because the clip order changed.';
   } else if (trimsChanged(prevClips, nextClips)) {
-    actionText = 'trimmed a clip';
+    const idx = findTrimmedSceneIndex(prevClips, nextClips);
+    actionText = idx >= 0 ? `trimmed ${sceneLabel(idx)}` : 'trimmed a clip';
     promptText = 'Check the timeline to review the new clip length.';
   } else if (nextCaptions.length > prevCaptions.length) {
-    actionText = 'added a caption';
+    const idx = findCaptionChangeSceneIndex(prevCaptions, nextCaptions, prevClips, nextClips);
+    actionText = idx >= 0 ? `added a caption to ${sceneLabel(idx)}` : 'added a caption';
     promptText = 'Check the video to review the new caption.';
   } else if (nextCaptions.length < prevCaptions.length) {
-    actionText = 'removed a caption';
+    const idx = findCaptionChangeSceneIndex(prevCaptions, nextCaptions, prevClips, nextClips);
+    actionText = idx >= 0 ? `removed a caption from ${sceneLabel(idx)}` : 'removed a caption';
     promptText = 'Check the video to confirm the caption changes.';
   } else {
-    const overlayChange = overlaysChanged(prevTextOverlays, nextTextOverlays);
-    if (overlayChange?.type === 'added') {
-      actionText = 'added a text overlay';
-      promptText = 'Check the video to review the new text overlay.';
-    } else if (overlayChange?.type === 'removed') {
-      actionText = 'removed a text overlay';
-      promptText = 'Check the video to confirm the text overlay changes.';
-    } else if (overlayChange?.type === 'updated') {
-      actionText = 'updated a text overlay';
-      promptText = 'Check the video to review the updated text overlay.';
-    } else if (overlayChange?.type === 'moved') {
-      actionText = 'moved a text overlay';
-      promptText = 'Check the video to review the new overlay position.';
-    } else if (overlayChange?.type === 'reordered') {
-      actionText = 'reordered the text overlays';
-      promptText = 'Check the video to review the overlay order.';
+    const soundChange = findSoundChange(prevClips, nextClips);
+    if (soundChange) {
+      const label = sceneLabel(soundChange.index);
+      const soundName = soundChange.sound?.name || 'sound';
+      if (soundChange.type === 'added') {
+        actionText = `added ${soundName} to ${label}`;
+        promptText = 'Check the video to hear the new sound.';
+      } else if (soundChange.type === 'removed') {
+        actionText = `removed sound from ${label}`;
+        promptText = 'Check the video to confirm the sound was removed.';
+      } else {
+        actionText = `changed sound on ${label} to ${soundName}`;
+        promptText = 'Check the video to hear the updated sound.';
+      }
+    } else {
+      const overlayChange = overlaysChanged(prevTextOverlays, nextTextOverlays);
+      if (overlayChange?.type === 'added') {
+        actionText = 'added a text overlay';
+        promptText = 'Check the video to review the new text overlay.';
+      } else if (overlayChange?.type === 'removed') {
+        actionText = 'removed a text overlay';
+        promptText = 'Check the video to confirm the text overlay changes.';
+      } else if (overlayChange?.type === 'updated') {
+        actionText = 'updated a text overlay';
+        promptText = 'Check the video to review the updated text overlay.';
+      } else if (overlayChange?.type === 'moved') {
+        actionText = 'moved a text overlay';
+        promptText = 'Check the video to review the new overlay position.';
+      } else if (overlayChange?.type === 'reordered') {
+        actionText = 'reordered the text overlays';
+        promptText = 'Check the video to review the overlay order.';
+      }
     }
   }
 

@@ -8,7 +8,6 @@ function formatTotalDuration(seconds) {
 
 export default function GlobalControlsBar({
   sceneCount = 0,
-  videoCount = 0,
   totalDuration = 0,
 }) {
   if (sceneCount === 0) return null;
@@ -18,9 +17,7 @@ export default function GlobalControlsBar({
   // literal "&middot;" entities, producing several adjacent text nodes;
   // TalkBack on Android announced each fragment separately ("1", "clip",
   // "5"...) instead of the whole sentence.
-  const summary =
-    `${videoCount} clip${videoCount !== 1 ? 's' : ''} imported, ` +
-    `${sceneCount} scenes, total length ${formatTotalDuration(totalDuration)}`;
+  const summary = `${sceneCount} scenes, total length ${formatTotalDuration(totalDuration)}`;
 
   return (
     <div className="sticky top-0 z-20 bg-white border-b border-gray-200 px-4 py-3">

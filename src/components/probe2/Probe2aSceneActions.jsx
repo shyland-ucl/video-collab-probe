@@ -18,6 +18,10 @@ export default function Probe2aSceneActions({
   onSeek,
   onPlay,
   onPause,
+  // Single-segment play wired by Probe2Page; pauses at scene.end_time
+  // instead of advancing into the next scene block. Falls back to
+  // onSeek + onPlay if not supplied so older callers still work.
+  onPlaySegment,
   onAskAI,
   onAskAIEdit,
   onHandover,
@@ -44,12 +48,30 @@ export default function Probe2aSceneActions({
   const { logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
 
-  const handlePlaySegment = useCallback(() => {
+  // "Play this scene" — bounded playback, pauses at scene end. Default action.
+  const handlePlayThisScene = useCallback(() => {
+    if (onPlaySegment) {
+      onPlaySegment(scene);
+    } else {
+      if (onSeek) onSeek(scene.start_time);
+      if (onPlay) onPlay();
+    }
+  }, [scene, onPlaySegment, onSeek, onPlay]);
+
+  // "Play from here" — unbounded playback, continues into the next scene.
+  // Day 1 fix (Lily, May 5): the same button toggles pause once playback
+  // is running, so the BLV creator can double-tap the focused button to
+  // stop without having to swipe to a different control. Keeping focus on
+  // this button also means TalkBack stays silent through scene boundaries
+  // (no focus change → no read-out).
+  const handlePlayFromHereOrPause = useCallback(() => {
+    if (isPlaying) {
+      if (onPause) onPause();
+      return;
+    }
     if (onSeek) onSeek(scene.start_time);
     if (onPlay) onPlay();
-    // No announce — the button label flips to "Pause from here" and
-    // TalkBack re-reads the focused button. Keeps playback minimal.
-  }, [scene, onSeek, onPlay]);
+  }, [scene, isPlaying, onSeek, onPlay, onPause]);
 
   const handlePauseSegment = useCallback(() => {
     if (onPause) onPause();
@@ -129,16 +151,28 @@ export default function Probe2aSceneActions({
         levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
       />
 
-      {/* Play / Pause. data-scene-play-button is the focus target SceneBlock
-          uses on auto-follow expand. */}
+      {/* Day 1 fix #2: two distinct play actions.
+          "Play this scene" stops at the scene boundary so the creator can
+          verify a single edit. "Play from here" continues into later scenes
+          for review of how this scene fits with the next ones. The first
+          button is `data-scene-play-button` so SceneBlock auto-focuses it
+          on expand — it's the primary action. */}
       <button
-        onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        onClick={isSegmentPlaying ? handlePauseSegment : handlePlayThisScene}
         data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
+        aria-label={isSegmentPlaying ? 'Pause this scene' : `Play scene ${index + 1}, stops at the end of this scene`}
       >
-        {isSegmentPlaying ? 'Pause' : 'Play from here'}
+        {isSegmentPlaying ? 'Pause' : 'Play this scene'}
+      </button>
+      <button
+        onClick={handlePlayFromHereOrPause}
+        className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+        style={{ minHeight: '44px' }}
+        aria-label="Play the whole video from here, double tap to pause"
+      >
+        {isPlaying ? 'Pause' : 'Play from here'}
       </button>
 
       {/* Ask AI (VQA) — toggle */}
@@ -259,8 +293,14 @@ export default function Probe2aSceneActions({
             </p>
             <p className="text-sm text-gray-700">
               Speak clearly so they can hear. They will edit on this device.
-              When you tap Hand Over, screen-reader announcements will pause —
-              the helper can dismiss VoiceOver or TalkBack themselves before editing.
+            </p>
+            <p className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              <span className="font-medium">Helper, on hand-over:</span> the
+              app pauses its own announcements automatically. To silence
+              TalkBack itself, hold both volume keys for 3 seconds (Android)
+              or triple-tap with three fingers (iOS VoiceOver). Tap{' '}
+              <span className="font-medium">Return Device</span> when you're
+              done — that re-enables app announcements for the creator.
             </p>
             <div className="flex gap-2">
               <button

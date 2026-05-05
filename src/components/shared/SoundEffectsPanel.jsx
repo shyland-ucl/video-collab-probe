@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
-import { SOUND_LIBRARY, setClipSound } from '../../utils/sceneEditOps.js';
+import { SOUND_LIBRARY, setClipSound, setClipMuted, getClipMuted } from '../../utils/sceneEditOps.js';
 import { previewSound } from '../../services/sampleSounds.js';
 
 /**
@@ -56,6 +56,11 @@ export default function SoundEffectsPanel({
     return clip?.sound || null;
   }, [activeScene, editState]);
 
+  const isMuted = useMemo(
+    () => (activeScene ? getClipMuted(editState, activeScene.id) : false),
+    [activeScene, editState],
+  );
+
   const editsAvailable = !!editState && !!activeScene && typeof onEditChange === 'function';
 
   const apply = useCallback((mutator) => {
@@ -99,6 +104,25 @@ export default function SoundEffectsPanel({
     announce(`Sound removed from ${sceneLabel}.`);
   }, [apply, activeScene, activeIndex, currentSound, logEvent, actor]);
 
+  const handleToggleMute = useCallback(() => {
+    if (!activeScene) return;
+    const next = !isMuted;
+    apply((s) => setClipMuted(s, activeScene.id, next));
+    if (logEvent) {
+      logEvent(
+        next ? EventTypes.MUTE_SCENE_AUDIO : EventTypes.UNMUTE_SCENE_AUDIO,
+        actor,
+        { segmentId: activeScene.id },
+      );
+    }
+    const sceneLabel = activeIndex >= 0 ? `scene ${activeIndex + 1}` : 'this scene';
+    announce(
+      next
+        ? `Original audio muted on ${sceneLabel}.`
+        : `Original audio unmuted on ${sceneLabel}.`,
+    );
+  }, [apply, activeScene, activeIndex, isMuted, logEvent, actor]);
+
   // When embedded under a shared Adjustments card, drop the outer
   // border/header chrome — the host provides them. Standalone mode keeps
   // the original card so older mounts still look right.
@@ -123,18 +147,21 @@ export default function SoundEffectsPanel({
         </div>
       );
 
+  const sound = SOUND_LIBRARY[0];
+  const soundActive = currentSound?.id === sound.id;
+
   return (
     <Wrapper>
         <p className="text-sm text-gray-700">
-          Apply a placeholder sound to the scene currently in view. Sample
-          assets only — useful for talking through what the creator wants.
+          Two simple actions: attach a placeholder sound, or mute the scene's
+          original audio so a different track can stand in.
         </p>
 
         <div
           className="text-sm text-gray-800 bg-gray-50 border border-gray-200 rounded px-3 py-2"
           aria-label={
             activeScene
-              ? `Active scene: scene ${activeIndex >= 0 ? activeIndex + 1 : ''} ${activeScene.name || ''}.${currentSound ? ` Sound attached: ${currentSound.name}.` : ' No sound attached.'}`
+              ? `Active scene: scene ${activeIndex >= 0 ? activeIndex + 1 : ''} ${activeScene.name || ''}.${currentSound ? ` Sound attached: ${currentSound.name}.` : ' No sound attached.'}${isMuted ? ' Original audio muted.' : ''}`
               : 'No scene selected.'
           }
         >
@@ -150,55 +177,64 @@ export default function SoundEffectsPanel({
           ) : (
             <div className="text-xs text-gray-500 mt-1">No sound attached</div>
           )}
+          {isMuted && (
+            <div className="text-xs text-amber-700 mt-1">
+              <span aria-hidden="true">🔇 </span>Original audio muted
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          {SOUND_LIBRARY.map((sound) => {
-            const active = currentSound?.id === sound.id;
-            return (
-              <button
-                key={sound.id}
-                type="button"
-                onClick={() => handleAdd(sound)}
-                disabled={!editsAvailable}
-                aria-pressed={active}
-                aria-label={`Add ${sound.name}${active ? ', already added' : ''}`}
-                className={`py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
-                  active
-                    ? 'bg-purple-600 text-white border-purple-700'
-                    : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
-                } disabled:opacity-50`}
-                style={{ minHeight: '44px' }}
-              >
-                {sound.label}
-              </button>
-            );
-          })}
-        </div>
+        <button
+          type="button"
+          onClick={() => (soundActive ? handleRemove() : handleAdd(sound))}
+          disabled={!editsAvailable}
+          aria-pressed={soundActive}
+          aria-label={
+            soundActive
+              ? `Remove sound from scene ${activeIndex >= 0 ? activeIndex + 1 : ''}`
+              : `Add a sound to scene ${activeIndex >= 0 ? activeIndex + 1 : ''}`
+          }
+          className={`w-full py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+            soundActive
+              ? 'bg-purple-600 text-white border-purple-700'
+              : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+          } disabled:opacity-50`}
+          style={{ minHeight: '44px' }}
+        >
+          {soundActive ? 'Remove sound' : 'Add sound'}
+        </button>
 
-        {currentSound && (
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handlePreview(currentSound.id)}
-              className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-              style={{ minHeight: '44px' }}
-              aria-label={`Preview ${currentSound.name}`}
-            >
-              <span aria-hidden="true">▶ </span>Preview
-            </button>
-            <button
-              type="button"
-              onClick={handleRemove}
-              disabled={!editsAvailable}
-              className="py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 disabled:opacity-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-              style={{ minHeight: '44px' }}
-              aria-label="Remove sound from this scene"
-            >
-              Remove
-            </button>
-          </div>
+        {soundActive && (
+          <button
+            type="button"
+            onClick={() => handlePreview(currentSound.id)}
+            className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+            style={{ minHeight: '44px' }}
+            aria-label={`Preview ${currentSound.name}`}
+          >
+            <span aria-hidden="true">▶ </span>Preview added sound
+          </button>
         )}
+
+        <button
+          type="button"
+          onClick={handleToggleMute}
+          disabled={!editsAvailable}
+          aria-pressed={isMuted}
+          aria-label={
+            isMuted
+              ? `Unmute the original audio for scene ${activeIndex >= 0 ? activeIndex + 1 : ''}`
+              : `Mute the original audio for scene ${activeIndex >= 0 ? activeIndex + 1 : ''}`
+          }
+          className={`w-full py-2 text-sm font-medium rounded border focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
+            isMuted
+              ? 'bg-amber-600 text-white border-amber-700'
+              : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50'
+          } disabled:opacity-50`}
+          style={{ minHeight: '44px' }}
+        >
+          {isMuted ? 'Unmute original audio' : 'Mute original audio'}
+        </button>
 
         {!editsAvailable && (
           <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2" role="status">

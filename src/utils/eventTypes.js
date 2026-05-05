@@ -137,6 +137,9 @@ export const EventTypes = Object.freeze({
   // Sound / music (placeholder feature, Probe 2a / 2b / 3)
   ADD_SOUND: 'ADD_SOUND',
   REMOVE_SOUND: 'REMOVE_SOUND',
+  // Per-scene mute of the *original* video audio (Day 1 D4)
+  MUTE_SCENE_AUDIO: 'MUTE_SCENE_AUDIO',
+  UNMUTE_SCENE_AUDIO: 'UNMUTE_SCENE_AUDIO',
 
   // Participant-triggered AI analysis (Probe 3 v2 — replaces wizard
   // single-suggestion deployment with on-demand bank reveal).

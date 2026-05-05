@@ -10,8 +10,68 @@ const CATEGORY_COLORS = {
   creative: { bg: 'bg-cyan-50', border: 'border-cyan-300', badge: 'bg-cyan-100 text-cyan-800' },
 };
 
-function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onDismiss, helperName }) {
+function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onDismiss, helperName, resolution }) {
   const colors = CATEGORY_COLORS[suggestion.category] || CATEGORY_COLORS.creative;
+  // Day 1 fix #7 + #8: AI button only appears when the suggestion has a
+  // fix_template the override buffer can execute. Without a template the
+  // suggestion routes to helper or self only — preserves Lan's triadic
+  // design intent that some suggestions can't bypass the helper.
+  const aiFixable = !!suggestion.fix_template;
+  const fixLabel = suggestion.fix_template?.label;
+
+  // Day 1 fix #8: when a routing decision has been made, render the
+  // resolution badge instead of the four buttons. Keeps the suggestion
+  // visible (instead of vanishing) so the triadic record stays intact.
+  if (resolution) {
+    const badgeColor = {
+      ai: 'bg-purple-100 text-purple-800 border-purple-300',
+      self: 'bg-blue-100 text-blue-800 border-blue-300',
+      helper: 'bg-orange-100 text-orange-800 border-orange-300',
+      dismissed: 'bg-gray-100 text-gray-700 border-gray-300',
+    }[resolution.routedTo] || 'bg-gray-100 text-gray-700 border-gray-300';
+    const outcomeColor = {
+      pending: 'text-amber-700',
+      applied: 'text-green-700',
+      failed: 'text-red-700',
+    }[resolution.outcomeStatus] || 'text-gray-600';
+    const routedLabel = {
+      ai: 'Routed to AI',
+      self: 'Doing it myself',
+      helper: `Routed to ${helperName}`,
+      dismissed: 'Dismissed',
+    }[resolution.routedTo] || 'Resolved';
+    return (
+      <div
+        className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border} opacity-90`}
+        role="status"
+        aria-label={`Suggestion: ${suggestion.text}. ${routedLabel}. Status: ${resolution.outcomeStatus || 'pending'}.`}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors.badge}`}>
+            {suggestion.category}
+          </span>
+          {suggestion.relatedScene !== undefined && (
+            <span className="text-xs text-gray-500">
+              Scene {Array.isArray(suggestion.relatedScene)
+                ? suggestion.relatedScene.map((s) => s + 1).join(' & ')
+                : suggestion.relatedScene + 1}
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-gray-800 mb-2">{suggestion.text}</p>
+        <div className={`flex items-center gap-2 text-xs px-2 py-1 rounded border ${badgeColor}`}>
+          <span className="font-bold">{routedLabel}</span>
+          {resolution.routedTo !== 'dismissed' && (
+            <span className={`font-medium ${outcomeColor}`}>
+              · {resolution.outcomeStatus === 'applied' ? 'applied'
+                : resolution.outcomeStatus === 'failed' ? 'failed'
+                : 'pending'}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -42,13 +102,16 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onD
         >
           I'll Do It
         </button>
-        <button
-          onClick={() => onRouteAI(suggestion)}
-          className="w-full py-2 text-sm font-medium rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-          style={{ minHeight: '44px' }}
-        >
-          Ask AI to Fix
-        </button>
+        {aiFixable && (
+          <button
+            onClick={() => onRouteAI(suggestion)}
+            className="w-full py-2 text-sm font-medium rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+            style={{ minHeight: '44px' }}
+            aria-label={fixLabel ? `Ask AI to fix: ${fixLabel}` : 'Ask AI to fix'}
+          >
+            Ask AI to Fix{fixLabel ? ` (${fixLabel})` : ''}
+          </button>
+        )}
         <button
           onClick={() => onRouteHelper(suggestion)}
           className="w-full py-2 text-sm font-medium rounded bg-orange-100 text-orange-800 hover:bg-orange-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
@@ -78,6 +141,10 @@ export default function Probe3SceneActions({
   currentLevel,
   onLevelChange,
   accentColor = '#9B59B6',
+  // Day 1 fix #8: { [suggestionId]: { routedTo, outcomeStatus, timestamp } }
+  // map. When a suggestion appears in this map, the SuggestionItem renders
+  // its resolution badge instead of the action buttons.
+  suggestionResolutions = {},
   ...probe2bProps
 }) {
   const { logEvent } = useEventLogger();
@@ -152,6 +219,7 @@ export default function Probe3SceneActions({
               onRouteHelper={handleRouteHelper}
               onDismiss={handleDismiss}
               helperName={helperName}
+              resolution={suggestionResolutions[suggestion.id] || null}
             />
           ))}
         </div>

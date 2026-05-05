@@ -18,6 +18,9 @@ export default function Probe2bSceneActions({
   onSeek,
   onPlay,
   onPause,
+  // Day 1 fix #2: bounded "Play this scene" that pauses at scene.end_time.
+  // Falls back to onSeek+onPlay if not supplied so older callers still work.
+  onPlaySegment,
   onAskAI,
   onAskAIEdit,
   onSendToHelper,
@@ -49,12 +52,27 @@ export default function Probe2bSceneActions({
   const isSegmentPlaying =
     isPlaying && currentTime >= scene.start_time && currentTime < scene.end_time;
 
-  const handlePlaySegment = useCallback(() => {
+  // Day 1 fix #2: bounded "Play this scene" — pauses at the scene boundary.
+  const handlePlayThisScene = useCallback(() => {
+    if (onPlaySegment) {
+      onPlaySegment(scene);
+    } else {
+      if (onSeek) onSeek(scene.start_time);
+      if (onPlay) onPlay();
+    }
+  }, [scene, onPlaySegment, onSeek, onPlay]);
+
+  // Unbounded "Play from here" — continues into later scenes. Same button
+  // toggles pause when playback is running so focus can stay put through
+  // scene boundaries (no TalkBack read-out on focus change).
+  const handlePlayFromHereOrPause = useCallback(() => {
+    if (isPlaying) {
+      if (onPause) onPause();
+      return;
+    }
     if (onSeek) onSeek(scene.start_time);
     if (onPlay) onPlay();
-    // No announce — button label flips to "Pause from here" and TalkBack
-    // re-reads the focused button. Keeps playback minimal.
-  }, [scene, onSeek, onPlay]);
+  }, [scene, isPlaying, onSeek, onPlay, onPause]);
 
   const handlePauseSegment = useCallback(() => {
     if (onPause) onPause();
@@ -122,16 +140,26 @@ export default function Probe2bSceneActions({
         levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
       />
 
-      {/* Play / Pause. data-scene-play-button is the focus target SceneBlock
-          uses on auto-follow expand. */}
+      {/* Day 1 fix #2: two distinct play actions.
+          "Play this scene" stops at the scene boundary; "Play from here"
+          continues into later scenes. The first is the primary action and
+          carries data-scene-play-button so SceneBlock focuses it on expand. */}
       <button
-        onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        onClick={isSegmentPlaying ? handlePauseSegment : handlePlayThisScene}
         data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
+        aria-label={isSegmentPlaying ? 'Pause this scene' : `Play scene ${index + 1}, stops at the end of this scene`}
       >
-        {isSegmentPlaying ? 'Pause' : 'Play from here'}
+        {isSegmentPlaying ? 'Pause' : 'Play this scene'}
+      </button>
+      <button
+        onClick={handlePlayFromHereOrPause}
+        className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+        style={{ minHeight: '44px' }}
+        aria-label="Play the whole video from here, double tap to pause"
+      >
+        {isPlaying ? 'Pause' : 'Play from here'}
       </button>
 
       {/* Ask AI (VQA) — toggle */}

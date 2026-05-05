@@ -163,7 +163,7 @@ export default function CreatorMode({
       )}
 
       {/* Video player — visual only, not navigable */}
-      <div aria-hidden="true">
+      <div aria-hidden="true" inert="" className="pointer-events-none">
         <VideoPlayer
           ref={playerRef}
           src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}

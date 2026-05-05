@@ -4,7 +4,7 @@ import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import usePlaybackEngine from '../../hooks/usePlaybackEngine.js';
 
-const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter, actor = Actors.CREATOR }, ref) {
+const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter, videoTransform, audioMuted = false, maxHeight, actor = Actors.CREATOR }, ref) {
   const singleVideoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -167,7 +167,18 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
   const captionFontSize = a11y.textSize === 'large' ? '1.25rem' : a11y.textSize === 'small' ? '0.75rem' : '1rem';
 
   return (
-    <div className="relative w-full bg-black" style={{ aspectRatio: '16 / 9' }}>
+    <div
+      className="relative bg-black mx-auto"
+      style={{
+        aspectRatio: '16 / 9',
+        width: '100%',
+        // Day 1 fix: phone-first pages cap maxHeight so the player doesn't
+        // crowd out the scene list. With aspect-ratio + maxHeight, the
+        // browser shrinks the box (preserving 16:9) and `mx-auto` keeps
+        // it centred when width-derived height would have exceeded the cap.
+        maxHeight: maxHeight || undefined,
+      }}
+    >
       {/* Multi-source: render one <video> per source, show only the active one */}
       {hasMultiSource ? (
         sources.map((source, idx) => {
@@ -183,14 +194,27 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
               }}
               src={source.src}
               className="w-full h-full object-contain absolute inset-0"
-              style={{ display: isActive ? 'block' : 'none', filter: videoFilter || undefined }}
+              style={{
+                display: isActive ? 'block' : 'none',
+                filter: videoFilter || undefined,
+                transform: videoTransform || undefined,
+                transformOrigin: 'center center',
+                transition: 'transform 0.2s ease-out',
+              }}
               onTimeUpdate={isActive ? handleTimeUpdate : undefined}
               onPlay={isActive ? handlePlay : undefined}
               onPause={isActive ? handlePause : undefined}
+              muted={audioMuted}
               preload="metadata"
               playsInline
-              aria-label={isActive ? 'Video player' : `Video source: ${source.name}`}
-              aria-hidden={!isActive}
+              // Day 1 Android fix: keep ALL video elements out of the AT
+              // tree. Earlier we set `aria-hidden={!isActive}` here, which
+              // gave the active video `aria-hidden="false"` — that
+              // OVERRODE the parent wrapper's `aria-hidden="true"` and
+              // exposed the video to TalkBack, causing the "focus jumps
+              // to video player region" symptom Lily saw on Android.
+              aria-hidden="true"
+              tabIndex={-1}
             />
           );
         })
@@ -200,14 +224,23 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
           ref={singleVideoRef}
           src={src}
           className="w-full h-full object-contain"
-          style={{ filter: videoFilter || undefined }}
+          style={{
+            filter: videoFilter || undefined,
+            transform: videoTransform || undefined,
+            transformOrigin: 'center center',
+            transition: 'transform 0.2s ease-out',
+          }}
           onTimeUpdate={handleTimeUpdate}
           onPlay={handlePlay}
           onPause={handlePause}
           onLoadedMetadata={handleLoadedMetadata}
+          muted={audioMuted}
           preload="metadata"
           playsInline
-          aria-label="Video player"
+          // Same Android fix: belt-and-braces explicit hide from the AT
+          // tree, even though the parent wrapper already sets aria-hidden.
+          aria-hidden="true"
+          tabIndex={-1}
         />
       )}
 

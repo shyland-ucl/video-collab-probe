@@ -8,12 +8,13 @@ import { useAccessibility } from '../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
-import { filterClipsByKept } from '../utils/editStateView.js';
-import { buildProjectStats, summarizeEditStateChange } from '../utils/projectOverview.js';
-import { applyOperation } from '../utils/sceneEditOps.js';
+import { filterClipsByKept, colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
+import { buildProjectStats, summarizeEditStateChange, describeEditOp } from '../utils/projectOverview.js';
+import { applyOperation, getClipMuted } from '../utils/sceneEditOps.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
+import { clearProjectState } from '../utils/projectState.js';
 import ConditionHeader from '../components/shared/ConditionHeader.jsx';
 import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
@@ -71,6 +72,22 @@ export default function Probe3Page() {
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
+  // Day 1 fix #4: visual adjustments (helper-side sliders + WoZ override).
+  // Broadcast via COLOUR_UPDATE so the peer's video reflects the change.
+  const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 });
+  // Day 1 fix #3: per-scene edit stamp (badge + "What changed" line).
+  const [editedScenes, setEditedScenes] = useState({});
+  const stampSceneEdit = useCallback((sceneId, operation, opts = {}) => {
+    if (!sceneId) return;
+    setEditedScenes((prev) => ({
+      ...prev,
+      [sceneId]: {
+        text: describeEditOp(operation, opts),
+        actor: opts.actor || 'You',
+        timestamp: Date.now(),
+      },
+    }));
+  }, []);
   const [pipelineVideos, setPipelineVideos] = useState([]);
   // Server-side dyad assignments — see Probe1Page for rationale.
   const [serverAssignments, setServerAssignments] = useState(null);
@@ -83,6 +100,11 @@ export default function Probe3Page() {
   const [showSuggestionHistory, setShowSuggestionHistory] = useState(false);
   const suggestionDeployTimeRef = useRef({});
   const autoSuggestionTimeoutRef = useRef(null);
+  // Day 1 fix #8: per-suggestion resolution log so the SuggestionItem can
+  // render a badge (Routed to AI · applied / Routed to helper · pending /
+  // Dismissed) and stay visible after the routing decision. Shape:
+  //   { [suggestionId]: { routedTo, outcomeStatus, timestamp, fix_template } }
+  const [suggestionResolutions, setSuggestionResolutions] = useState({});
 
   // Participant-triggered AI analysis (Probe 3 v2 — replaces wizard
   // single-suggestion deployment). One-shot per session; either side
@@ -94,6 +116,10 @@ export default function Probe3Page() {
   useEffect(() => {
     setCondition('probe3');
     logEvent(EventTypes.CONDITION_START, Actors.SYSTEM, { condition: 'probe3' });
+    // Probe 3 always opens with a fresh video selection — design intent
+    // is no state-carryover from Probes 2a/2b. Wipe any lingering serialised
+    // state so the participant lands in the library with empty selection.
+    clearProjectState();
     loadDescriptions().then(setData).catch(console.error);
     loadPipelineVideos().then(setPipelineVideos).catch(() => {});
     fetchAssignments()
@@ -181,6 +207,29 @@ export default function Probe3Page() {
   // Filter the playback EDL by Removed scenes so the creator's VideoPlayer
   // skips scenes the participant has marked for removal.
   const playbackEditState = useMemo(() => filterClipsByKept(editState, keptScenes), [editState, keptScenes]);
+  // Day 1 D4: per-scene original-audio mute, derived from the active clip.
+  const audioMuted = useMemo(
+    () => (currentSegment ? getClipMuted(editState, currentSegment.id) : false),
+    [editState, currentSegment],
+  );
+  // Day 1 fix #4: visual adjustments derived from colourValues.
+  const videoFilter = useMemo(() => colourValuesToFilter(colourValues), [colourValues]);
+  const videoTransform = useMemo(() => colourValuesToTransform(colourValues), [colourValues]);
+  const handleColourAdjust = useCallback((property, value) => {
+    setColourValues((prev) => ({ ...prev, [property]: value }));
+    wsRelayService.sendData({
+      type: 'COLOUR_UPDATE',
+      property,
+      value,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+    if (currentSegment?.id) {
+      stampSceneEdit(currentSegment.id, property, {
+        value,
+        actor: role === 'creator' ? 'You' : 'Helper',
+      });
+    }
+  }, [role, currentSegment, stampSceneEdit]);
 
   // Same orderedScenes derivation as Probe 2a/2b — keeps the creator's scene
   // block list in sync with the helper's edits (deletes, reorders, splits).
@@ -249,13 +298,48 @@ export default function Probe3Page() {
     return () => clearInterval(interval);
   }, [phase, videoDuration]);
 
-  const handleTimeUpdate = useCallback((time) => setCurrentTime(time), []);
+  // Day 1 fix #2: bounded "Play this scene" — pause at scene.end_time.
+  // Keep stopAt set after the boundary pause so disableAutoFollow holds —
+  // see Probe2Page handleTimeUpdate for the rationale.
+  const [playingSegmentEnd, setPlayingSegmentEnd] = useState(null);
+  const handleTimeUpdate = useCallback((time) => {
+    setCurrentTime(time);
+    setPlayingSegmentEnd((stopAt) => {
+      if (stopAt != null && time >= stopAt - 0.05) {
+        playerRef.current?.pause();
+        wsRelayService.sendData({
+          type: 'PAUSE',
+          time,
+          actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+        });
+        return stopAt;
+      }
+      return stopAt;
+    });
+  }, [role]);
   const handleSegmentChange = useCallback((seg) => setCurrentSegment(seg), []);
   const handleSeek = useCallback((time) => {
+    setPlayingSegmentEnd(null);
     playerRef.current?.seek(time);
     wsRelayService.sendData({
       type: 'SEEK',
       time,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+  }, [role]);
+  const handlePlaySegment = useCallback((scene) => {
+    if (!scene) return;
+    playerRef.current?.seek(scene.start_time);
+    playerRef.current?.play();
+    setPlayingSegmentEnd(scene.end_time);
+    wsRelayService.sendData({
+      type: 'SEEK',
+      time: scene.start_time,
+      actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+    });
+    wsRelayService.sendData({
+      type: 'PLAY',
+      time: scene.start_time,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
   }, [role]);
@@ -314,6 +398,15 @@ export default function Probe3Page() {
   const editStateRef = useRef(editState);
   useEffect(() => { editStateRef.current = editState; }, [editState]);
   const [peerEditNotification, setPeerEditNotification] = useState(null);
+
+  // Refs the WS message handler reads to decide whether the helper still
+  // needs bootstrapping. setupHandlers' onData callback closes over the
+  // page at first mount, so reading state directly would always see the
+  // stale initial values.
+  const phaseRef = useRef(phase);
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  const selectedVideosRef = useRef(selectedVideos);
+  useEffect(() => { selectedVideosRef.current = selectedVideos; }, [selectedVideos]);
 
   // Both creator and helper edit freely; see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
@@ -577,11 +670,59 @@ export default function Probe3Page() {
           setEditState(msg.editState);
           const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
+          // Suppress empty-summary toasts (snapshots sent on
+          // REQUEST_EDIT_STATE / pair-up replay carry empty text).
+          const hasSummaryText = !!(changeSummary.shortText || changeSummary.announcement);
           if (currentRole === 'creator') {
-            setProjectUpdate({ ...changeSummary, id: Date.now() });
-            announce(changeSummary.announcement);
-          } else {
+            if (hasSummaryText) {
+              setProjectUpdate({ ...changeSummary, id: Date.now() });
+              announce(changeSummary.announcement);
+            }
+          } else if (hasSummaryText) {
             setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
+          }
+          // Helper bootstrap: take canonical sources from the broadcast
+          // editState if we still haven't resolved selectedVideos to full
+          // objects. Without this, the helper sits in 'library' forever
+          // when its allVideos pool doesn't include the creator's IDs
+          // (pipeline videos still loading, dyad-assignment mismatch, late
+          // join, etc.). Mirrors the Probe 2b fix.
+          const sv = selectedVideosRef.current;
+          const helperNeedsBootstrap = currentRole === 'helper'
+            && msg.editState?.sources?.length > 0
+            && (sv == null
+                || (Array.isArray(sv) && sv.length > 0 && typeof sv[0] === 'string')
+                || phaseRef.current !== 'active');
+          if (helperNeedsBootstrap) {
+            const sources = msg.editState.sources;
+            const clipsBySource = new Map();
+            for (const clip of msg.editState.clips || []) {
+              if (!clipsBySource.has(clip.sourceId)) clipsBySource.set(clip.sourceId, []);
+              clipsBySource.get(clip.sourceId).push({
+                id: clip.id,
+                name: clip.name,
+                color: clip.color,
+                start_time: clip.startTime,
+                end_time: clip.endTime,
+              });
+            }
+            const videos = sources.map((s) => ({
+              id: s.id,
+              title: s.name,
+              src: s.src,
+              duration: s.duration,
+              segments: clipsBySource.get(s.id) || [],
+            }));
+            setSelectedVideos(videos);
+            setSessionGuide(buildProjectStats({
+              projectData: { videos },
+              editState: msg.editState,
+              role: 'helper',
+            }));
+            if (phaseRef.current !== 'active') {
+              setPhase('active');
+              announce('Creator started the project. Entering session.');
+            }
           }
           break;
         }
@@ -663,6 +804,15 @@ export default function Probe3Page() {
             setNotedSuggestions((prev) => prev.map((s) =>
               s.id === suggestionId ? { ...s, helperResponse: response } : s
             ));
+            // Day 1 fix #8: update the persistent resolution log so the
+            // SuggestionItem badge flips from pending → applied/failed.
+            setSuggestionResolutions((prev) => {
+              const cur = prev[suggestionId] || { routedTo: 'helper', timestamp: Date.now() };
+              const outcome = response === 'done' || response === 'completed' ? 'applied'
+                : response === 'cant_do' || response === 'failed' ? 'failed'
+                : 'pending';
+              return { ...prev, [suggestionId]: { ...cur, outcomeStatus: outcome } };
+            });
             logEvent(EventTypes.HELPER_SUGGESTION_RESPONSE, Actors.HELPER, { suggestionId, response });
             announce(`Helper responded to suggestion: ${response}`);
 
@@ -679,6 +829,27 @@ export default function Probe3Page() {
 
         case 'AI_EDIT_REQUEST': {
           if (isResearcher) setPendingAIRequest(msg.request || null);
+          break;
+        }
+        case 'COLOUR_UPDATE': {
+          // Mirror peer / WoZ slider movement onto our local CSS filter.
+          if (typeof msg.property === 'string' && typeof msg.value === 'number') {
+            setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
+            const peer = msg.actor === 'CREATOR' ? 'Creator'
+              : msg.actor === 'HELPER' ? 'Helper'
+              : msg.actor === 'RESEARCHER' ? 'AI' : 'Peer';
+            announce(`${peer} set ${msg.property} to ${msg.value}.`);
+            if (currentSegment?.id) {
+              setEditedScenes((prev) => ({
+                ...prev,
+                [currentSegment.id]: {
+                  text: describeEditOp(msg.property, { value: msg.value }),
+                  actor: peer,
+                  timestamp: Date.now(),
+                },
+              }));
+            }
+          }
           break;
         }
         case 'REQUEST_EDIT_STATE': {
@@ -724,6 +895,25 @@ export default function Probe3Page() {
       // session" tells them the page is about to advance.
       const peer = currentRole === 'creator' ? 'Helper' : 'Creator';
       announce(`${peer} joined. Loading shared session.`);
+      // Helper-side state recovery: ask the creator for a snapshot in case
+      // we paired late and missed PROJECT_CREATED / EDIT_STATE_UPDATE.
+      // Idempotent; creator's REQUEST_EDIT_STATE handler short-circuits
+      // when no project exists yet.
+      if (currentRole === 'helper') {
+        wsRelayService.sendData({ type: 'REQUEST_EDIT_STATE' });
+      }
+      // Creator-side replay: if we already have a project, push a fresh
+      // snapshot proactively so a helper that paired late bootstraps
+      // straight into 'active'.
+      if (currentRole === 'creator' && editStateRef.current?.sources?.length > 0) {
+        wsRelayService.sendData({
+          type: 'EDIT_STATE_UPDATE',
+          editState: editStateRef.current,
+          action: 'snapshot',
+          changeSummary: { announcement: '', shortText: '' },
+          actor: 'CREATOR',
+        });
+      }
     });
   }, [clearSubscriptions, logEvent, runAnalysisSequence]);
 
@@ -831,6 +1021,88 @@ export default function Probe3Page() {
     });
   }, [logEvent]);
 
+  // Day 1 fix #7: route a suggestion through self / AI / helper. The AI
+  // path applies the suggestion's fix_template via the same primitives the
+  // WoZ override buffer uses (COLOUR_UPDATE for visual sliders, scene mute
+  // for the audio half), then stamps the scene as edited so the description
+  // reflects the change. helper-only suggestions hide the AI button so this
+  // path only ever runs for fix_template-bearing suggestions; we still
+  // defensively check before applying.
+  const applyFixTemplate = useCallback((suggestion) => {
+    const tpl = suggestion?.fix_template;
+    if (!tpl) return false;
+    // Resolve which scene the fix targets. relatedScene may be a single
+    // index or an array; we apply to the first scene in the list.
+    const sceneIdx = Array.isArray(suggestion.relatedScene)
+      ? suggestion.relatedScene[0]
+      : suggestion.relatedScene;
+    const sceneArr = orderedScenes.length > 0 ? orderedScenes : segments;
+    const targetScene = typeof sceneIdx === 'number' ? sceneArr[sceneIdx] : null;
+    const action = String(tpl.action || '').toLowerCase();
+    const value = typeof tpl.value === 'number' ? tpl.value : null;
+    if (['brightness', 'contrast', 'saturation', 'zoom', 'rotate'].includes(action) && value != null) {
+      // Visual slider — broadcast as COLOUR_UPDATE so peer + local mirror.
+      setColourValues((prev) => ({ ...prev, [action]: value }));
+      wsRelayService.sendData({ type: 'COLOUR_UPDATE', property: action, value, actor: 'AI' });
+      if (targetScene?.id) stampSceneEdit(targetScene.id, action, { value, actor: 'AI' });
+      return true;
+    }
+    if (action === 'mute' || action === 'unmute') {
+      if (!targetScene) return false;
+      const op = action === 'mute' ? 'mute' : 'unmute';
+      const current = editStateRef.current;
+      if (!current) return false;
+      const next = applyOperation(current, targetScene.id, op, {});
+      if (next === current) return false;
+      handleEditChange(next.clips, next.captions, next.sources, next.textOverlays);
+      stampSceneEdit(targetScene.id, op, { actor: 'AI' });
+      return true;
+    }
+    return false;
+  }, [orderedScenes, segments, stampSceneEdit, handleEditChange]);
+
+  const handleSuggestionRoute = useCallback((suggestion, channel) => {
+    if (!suggestion) return;
+    if (channel === 'self') {
+      setNotedSuggestions((prev) => [...prev, suggestion]);
+      setSuggestionResolutions((prev) => ({
+        ...prev,
+        [suggestion.id]: { routedTo: 'self', outcomeStatus: 'pending', timestamp: Date.now() },
+      }));
+    } else if (channel === 'helper') {
+      wsRelayService.sendData({ type: 'SUGGESTION_ROUTED_TO_HELPER', suggestion, actor: 'CREATOR' });
+      setNotedSuggestions((prev) => [...prev, { ...suggestion, routedToHelper: true }]);
+      setSuggestionResolutions((prev) => ({
+        ...prev,
+        [suggestion.id]: { routedTo: 'helper', outcomeStatus: 'pending', timestamp: Date.now() },
+      }));
+    } else if (channel === 'ai') {
+      // Apply the fix_template through the override buffer primitives.
+      const applied = applyFixTemplate(suggestion);
+      setSuggestionResolutions((prev) => ({
+        ...prev,
+        [suggestion.id]: {
+          routedTo: 'ai',
+          outcomeStatus: applied ? 'applied' : 'failed',
+          timestamp: Date.now(),
+          fix_template: suggestion.fix_template || null,
+        },
+      }));
+      if (applied) {
+        announce(
+          `AI applied: ${suggestion.fix_template?.label || 'visual fix'}.`,
+        );
+      } else {
+        announce('AI could not apply this fix automatically. Try Send to Helper instead.');
+      }
+    }
+    setDeployedSuggestions((prev) => ({
+      ...prev,
+      [suggestion.id]: { ...prev[suggestion.id], response: channel },
+    }));
+    setActiveSuggestion(null);
+  }, [applyFixTemplate]);
+
   // Apply an operation key (AI accept OR self-edit button) against editState.
   // Reuses handleEditChange so the control-owner check + EDIT_STATE_UPDATE
   // broadcast logic stays in one place. See Probe2bPage for the same pattern.
@@ -853,7 +1125,10 @@ export default function Probe3Page() {
       action: operation, segmentId: scene.id, applied: true,
     });
     handleEditChange(next.clips, next.captions, next.sources, next.textOverlays);
-  }, [currentTime, handleEditChange, logEvent]);
+    stampSceneEdit(scene.id, operation, {
+      actor: role === 'creator' ? 'You' : 'Helper',
+    });
+  }, [currentTime, handleEditChange, logEvent, stampSceneEdit, role]);
 
   const handleAIEditResponse = useCallback((responseText, responseType) => {
     setPendingAIRequest(null);
@@ -952,9 +1227,9 @@ export default function Probe3Page() {
 
   // Active Session
   return (
-    <div className="min-h-screen bg-white">
+    <div className="fixed inset-0 bg-white flex flex-col overflow-hidden">
       {role === 'creator' ? (
-        <div className="flex flex-col flex-1 max-w-lg mx-auto w-full">
+        <div className="flex flex-col flex-1 min-h-0 max-w-lg mx-auto w-full">
           <ConditionHeader condition="probe3" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 3: Proactive AI — Creator"
@@ -968,7 +1243,13 @@ export default function Probe3Page() {
             triggeredBy={analysisTriggeredBy}
             selfRole="creator"
           />
-          <div aria-hidden="true" className="px-3 pt-3">
+          {/* Day 1 fix #1: video pinned at top via flex layout. Outer is
+              `h-[100dvh] flex flex-col overflow-hidden`; this wrapper is
+              `flex-shrink-0` so it keeps its natural 16:9 height while the
+              SceneBlockList below takes remaining space with its own
+              internal scroll. Scenes scroll inside their own box, video
+              stays put — no sticky banner, no overlap. */}
+          <div aria-hidden="true" inert="" className="px-3 pt-3 flex-shrink-0 pointer-events-none">
             <VideoPlayer
               ref={playerRef}
               src={projectData?.video?.src || projectData?.videos?.[0]?.src || null}
@@ -976,6 +1257,10 @@ export default function Probe3Page() {
               onTimeUpdate={handleTimeUpdate}
               onSegmentChange={handleSegmentChange}
               editState={playbackEditState}
+              videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              audioMuted={audioMuted}
+              maxHeight="32vh"
             />
           </div>
           <SceneBlockList
@@ -985,15 +1270,19 @@ export default function Probe3Page() {
             isPlaying={isPlaying}
             onSeek={handleSeek}
             onPlay={() => {
+              setPlayingSegmentEnd(null);
               playerRef.current?.play();
               wsRelayService.sendData({ type: 'PLAY', time: currentTime, actor: 'CREATOR' });
             }}
             onPause={() => {
+              setPlayingSegmentEnd(null);
               playerRef.current?.pause();
               wsRelayService.sendData({ type: 'PAUSE', time: currentTime, actor: 'CREATOR' });
             }}
+            disableAutoFollow={playingSegmentEnd != null || isPlaying}
             accentColor={COLORS.purple}
             videoCount={selectedVideos?.length || 1}
+            editedScenes={editedScenes}
             vqaHistories={vqaHistories}
             awarenessData={awarenessData}
             keptScenes={keptScenes}
@@ -1017,34 +1306,28 @@ export default function Probe3Page() {
                 onSeek={os}
                 onPlay={op}
                 onPause={opp}
+                onPlaySegment={handlePlaySegment}
                 currentLevel={currentLevel}
                 onLevelChange={onLevelChange}
-                suggestions={analysisTriggered ? curatedSuggestions.filter(
-                  (s) => !deployedSuggestions[s.id] || !deployedSuggestions[s.id].response
-                ) : []}
+                suggestions={analysisTriggered ? curatedSuggestions : []}
                 helperName="helper"
-                onSuggestionRoute={(suggestion, channel) => {
-                  // Probe3SceneActions already fires SUGGESTION_ROUTE_*
-                  // (with category) when the creator taps a routing button,
-                  // so this callback only does bookkeeping — no logEvent.
-                  // Previously the helper branch fired SUGGESTION_ROUTED,
-                  // which split helper-routing data across two event types
-                  // and broke the §8.3 SHR coding cleanliness.
-                  if (channel === 'self') {
-                    setNotedSuggestions((prev) => [...prev, suggestion]);
-                  } else if (channel === 'helper') {
-                    wsRelayService.sendData({ type: 'SUGGESTION_ROUTED_TO_HELPER', suggestion, actor: 'CREATOR' });
-                    setNotedSuggestions((prev) => [...prev, { ...suggestion, routedToHelper: true }]);
-                  }
+                onSuggestionRoute={(suggestion, channel) => handleSuggestionRoute(suggestion, channel)}
+                onSuggestionDismiss={(suggestion) => {
+                  setSuggestionResolutions((prev) => ({
+                    ...prev,
+                    [suggestion.id]: {
+                      routedTo: 'dismissed',
+                      outcomeStatus: 'applied',
+                      timestamp: Date.now(),
+                    },
+                  }));
                   setDeployedSuggestions((prev) => ({
                     ...prev,
-                    [suggestion.id]: { ...prev[suggestion.id], response: channel },
+                    [suggestion.id]: { ...prev[suggestion.id], response: 'dismissed' },
                   }));
                   setActiveSuggestion(null);
                 }}
-                onSuggestionDismiss={(suggestion) => {
-                  handleSuggestionDismiss();
-                }}
+                suggestionResolutions={suggestionResolutions}
                 onAskAI={async (question, s) => {
                   setVqaHistories((prev) => ({
                     ...prev,

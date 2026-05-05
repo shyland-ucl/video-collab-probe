@@ -14,6 +14,8 @@ export default function Probe1SceneActions({
   onSeek,
   onPlay,
   onPause,
+  // Day 1 fix #2: bounded "Play this scene" — pause at scene.end_time.
+  onPlaySegment,
   onAskAI,
   currentLevel,
   onLevelChange,
@@ -23,19 +25,38 @@ export default function Probe1SceneActions({
   const [showAskAI, setShowAskAI] = useState(false);
   const { logEvent } = useEventLogger();
 
-  const handlePlaySegment = useCallback(() => {
+  const handlePlayThisScene = useCallback(() => {
+    if (onPlaySegment) {
+      onPlaySegment(scene);
+    } else {
+      if (onSeek) onSeek(scene.start_time);
+      if (onPlay) onPlay();
+    }
+    logEvent(EventTypes.PLAY, Actors.CREATOR, {
+      segmentId: scene.id,
+      action: 'play_this_scene',
+    });
+  }, [scene, onPlaySegment, onSeek, onPlay, logEvent]);
+
+  // Day 1 fix: same button toggles pause when video is playing so the
+  // focused button stays mounted through scene boundaries — TalkBack stays
+  // silent (no focus change) while still letting double-tap pause.
+  const handlePlayFromHereOrPause = useCallback(() => {
+    if (isPlaying) {
+      if (onPause) onPause();
+      logEvent(EventTypes.PAUSE, Actors.CREATOR, {
+        segmentId: scene.id,
+        action: 'pause_via_play_from_here',
+      });
+      return;
+    }
     if (onSeek) onSeek(scene.start_time);
     if (onPlay) onPlay();
     logEvent(EventTypes.PLAY, Actors.CREATOR, {
       segmentId: scene.id,
-      action: 'play_segment',
+      action: 'play_from_here',
     });
-    // No announce here. The button's accessible name flips from
-    // "Play from here" to "Pause from here" on activation; TalkBack
-    // re-reads the focused button, which is sufficient feedback. Lan
-    // 2026-04-26: keep playback minimal so the video audio isn't
-    // talked over.
-  }, [scene, index, onSeek, onPlay, logEvent]);
+  }, [scene, isPlaying, onSeek, onPlay, onPause, logEvent]);
 
   const handlePauseSegment = useCallback(() => {
     if (onPause) onPause();
@@ -68,18 +89,26 @@ export default function Probe1SceneActions({
         levelDescription={scene?.descriptions?.[`level_${currentLevel}`]}
       />
 
-      {/* Play / Pause segment.
-          data-scene-play-button: SceneBlock looks for this on auto-follow
-          expand to keep AT focus on the play/pause button instead of
-          jumping to the actions region. */}
+      {/* Day 1 fix #2: two distinct play actions.
+          "Play this scene" stops at the scene boundary; "Play from here"
+          continues into later scenes. The first is the primary action
+          (data-scene-play-button so SceneBlock auto-focuses it). */}
       <button
-        onClick={isSegmentPlaying ? handlePauseSegment : handlePlaySegment}
+        onClick={isSegmentPlaying ? handlePauseSegment : handlePlayThisScene}
         data-scene-play-button="true"
         className="w-full py-3 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
         style={{ minHeight: '48px' }}
-        aria-label={isSegmentPlaying ? 'Pause from here' : 'Play from here'}
+        aria-label={isSegmentPlaying ? 'Pause this scene' : `Play scene ${index + 1}, stops at the end of this scene`}
       >
-        {isSegmentPlaying ? 'Pause' : 'Play from here'}
+        {isSegmentPlaying ? 'Pause' : 'Play this scene'}
+      </button>
+      <button
+        onClick={handlePlayFromHereOrPause}
+        className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
+        style={{ minHeight: '44px' }}
+        aria-label="Play the whole video from here, double tap to pause"
+      >
+        {isPlaying ? 'Pause' : 'Play from here'}
       </button>
 
       {/* Ask AI — toggle button */}

@@ -1,5 +1,9 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { draftAIEditResponse } from '../../services/geminiService.js';
+import { wsRelayService } from '../../services/wsRelayService.js';
+import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
+import { EventTypes, Actors } from '../../utils/eventTypes.js';
+import MockColourControls from '../shared/MockColourControls.jsx';
 
 const ACTIONS = [
   { key: 'trim_start', label: 'Trim Start' },
@@ -43,6 +47,44 @@ export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendR
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState(null);
   const [showAllPrepared, setShowAllPrepared] = useState(false);
+  // Day 1 fix #4: WoZ visual adjustments. Local mirror of the slider state
+  // for the override panel. Each change is broadcast as COLOUR_UPDATE with
+  // actor=RESEARCHER so the participant's video applies the AI "fix" live.
+  const [wozVisuals, setWozVisuals] = useState({
+    brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0,
+  });
+  const { logEvent } = useEventLogger();
+
+  const handleWozAdjust = useCallback((property, value) => {
+    setWozVisuals((prev) => ({ ...prev, [property]: value }));
+    wsRelayService.sendData({
+      type: 'COLOUR_UPDATE',
+      property,
+      value,
+      actor: 'RESEARCHER',
+    });
+    if (logEvent) {
+      logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, {
+        action: 'visual_adjust',
+        property,
+        value,
+        segmentId: segment?.id,
+      });
+    }
+  }, [logEvent, segment]);
+
+  const handleResetWoz = useCallback(() => {
+    const reset = { brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 };
+    setWozVisuals(reset);
+    Object.entries(reset).forEach(([property, value]) => {
+      wsRelayService.sendData({
+        type: 'COLOUR_UPDATE',
+        property,
+        value,
+        actor: 'RESEARCHER',
+      });
+    });
+  }, []);
 
   // Reset selection when a new request arrives so the panel is fresh.
   useEffect(() => {
@@ -274,6 +316,28 @@ export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendR
           aria-label="Clear response"
         >
           Clear
+        </button>
+      </div>
+
+      {/* Day 1 fix #4: WoZ visual override. Each slider broadcasts a
+          COLOUR_UPDATE so the participant's video reflects the AI "fix"
+          immediately. Mirrors the helper's panel — same component. */}
+      <div className="border-t border-gray-200 pt-4 mt-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+          Apply visual edit (override buffer)
+        </p>
+        <p className="text-xs text-gray-400 mb-3">
+          Sliders broadcast live to the participant's video. Use to apply the
+          fix described in your response (e.g. brightness +15, zoom 120%).
+        </p>
+        <MockColourControls values={wozVisuals} onAdjust={handleWozAdjust} />
+        <button
+          type="button"
+          onClick={handleResetWoz}
+          className="mt-3 w-full px-3 py-2 rounded text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 focus:outline-2 focus:outline-offset-2"
+          aria-label="Reset all visual sliders to neutral"
+        >
+          Reset visual edit
         </button>
       </div>
     </div>

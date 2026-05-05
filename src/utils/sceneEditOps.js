@@ -128,15 +128,25 @@ export function deleteClip(editState, sceneId) {
 
 /**
  * Sound library — placeholder catalogue surfaced to both creator and helper.
- * Replace with real audio assets when the feature graduates from placeholder.
+ * Per Day 1 feedback: simplified from {music, effect} to a single generic
+ * "Add sound" entry. The mute action below covers the "remove the original
+ * scene audio" half of the requirement (D4: original audio only).
+ *
+ * Older clip metadata that referenced 'background_music' / 'sound_effect'
+ * still resolves through getSoundById to its known shape — we just no
+ * longer surface those as separate buttons.
  */
 export const SOUND_LIBRARY = [
-  { id: 'background_music', name: 'Background music', label: '🎵 Music' },
-  { id: 'sound_effect', name: 'Sound effect', label: '🔊 Effect' },
+  { id: 'sound_effect', name: 'Sample sound', label: '🔊 Add sound' },
 ];
 
+const LEGACY_SOUNDS = {
+  background_music: { id: 'background_music', name: 'Background music', label: '🎵 Music' },
+  sound_effect: { id: 'sound_effect', name: 'Sample sound', label: '🔊 Add sound' },
+};
+
 export function getSoundById(soundId) {
-  return SOUND_LIBRARY.find((s) => s.id === soundId) || null;
+  return SOUND_LIBRARY.find((s) => s.id === soundId) || LEGACY_SOUNDS[soundId] || null;
 }
 
 /**
@@ -161,6 +171,34 @@ export function getSoundForScene(editState, sceneId) {
       || (typeof c.id === 'string' && c.id.startsWith(`${sceneId}-split-`))
   );
   return clip?.sound || null;
+}
+
+/**
+ * Mute / unmute the *original* video audio for a scene. Distinct from
+ * `setClipSound`: that one attaches an overlay sound, this one silences
+ * the source clip's own audio. Per Day 1 D4 — David's case where the DJ
+ * background drowned out his vocal needed a way to mute the source so a
+ * helper-attached voiceover can be added on top.
+ *
+ * Like setClipSound, this propagates the flag to every clip derived from
+ * a split so the timeline stays consistent.
+ */
+export function setClipMuted(editState, sceneId, muted) {
+  const flag = !!muted;
+  const clips = (editState.clips || []).map((c) => {
+    const matches = c.id === sceneId
+      || (typeof c.id === 'string' && c.id.startsWith(`${sceneId}-split-`));
+    return matches ? { ...c, muted: flag } : c;
+  });
+  return { ...editState, clips };
+}
+
+export function getClipMuted(editState, sceneId) {
+  const clip = (editState?.clips || []).find(
+    (c) => c.id === sceneId
+      || (typeof c.id === 'string' && c.id.startsWith(`${sceneId}-split-`))
+  );
+  return !!clip?.muted;
 }
 
 /**
@@ -208,6 +246,14 @@ export function applyOperation(editState, sceneId, operation, options = {}) {
     }
     case 'remove_sound':
       return setClipSound(editState, sceneId, null);
+    case 'mute':
+    case 'mute_audio':
+      return setClipMuted(editState, sceneId, true);
+    case 'unmute':
+    case 'unmute_audio':
+      return setClipMuted(editState, sceneId, false);
+    case 'toggle_mute':
+      return setClipMuted(editState, sceneId, !getClipMuted(editState, sceneId));
     default:
       return editState;
   }

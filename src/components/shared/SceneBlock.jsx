@@ -45,6 +45,12 @@ export default function SceneBlock({
   // appends "AI suggestion available" to the aria-label so a TalkBack
   // creator can find the scenes worth opening by swiping the scene list.
   hasSuggestion = false,
+  // Day 1 fix #3: when an edit lands on this scene, the page passes a
+  // short templated diff string (e.g. "Brightness +15") plus the actor
+  // who made it. Renders an amber "Edited" badge in the header and
+  // prepends a "What changed" line to the description so a TalkBack
+  // creator hears the change without having to expand or replay.
+  editSummary = null,
 }) {
   const actionsRef = useRef(null);
   const { audioEnabled, speechRate } = useAccessibility();
@@ -71,34 +77,32 @@ export default function SceneBlock({
   const description = scene.descriptions?.[levelKey] || '';
 
   // Auto-focus on expand. Fires for both manual click and auto-follow
-  // during playback. We deliberately do NOT call ttsService.speak() here
-  // so we don't fight TalkBack — the announce() live region + focus
-  // change is enough.
+  // during playback.
   //
-  // Focus target depends on origin (per Lan's 2026-04-26 feedback):
-  //   - Manual click → actions region (user is opening the menu).
-  //   - Auto-follow  → the new scene's Play/Pause button (so the user
-  //     stays on the button they were just using). Falls back to the
-  //     actions region if the play button isn't found.
+  // Day 1 fix (Lily, May 5): during auto-follow we now SKIP focus
+  // movement entirely. Previously we focused the new scene's play
+  // button so the user could keep tapping it, but TalkBack reads the
+  // focused button's accessible name on every focus change — that
+  // overlapped the playing video audio every time playback crossed a
+  // scene boundary. Per request: "even the scene block is moving, the
+  // talkback should be silent". Now playback stays silent; the user
+  // can swipe to find controls if they want to pause. Manual expand
+  // still focuses the actions region as before.
   useEffect(() => {
     if (isExpanded && actionsRef.current) {
       ttsService.stop();
-      const playBtn = autoFollowed
-        ? actionsRef.current.querySelector('[data-scene-play-button="true"]')
-        : null;
-      if (playBtn) {
-        playBtn.focus();
-      } else {
-        actionsRef.current.focus();
+      if (autoFollowed) {
+        // Silent visual update only — no focus move, no announce.
+        return;
       }
-      // Announce only on MANUAL expand. During auto-follow (playback
-      // crossing scene boundaries) we stay silent so the video audio
-      // isn't talked over (Lan 2026-04-26). Assertive on manual expand
-      // because Android TalkBack drops polite writes during the
-      // activated button's re-read.
-      if (!autoFollowed) {
-        announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`, { assertive: true });
-      }
+      // Day 1 Android fix: `preventScroll` on focus so the browser
+      // doesn't run its own scroll-into-view animation alongside whatever
+      // TalkBack is already doing — that combination produced the
+      // "scroll past then snap back" jitter Lily reported.
+      actionsRef.current.focus({ preventScroll: true });
+      // Announce only on MANUAL expand. Assertive because Android TalkBack
+      // drops polite writes during the activated button's re-read.
+      announce(`Opened scene ${index + 1}. ${scene.name}. Showing actions.`, { assertive: true });
     }
     if (!isExpanded) {
       ttsService.stop();
@@ -133,6 +137,7 @@ export default function SceneBlock({
         aria-label={
           `Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ` +
           (isRemoved ? 'Removed from edit. ' : '') +
+          (editSummary ? `Edited: ${editSummary.text}. ` : '') +
           (hasSuggestion ? 'AI suggestion available. ' : '') +
           (description ? `${description} ` : '') +
           (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
@@ -141,6 +146,8 @@ export default function SceneBlock({
           isExpanded ? 'border-b-2' : ''
         } ${isRemoved ? 'bg-gray-50 opacity-60' : ''} ${
           hasSuggestion && !isRemoved ? 'ring-2 ring-purple-300 ring-offset-1' : ''
+        } ${
+          editSummary && !isRemoved ? 'ring-2 ring-amber-300 ring-offset-1' : ''
         }`}
         style={isExpanded ? { borderBottomColor: accentColor, minHeight: '48px' } : { minHeight: '48px' }}
       >
@@ -161,6 +168,15 @@ export default function SceneBlock({
                 aria-hidden="true"
               >
                 <span className="mr-0.5">✨</span>AI
+              </span>
+            )}
+            {editSummary && !isRemoved && (
+              <span
+                className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700 flex-shrink-0"
+                aria-hidden="true"
+                title={editSummary.text}
+              >
+                Edited
               </span>
             )}
             {isRemoved && (
@@ -191,7 +207,18 @@ export default function SceneBlock({
             <span aria-hidden="true" className="text-gray-400">{isExpanded ? '▲' : '▼'}</span>
           </div>
         </div>
-        {/* Description always visible */}
+        {/* Description always visible. Day 1 fix #3: prepend a one-line
+            "What changed" diff when there's a recent edit on this scene so
+            BLV creators verify outcomes without re-playing. */}
+        {editSummary && !isRemoved && (
+          <p
+            className="text-sm font-medium text-amber-800 mb-1"
+            aria-hidden="true"
+          >
+            <span className="text-xs uppercase tracking-wide mr-1">What changed:</span>
+            {editSummary.text}
+          </p>
+        )}
         <p className={`text-sm leading-relaxed ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-600'}`} aria-hidden="true">
           {description || 'No description available.'}
         </p>
