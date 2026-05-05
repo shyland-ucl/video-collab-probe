@@ -6,6 +6,7 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import ttsService from '../../services/ttsService.js';
 import VQAPanel from './VQAPanel.jsx';
+import { useRootInert } from '../../hooks/useRootInert.js';
 
 /**
  * Format seconds into m:ss display.
@@ -100,25 +101,21 @@ export default function ExplorationMode({
   const { logEvent } = useEventLogger();
   const { textSize, audioEnabled, speechRate } = useAccessibility();
 
-  // When a modal is open, mark the app root as inert for VoiceOver focus trap
-  // Modals are portalled to document.body, so we inert the #root element
   const isModalOpen = showVQA || showEditPanel;
-  useEffect(() => {
-    if (!isModalOpen) return;
-    const root = document.getElementById('root');
-    if (root) root.setAttribute('inert', '');
-    // Focus the first focusable element in the modal
-    setTimeout(() => {
-      const focusable = modalRef.current?.querySelector('button, input, textarea, [tabindex]');
-      focusable?.focus();
-    }, 100);
-    return () => {
-      if (root) root.removeAttribute('inert');
-      // Restore focus to the element that triggered the modal
-      preModalFocusRef.current?.focus();
-      preModalFocusRef.current = null;
-    };
-  }, [isModalOpen]);
+  const getInitialModalFocus = useCallback(
+    () => modalRef.current?.querySelector('button, input, textarea, [tabindex]:not([tabindex="-1"])'),
+    [],
+  );
+  const getPreModalFocus = useCallback(() => {
+    const target = preModalFocusRef.current;
+    preModalFocusRef.current = null;
+    return target;
+  }, []);
+  useRootInert(isModalOpen, {
+    initialFocus: getInitialModalFocus,
+    restoreFocus: getPreModalFocus,
+    focusDelay: 100,
+  });
 
   const total = segments?.length ?? 0;
   const segment = segments?.[currentIndex];

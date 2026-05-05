@@ -48,6 +48,7 @@ export default function ConditionHeader({ condition, modeLabel }) {
     <div
       className="w-full px-4 py-3 flex items-center gap-3"
       style={{ backgroundColor: config.color }}
+      aria-hidden="true"
     >
       <h1 className="text-white font-bold text-lg m-0">{config.label}</h1>
       <span className="text-white/80 text-sm">{config.description}</span>

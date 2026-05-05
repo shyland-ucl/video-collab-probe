@@ -4,17 +4,32 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
 import { SOUND_LIBRARY, setClipSound } from '../../utils/sceneEditOps.js';
 import { previewSound } from '../../services/sampleSounds.js';
+import MockColourControls from './MockColourControls.jsx';
 
 // Color palette for sources
 const SOURCE_COLORS = [
   '#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#06B6D4', '#84CC16',
 ];
+const VISUAL_DEFAULT_VALUES = { brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 };
 
 /**
  * Mock iMovie/CapCut-style video editor for the research probe.
  * Supports multiple video sources — clips from different files on one timeline.
  */
-export default function MockEditorVisual({ segments = [], currentTime = 0, onSeek, onEditChange, initialSources = [], editState, onTextTool, textToolActive, clipPerSource = false, actor = Actors.CREATOR }) {
+export default function MockEditorVisual({
+  segments = [],
+  currentTime = 0,
+  onSeek,
+  onEditChange,
+  initialSources = [],
+  editState,
+  onTextTool,
+  textToolActive,
+  clipPerSource = false,
+  actor = Actors.CREATOR,
+  visualValues,
+  onVisualAdjust,
+}) {
   const { logEvent } = useEventLogger();
 
   // Initialize from editState prop if available, otherwise empty arrays.
@@ -29,6 +44,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   const [selectedClipIndex, setSelectedClipIndex] = useState(null);
   const [showCaptionEditor, setShowCaptionEditor] = useState(false);
   const [showSoundPanel, setShowSoundPanel] = useState(false);
+  const [showVisualPanel, setShowVisualPanel] = useState(false);
   const [captionText, setCaptionText] = useState('');
   const [captionStart, setCaptionStart] = useState(0);
   const [captionEnd, setCaptionEnd] = useState(5);
@@ -391,11 +407,13 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
   const handleAddCaption = () => {
     if (!captionText.trim()) return;
     saveSnapshot();
+    const selectedClip = selectedClipIndex != null ? clips[selectedClipIndex] : null;
     const newCaption = {
       id: `cap-${Date.now()}`,
       text: captionText.trim(),
       startTime: captionStart,
       endTime: captionEnd,
+      sceneId: selectedClip?.id || null,
     };
     setCaptions((prev) => [...prev, newCaption]);
     logEvent(EventTypes.ADD_CAPTION, actor, {
@@ -404,7 +422,7 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
       startTime: captionStart,
       endTime: captionEnd,
     });
-    announce(`Added caption: "${newCaption.text}"`);
+    announce(`Added caption with text: ${newCaption.text}`);
     setCaptionText('');
   };
 
@@ -526,6 +544,33 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
     }
   };
 
+  const getActiveToolClip = useCallback(() => {
+    if (selectedClipIndex !== null && clips[selectedClipIndex]) {
+      return clips[selectedClipIndex];
+    }
+    return clips.find((clip) => (
+      currentTime >= clip.startTime + (clip.trimStart || 0)
+      && currentTime < clip.endTime - (clip.trimEnd || 0)
+    )) || null;
+  }, [clips, currentTime, selectedClipIndex]);
+
+  const handleVisualAdjust = useCallback((property, value) => {
+    if (!onVisualAdjust) return;
+    const clip = getActiveToolClip();
+    onVisualAdjust(property, value, {
+      sceneId: clip?.id || null,
+      clipName: clip?.name || null,
+    });
+  }, [getActiveToolClip, onVisualAdjust]);
+
+  const handleResetVisuals = useCallback(() => {
+    if (!onVisualAdjust) return;
+    Object.entries(VISUAL_DEFAULT_VALUES).forEach(([property, value]) => {
+      handleVisualAdjust(property, value);
+    });
+    announce('Visual adjustments reset.');
+  }, [handleVisualAdjust, onVisualAdjust]);
+
   // ---- Compute layout ----
 
   const clipLayouts = [];
@@ -646,6 +691,24 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
         >
           Sound
         </button>
+        {onVisualAdjust && (
+          <>
+            <div className="border-l border-white/30 h-6 mx-1" aria-hidden="true" />
+            <button
+              onClick={() => setShowVisualPanel((v) => !v)}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-white ${
+                showVisualPanel
+                  ? 'bg-[#38bdf8] text-[#082f49]'
+                  : 'bg-white/20 text-white border border-white/30 hover:bg-white/30'
+              }`}
+              style={{ minHeight: '44px', minWidth: '44px' }}
+              aria-label={showVisualPanel ? 'Hide visual adjustments' : 'Show visual adjustments'}
+              aria-pressed={showVisualPanel}
+            >
+              Visual
+            </button>
+          </>
+        )}
         <div className="border-l border-white/30 h-6 mx-1" />
         <ToolbarButton
           onClick={handleUndo}
@@ -927,10 +990,28 @@ export default function MockEditorVisual({ segments = [], currentTime = 0, onSee
         </div>
       )}
 
-      {/* Sound Panel — toolbar-toggled, lives under the timeline next to
-          the Caption Editor so the helper has caption / text / sound all
-          in one place. Targets the currently-selected clip; falls back to
-          the clip under the playhead. */}
+      {/* Visual adjustments are toolbar-toggled so they live with the other edit tools. */}
+      {showVisualPanel && onVisualAdjust && (
+        <div className="mx-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <MockColourControls
+            values={visualValues}
+            onAdjust={handleVisualAdjust}
+            actor={actor}
+            variant="dark"
+          />
+          <button
+            type="button"
+            onClick={handleResetVisuals}
+            className="mt-3 w-full px-3 py-2 text-xs font-bold bg-white/10 text-white border border-white/30 rounded hover:bg-white/20 focus:outline-2 focus:outline-offset-1 focus:outline-white"
+            style={{ minHeight: '44px' }}
+            aria-label="Reset visual adjustments to neutral"
+          >
+            Reset Visual
+          </button>
+        </div>
+      )}
+
+      {/* Sound targets the selected clip, or the clip under the playhead. */}
       {showSoundPanel && (() => {
         const targetIndex = selectedClipIndex != null && selectedClipIndex >= 0 && selectedClipIndex < clips.length
           ? selectedClipIndex

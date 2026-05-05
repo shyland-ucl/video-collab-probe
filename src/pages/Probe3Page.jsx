@@ -9,8 +9,16 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { filterClipsByKept, colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
-import { buildProjectStats, summarizeEditStateChange, describeEditOp } from '../utils/projectOverview.js';
+import {
+  buildProjectStats,
+  describeEditOp,
+  labelEditActor,
+  summarizeEditStateChange,
+  summarizeVisualAdjustment,
+} from '../utils/projectOverview.js';
 import { applyOperation, getClipMuted } from '../utils/sceneEditOps.js';
+import { buildEditChangeSceneStamp } from '../utils/editChangeStamp.js';
+import { buildHelperTaskStatusUpdate } from '../utils/taskFeedback.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -20,6 +28,7 @@ import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import SceneBlockList from '../components/shared/SceneBlockList.jsx';
+import ProjectUpdateToast from '../components/shared/ProjectUpdateToast.jsx';
 import Probe3SceneActions from '../components/probe3/Probe3SceneActions.jsx';
 import HelperDevice from '../components/probe3/HelperDevice.jsx';
 import AIAnalysisTriggerCard from '../components/probe3/AIAnalysisTriggerCard.jsx';
@@ -36,6 +45,17 @@ const COLORS = {
   purple: '#9B59B6',
   blue: '#2B579A',
 };
+
+function baseSceneId(id) {
+  if (!id || typeof id !== 'string') return id || null;
+  return id.replace(/-split-\d+$/, '');
+}
+
+function getSceneIdAtTime(segments = [], time = 0) {
+  return segments.find((scene) => (
+    time >= scene.start_time && time < scene.end_time
+  ))?.id || segments[0]?.id || null;
+}
 
 export default function Probe3Page() {
   const { setCondition, logEvent } = useEventLogger();
@@ -56,10 +76,13 @@ export default function Probe3Page() {
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
+  const currentSegmentRef = useRef(null);
+  useEffect(() => { currentSegmentRef.current = currentSegment; }, [currentSegment]);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
 
   const [librarySelection, setLibrarySelection] = useState(new Set());
+  const [projectSummaryFocusToken, setProjectSummaryFocusToken] = useState(0);
   const [feedItems, setFeedItems] = useState([]);
   const [pendingAIRequest, setPendingAIRequest] = useState(null);
   // Parked resolver for "Ask AI to edit"; see Probe2bPage for rationale.
@@ -69,6 +92,7 @@ export default function Probe3Page() {
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
+  const sentHelperTasksRef = useRef(new Map());
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
@@ -215,21 +239,27 @@ export default function Probe3Page() {
   // Day 1 fix #4: visual adjustments derived from colourValues.
   const videoFilter = useMemo(() => colourValuesToFilter(colourValues), [colourValues]);
   const videoTransform = useMemo(() => colourValuesToTransform(colourValues), [colourValues]);
-  const handleColourAdjust = useCallback((property, value) => {
+  const handleColourAdjust = useCallback((property, value, context = {}) => {
     setColourValues((prev) => ({ ...prev, [property]: value }));
+    const sceneId = baseSceneId(
+      context.sceneId
+      || currentSegment?.id
+      || getSceneIdAtTime(segments, currentTime),
+    );
     wsRelayService.sendData({
       type: 'COLOUR_UPDATE',
       property,
       value,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+      sceneId,
     });
-    if (currentSegment?.id) {
-      stampSceneEdit(currentSegment.id, property, {
+    if (sceneId) {
+      stampSceneEdit(sceneId, property, {
         value,
         actor: role === 'creator' ? 'You' : 'Helper',
       });
     }
-  }, [role, currentSegment, stampSceneEdit]);
+  }, [role, currentSegment, currentTime, segments, stampSceneEdit]);
 
   // Same orderedScenes derivation as Probe 2a/2b — keeps the creator's scene
   // block list in sync with the helper's edits (deletes, reorders, splits).
@@ -374,6 +404,7 @@ export default function Probe3Page() {
     });
     const nextEditState = { clips, captions: [], sources, textOverlays: [] };
     setEditState(nextEditState);
+    setProjectSummaryFocusToken((token) => token + 1);
     setSessionGuide(buildProjectStats({
       projectData: { videos },
       editState: nextEditState,
@@ -381,7 +412,6 @@ export default function Probe3Page() {
     }));
     setProjectUpdate(null);
     logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, { videoIds: videos.map((v) => v.id), count: videos.length });
-    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
     wsRelayService.sendData({ type: 'PROJECT_CREATED', videoIds: videos.map((v) => v.id), actor: 'CREATOR' });
     // Also broadcast the initial editState so the researcher dashboard mirror
     // populates immediately. See Probe2bPage for rationale.
@@ -418,6 +448,19 @@ export default function Probe3Page() {
     };
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
     const changeSummary = summarizeEditStateChange(editStateRef.current, newState, actorLabel);
+    const sceneStamp = buildEditChangeSceneStamp(editStateRef.current, newState, {
+      fallbackSceneId: currentSegment?.id,
+    });
+    if (sceneStamp?.sceneId) {
+      setEditedScenes((prev) => ({
+        ...prev,
+        [sceneStamp.sceneId]: {
+          text: sceneStamp.text,
+          actor: role === 'creator' ? 'You' : 'Helper',
+          timestamp: Date.now(),
+        },
+      }));
+    }
     setEditState(newState);
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
@@ -426,7 +469,26 @@ export default function Probe3Page() {
       changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role]);
+  }, [role, currentSegment?.id]);
+
+  const handleSendTaskToHelper = useCallback((task) => {
+    const taskId = `task-${Date.now()}`;
+    const sentTask = {
+      id: taskId,
+      text: task.instruction,
+      segment: task.segmentName,
+      segmentId: task.segmentId,
+    };
+    sentHelperTasksRef.current.set(taskId, sentTask);
+    wsRelayService.sendData({
+      type: 'TASK_TO_HELPER',
+      taskId,
+      text: task.instruction,
+      segment: task.segmentName,
+      segmentId: task.segmentId,
+      actor: 'CREATOR',
+    });
+  }, []);
 
   const handleHelperTaskStatus = useCallback((taskId, status) => {
     setFeedItems((prev) => prev.map((item) => item.id === taskId ? { ...item, status } : item));
@@ -572,10 +634,8 @@ export default function Probe3Page() {
           requestAnimationFrame(() => {
             const target = document.querySelector(`[data-scene-index="${firstIdx}"]`);
             if (target) {
-              target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              // Slight delay so the scroll completes before focus —
-              // otherwise iOS Safari sometimes cancels the scroll.
-              setTimeout(() => target.focus({ preventScroll: true }), 250);
+              target.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+              target.focus({ preventScroll: true });
             }
           });
         }
@@ -668,8 +728,21 @@ export default function Probe3Page() {
         case 'EDIT_STATE_UPDATE': {
           const previousState = editStateRef.current;
           setEditState(msg.editState);
-          const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
+          const peerLabel = labelEditActor(msg.actor);
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
+          const sceneStamp = buildEditChangeSceneStamp(previousState, msg.editState, {
+            fallbackSceneId: currentSegmentRef.current?.id,
+          });
+          if (sceneStamp?.sceneId) {
+            setEditedScenes((prev) => ({
+              ...prev,
+              [sceneStamp.sceneId]: {
+                text: sceneStamp.text,
+                actor: peerLabel,
+                timestamp: Date.now(),
+              },
+            }));
+          }
           // Suppress empty-summary toasts (snapshots sent on
           // REQUEST_EDIT_STATE / pair-up replay carry empty text).
           const hasSummaryText = !!(changeSummary.shortText || changeSummary.announcement);
@@ -752,12 +825,19 @@ export default function Probe3Page() {
           announce(`Creator sent you a task: ${msg.text}`);
           break;
         }
-        case 'TASK_STATUS_UPDATE':
+        case 'TASK_STATUS_UPDATE': {
+          const task = sentHelperTasksRef.current.get(msg.taskId);
+          if (currentRole === 'creator') {
+            const update = buildHelperTaskStatusUpdate(task || { id: msg.taskId }, msg.status, 'Helper');
+            setProjectUpdate(update);
+            announce(update.announcement);
+          }
           if (typeof window.__taskStatusUpdate === 'function') {
             window.__taskStatusUpdate(msg.taskId, msg.status);
           }
           logEvent(EventTypes.HELPER_TASK_STATUS, Actors.HELPER, { taskId: msg.taskId, status: msg.status });
           break;
+        }
         case 'AI_EDIT_NOTIFY': {
           const item = {
             id: `ai-${Date.now()}`,
@@ -835,14 +915,19 @@ export default function Probe3Page() {
           // Mirror peer / WoZ slider movement onto our local CSS filter.
           if (typeof msg.property === 'string' && typeof msg.value === 'number') {
             setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
-            const peer = msg.actor === 'CREATOR' ? 'Creator'
-              : msg.actor === 'HELPER' ? 'Helper'
-              : msg.actor === 'RESEARCHER' ? 'AI' : 'Peer';
-            announce(`${peer} set ${msg.property} to ${msg.value}.`);
-            if (currentSegment?.id) {
+            const peer = labelEditActor(msg.actor, 'Peer');
+            const changeSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
+            announce(changeSummary.announcement);
+            if (currentRole === 'creator') {
+              setProjectUpdate({ ...changeSummary, id: Date.now() });
+            } else {
+              setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
+            }
+            const sceneId = msg.sceneId || currentSegmentRef.current?.id;
+            if (sceneId) {
               setEditedScenes((prev) => ({
                 ...prev,
-                [currentSegment.id]: {
+                [sceneId]: {
                   text: describeEditOp(msg.property, { value: msg.value }),
                   actor: peer,
                   timestamp: Date.now(),
@@ -1043,7 +1128,7 @@ export default function Probe3Page() {
     if (['brightness', 'contrast', 'saturation', 'zoom', 'rotate'].includes(action) && value != null) {
       // Visual slider — broadcast as COLOUR_UPDATE so peer + local mirror.
       setColourValues((prev) => ({ ...prev, [action]: value }));
-      wsRelayService.sendData({ type: 'COLOUR_UPDATE', property: action, value, actor: 'AI' });
+      wsRelayService.sendData({ type: 'COLOUR_UPDATE', property: action, value, actor: 'AI', sceneId: targetScene?.id || null });
       if (targetScene?.id) stampSceneEdit(targetScene.id, action, { value, actor: 'AI' });
       return true;
     }
@@ -1228,10 +1313,16 @@ export default function Probe3Page() {
   // Active Session
   return (
     <div className="fixed inset-0 bg-white flex flex-col overflow-hidden">
+      <ProjectUpdateToast
+        update={role === 'creator' ? projectUpdate : null}
+        onDismiss={() => setProjectUpdate(null)}
+        accentColor={COLORS.purple}
+      />
       {role === 'creator' ? (
         <div className="flex flex-col flex-1 min-h-0 max-w-lg mx-auto w-full">
           <ConditionHeader condition="probe3" modeLabel={modeLabel} />
           <OnboardingBrief
+            initialOpen={false}
             pageTitle="Probe 3: Proactive AI — Creator"
             description="This works like the previous two-phone setup, but now you can ask the AI to analyse the video and suggest improvements. Tap Analyse with AI when you're ready. When suggestions appear inside scenes, you must choose who handles each one: tap I'll Do It to handle it yourself, Ask AI to Fix to let AI do it, Send to Helper to assign it, or Dismiss to ignore it. You cannot apply suggestions directly — you must route them. All other editing tools work the same as before."
           />
@@ -1279,10 +1370,12 @@ export default function Probe3Page() {
               playerRef.current?.pause();
               wsRelayService.sendData({ type: 'PAUSE', time: currentTime, actor: 'CREATOR' });
             }}
-            disableAutoFollow={playingSegmentEnd != null || isPlaying}
+            disableAutoFollow={playingSegmentEnd != null}
             accentColor={COLORS.purple}
             videoCount={selectedVideos?.length || 1}
+            summaryFocusToken={projectSummaryFocusToken}
             editedScenes={editedScenes}
+            editState={editState}
             vqaHistories={vqaHistories}
             awarenessData={awarenessData}
             keptScenes={keptScenes}
@@ -1348,16 +1441,7 @@ export default function Probe3Page() {
                   }
                 }}
                 onAskAIEdit={(instruction, s) => handleAskAIEdit(instruction, s)}
-                onSendToHelper={(task) => {
-                  wsRelayService.sendData({
-                    type: 'TASK_TO_HELPER',
-                    taskId: `task-${Date.now()}`,
-                    text: task.instruction,
-                    segment: task.segmentName,
-                    segmentId: task.segmentId,
-                    actor: 'CREATOR',
-                  });
-                }}
+                onSendToHelper={handleSendTaskToHelper}
                 onEditSelf={handleApplySceneEdit}
                 isKept={keptScenes[scene.id] !== false}
                 onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
@@ -1367,40 +1451,45 @@ export default function Probe3Page() {
           />
         </div>
       ) : (
-        <div className="p-3 max-w-lg mx-auto">
-          <HelperDevice
-            videoRef={playerRef}
-            videoData={projectData}
-            webrtcService={wsRelayService}
-            creatorActivities={creatorActivities}
-            currentTime={currentTime}
-            duration={duration}
-            isPlaying={isPlaying}
-            currentSegment={currentSegment}
-            onTimeUpdate={handleTimeUpdate}
-            onSegmentChange={handleSegmentChange}
-            onSeek={handleSeek}
-            editState={editState}
-            onEditChange={handleEditChange}
-            initialSources={initialSources}
-            feedItems={feedItems}
-            onTaskStatus={handleHelperTaskStatus}
-            onAIReview={handleAIReview}
-            onAIUndo={handleAIUndo}
-            onAwarenessViewed={handleAwarenessViewed}
-            peerEditNotification={peerEditNotification}
-            onSuggestionResponse={handleHelperSuggestionResponse}
-          >
-            <AIAnalysisTriggerCard
-              analysisTriggered={analysisTriggered}
-              analysisInProgress={analysisInProgress}
-              onTrigger={handleTriggerAnalysis}
-              suggestionCount={curatedSuggestions.length}
-              triggeredBy={analysisTriggeredBy}
-              selfRole="helper"
-              curatedSuggestions={curatedSuggestions}
-            />
-          </HelperDevice>
+        <div
+          className="fixed inset-0 bg-white overflow-y-auto"
+          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+        >
+          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
+            <HelperDevice
+              videoRef={playerRef}
+              videoData={projectData}
+              webrtcService={wsRelayService}
+              creatorActivities={creatorActivities}
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={isPlaying}
+              currentSegment={currentSegment}
+              onTimeUpdate={handleTimeUpdate}
+              onSegmentChange={handleSegmentChange}
+              onSeek={handleSeek}
+              editState={editState}
+              onEditChange={handleEditChange}
+              initialSources={initialSources}
+              feedItems={feedItems}
+              onTaskStatus={handleHelperTaskStatus}
+              onAIReview={handleAIReview}
+              onAIUndo={handleAIUndo}
+              onAwarenessViewed={handleAwarenessViewed}
+              peerEditNotification={peerEditNotification}
+              onSuggestionResponse={handleHelperSuggestionResponse}
+            >
+              <AIAnalysisTriggerCard
+                analysisTriggered={analysisTriggered}
+                analysisInProgress={analysisInProgress}
+                onTrigger={handleTriggerAnalysis}
+                suggestionCount={curatedSuggestions.length}
+                triggeredBy={analysisTriggeredBy}
+                selfRole="helper"
+                curatedSuggestions={curatedSuggestions}
+              />
+            </HelperDevice>
+          </div>
         </div>
       )}
 

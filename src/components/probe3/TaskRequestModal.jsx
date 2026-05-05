@@ -1,6 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { announce } from '../../utils/announcer.js';
+import { useRootInert } from '../../hooks/useRootInert.js';
 
 export default function TaskRequestModal({ route, segment, onSend, onClose, pendingAIResponse, aiResponse }) {
   const [text, setText] = useState('');
@@ -13,15 +14,8 @@ export default function TaskRequestModal({ route, segment, onSend, onClose, pend
   const title = isAI ? 'Ask AI' : 'Ask Helper';
   const isPending = isAI && pendingAIResponse;
 
-  // Focus trap: inert on #root
-  useEffect(() => {
-    const root = document.getElementById('root');
-    if (root) root.setAttribute('inert', '');
-    setTimeout(() => inputRef.current?.focus(), 100);
-    return () => {
-      if (root) root.removeAttribute('inert');
-    };
-  }, []);
+  const getInputFocus = useCallback(() => inputRef.current, []);
+  useRootInert(true, { initialFocus: getInputFocus, focusDelay: 100 });
 
   // Voice input (Web Speech API — same pattern as VQAPanel)
   const toggleListening = useCallback(() => {

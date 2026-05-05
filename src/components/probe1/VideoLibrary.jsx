@@ -109,14 +109,17 @@ export default function VideoLibrary({
       announce('No videos selected. Please select at least one video.');
       return;
     }
-    announce(`Creating project with ${selectedVideos.length} video${selectedVideos.length > 1 ? 's' : ''}.`);
     onImport(selectedVideos);
   };
 
   return (
     <div className="flex flex-col gap-4 p-4 max-w-lg mx-auto" role="region" aria-label="Video library">
       <h2 className="text-lg font-bold text-gray-900">Your Videos</h2>
-      <p className="text-sm text-gray-600">
+      <p
+        className="text-sm text-gray-600 focus:outline-2 focus:outline-offset-2 focus:outline-blue-600 rounded"
+        tabIndex={-1}
+        data-onboarding-next-focus
+      >
         {readOnly
           ? 'Creator is selecting videos. Selections will appear here.'
           : 'Select the videos you want to explore and edit.'}

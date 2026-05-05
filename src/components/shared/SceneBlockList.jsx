@@ -6,6 +6,7 @@ import { announce } from '../../utils/announcer.js';
 import GlobalControlsBar from './GlobalControlsBar.jsx';
 import SceneBlock from './SceneBlock.jsx';
 import { LEVELS } from '../../utils/detailLevels.js';
+import { buildSceneDescriptionAddendum } from '../../utils/descriptionAddenda.js';
 
 const FOCUS_SCROLL_GUARD_MS = 350;
 const FOCUS_SCROLL_RESTORE_DELAYS = [0, 16, 64, 160, 320];
@@ -39,6 +40,7 @@ export default function SceneBlockList({
   onPause,
   accentColor = '#2B579A',
   videoCount = 1,
+  summaryFocusToken = 0,
   // Per-scene data
   vqaHistories = {},
   awarenessData = {},
@@ -72,6 +74,7 @@ export default function SceneBlockList({
   // that were edited recently. Drives the amber "Edited" badge + the
   // "What changed" line prepended to the description.
   editedScenes = {},
+  editState = null,
 }) {
   const [expandedIndex, setExpandedIndex] = useState(null);
   // Where the latest expansion came from. Drives focus behavior in SceneBlock:
@@ -79,6 +82,7 @@ export default function SceneBlockList({
   //   'auto' — playback auto-follow → focus the new scene's Play/Pause button
   //            so the user stays on the button they were just using.
   const [expandSource, setExpandSource] = useState('user');
+  const [playbackFocusToken, setPlaybackFocusToken] = useState(0);
   const [currentLevel, setCurrentLevel] = useState(1);
   const listRef = useRef(null);
   const scrollContainerRef = useRef(null);
@@ -93,6 +97,8 @@ export default function SceneBlockList({
   // (Lan 2026-04-27 regression).
   const headerRefs = useRef([]);
   const prevExpandedRef = useRef(null);
+  const wasPlayingForFocusRef = useRef(false);
+  const playbackPauseButtonRef = useRef(null);
   const { logEvent } = useEventLogger();
 
   const clearFocusRestoreTimers = useCallback(() => {
@@ -135,13 +141,7 @@ export default function SceneBlockList({
     const header = active.closest('[data-scene-index]');
     if (!header || !container.contains(header)) return false;
 
-    const index = Number(header.getAttribute('data-scene-index'));
-    if (!Number.isFinite(index)) return false;
-
-    const adjacentHeaders = [headerRefs.current[index - 1], headerRefs.current[index + 1]];
-    return adjacentHeaders.some((candidate) => (
-      candidate && isFullyVisibleAtScrollTop(container, candidate, scrollTop)
-    ));
+    return isFullyVisibleAtScrollTop(container, header, scrollTop);
   }, []);
 
   useEffect(() => clearFocusRestoreTimers, [clearFocusRestoreTimers]);
@@ -258,6 +258,17 @@ export default function SceneBlockList({
     0
   );
 
+  const getSceneDescription = useCallback((scene, level) => {
+    const base = scene?.descriptions?.[`level_${level}`] || '';
+    const addendum = buildSceneDescriptionAddendum({
+      scene,
+      currentLevel: level,
+      editState,
+      editSummary: editedScenes[scene?.id],
+    });
+    return [base, addendum].filter(Boolean).join(' ');
+  }, [editState, editedScenes]);
+
   const handleExpand = useCallback(
     (index) => {
       setExpandSource('user');
@@ -301,7 +312,7 @@ export default function SceneBlockList({
       // the level as "{label} view" sidesteps the collision.
       const label = LEVELS.find((l) => l.value === level)?.label;
       const expandedScene = expandedIndex !== null ? scenes[expandedIndex] : null;
-      const desc = expandedScene?.descriptions?.[`level_${level}`];
+      const desc = expandedScene ? getSceneDescription(expandedScene, level) : '';
       // Assertive carries BOTH the level label and the description. We
       // tried trimming this to just `${label}.` and relying on the chip's
       // aria-label being read on focus move — but on Android TalkBack the
@@ -314,7 +325,7 @@ export default function SceneBlockList({
       const text = expandedScene && desc ? `${label}. ${desc}` : `${label}.`;
       announce(text, { assertive: true });
     },
-    [currentLevel, logEvent, expandedIndex, scenes]
+    [currentLevel, logEvent, expandedIndex, scenes, getSceneDescription]
   );
 
   // Auto-navigate to the scene matching current playback time. Setting
@@ -325,7 +336,25 @@ export default function SceneBlockList({
   // new scene's play button (via SceneBlock's expand effect with
   // autoFollowed=true), and TalkBack reads the focused button on its own.
   useEffect(() => {
-    if (!isPlaying || expandedIndex === null) return;
+    const wasPlaying = wasPlayingForFocusRef.current;
+    wasPlayingForFocusRef.current = isPlaying;
+    if (wasPlaying || !isPlaying || disableAutoFollow) return;
+
+    const activeIndex = scenes.findIndex(
+      (s) => currentTime >= s.start_time && currentTime < s.end_time
+    );
+    if (activeIndex === -1) return;
+
+    setExpandSource('auto');
+    setExpandedIndex(activeIndex);
+    setPlaybackFocusToken((token) => token + 1);
+    requestAnimationFrame(() => {
+      playbackPauseButtonRef.current?.focus({ preventScroll: true });
+    });
+  }, [isPlaying, disableAutoFollow, scenes, currentTime]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
     if (disableAutoFollow) return;
     const activeIndex = scenes.findIndex(
       (s) => currentTime >= s.start_time && currentTime < s.end_time
@@ -345,9 +374,26 @@ export default function SceneBlockList({
   useEffect(() => {
     const wasPlaying = wasPlayingRef.current;
     wasPlayingRef.current = isPlaying;
+    let firstFrame = null;
+    let secondFrame = null;
     if (wasPlaying && !isPlaying && expandedIndex !== null) {
-      const scene = scenes[expandedIndex];
-      const desc = scene?.descriptions?.[`level_${currentLevel}`];
+      const activeIndex = scenes.findIndex(
+        (s) => currentTime >= s.start_time && currentTime < s.end_time
+      );
+      const pausedIndex = activeIndex !== -1 ? activeIndex : expandedIndex;
+      const scene = scenes[pausedIndex];
+      const desc = scene ? getSceneDescription(scene, currentLevel) : '';
+      if (pausedIndex !== expandedIndex) {
+        setExpandSource('auto');
+        setExpandedIndex(pausedIndex);
+      }
+      firstFrame = requestAnimationFrame(() => {
+        secondFrame = requestAnimationFrame(() => {
+          const target = headerRefs.current[pausedIndex];
+          target?.scrollIntoView?.({ behavior: 'auto', block: 'nearest' });
+          target?.focus({ preventScroll: true });
+        });
+      });
       if (desc) {
         // Assertive: pause flips the scene-play button's aria-label from
         // "Pause from here" back to "Play from here", and Android
@@ -355,10 +401,14 @@ export default function SceneBlockList({
         // gets dropped, which is exactly the case the BLV creator needs
         // to hear ("which scene did I just pause on?"). Assertive
         // interrupts the re-read so the description lands.
-        announce(`Paused on scene ${expandedIndex + 1}, ${scene.name}. ${desc}`, { assertive: true });
+        announce(`Paused on scene ${pausedIndex + 1}, ${scene.name}. ${desc}`, { assertive: true });
       }
     }
-  }, [isPlaying, expandedIndex, scenes, currentLevel]);
+    return () => {
+      if (firstFrame !== null) cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+    };
+  }, [isPlaying, expandedIndex, scenes, currentLevel, currentTime, getSceneDescription]);
 
   // Full-collapse side effects: when expandedIndex transitions from N to
   // null (Close button, header re-tap, or browser-back), restore focus to
@@ -429,7 +479,23 @@ export default function SceneBlockList({
         sceneCount={scenes.length}
         videoCount={videoCount}
         totalDuration={totalDuration}
+        focusToken={summaryFocusToken}
       />
+
+      {isPlaying && !disableAutoFollow && (
+        <div className="px-4 py-2 bg-white border-b border-gray-200">
+          <button
+            ref={playbackPauseButtonRef}
+            type="button"
+            onClick={onPause}
+            className="w-full py-2 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
+            style={{ minHeight: '44px' }}
+            aria-label="Pause video and hear the current scene description"
+          >
+            Pause
+          </button>
+        </div>
+      )}
 
       <div
         ref={scrollContainerRef}
@@ -483,9 +549,12 @@ export default function SceneBlockList({
                 total={scenes.length}
                 currentLevel={currentLevel}
                 isExpanded={expandedIndex === i}
+                isPlaying={isPlaying}
                 autoFollowed={expandedIndex === i && expandSource === 'auto'}
+                playbackFocusToken={expandedIndex === i ? playbackFocusToken : 0}
                 onExpand={handleExpand}
                 onCollapse={handleCollapse}
+                onPausePlayback={onPause}
                 vqaHistory={vqaHistories[scene.id] || []}
                 awareness={awarenessData[scene.id]}
                 accentColor={accentColor}
@@ -494,6 +563,7 @@ export default function SceneBlockList({
                 onAwarenessViewed={onAwarenessViewed}
                 hasSuggestion={sceneIndicesWithSuggestions?.has(i) || false}
                 editSummary={editedScenes[scene.id] || null}
+                descriptionOverride={getSceneDescription(scene, currentLevel)}
               >
                 {renderSceneActions && renderSceneActions({
                   scene,

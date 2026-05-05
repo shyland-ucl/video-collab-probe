@@ -7,7 +7,6 @@ import VideoPlayer from '../shared/VideoPlayer.jsx';
 import TransportControls from '../shared/TransportControls.jsx';
 import SegmentMarkerPanel from '../shared/SegmentMarkerPanel.jsx';
 import MockEditorVisual from '../shared/MockEditorVisual.jsx';
-import MockColourControls from '../shared/MockColourControls.jsx';
 import TextOverlay from '../shared/TextOverlay.jsx';
 import TextOverlaySettings from '../shared/TextOverlaySettings.jsx';
 import useTextOverlay from '../../hooks/useTextOverlay.js';
@@ -30,6 +29,7 @@ export default function HelperMode({
   editState,
   playbackEditState,
   videoFilter,
+  videoTransform,
   colourValues,
   onColourAdjust,
   onEditChange,
@@ -51,6 +51,7 @@ export default function HelperMode({
   } = useTextOverlay({
     initialOverlays: editState?.textOverlays || [],
     onOverlaysChange: handleOverlayChange,
+    sceneId: currentSegment?.id || null,
   });
   const [showReturnModal, setShowReturnModal] = useState(false);
   const returnModalTriggerRef = useRef(null);
@@ -146,6 +147,8 @@ export default function HelperMode({
               onSegmentChange={onSegmentChange}
               editState={playbackEditState || editState}
               videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              renderTextOverlays={false}
               actor={Actors.HELPER}
             />
             {textOverlays.map(overlay => (
@@ -174,6 +177,8 @@ export default function HelperMode({
             textToolActive={textToolActive}
             clipPerSource
             actor={Actors.HELPER}
+            visualValues={colourValues}
+            onVisualAdjust={onColourAdjust}
           />
           <SegmentMarkerPanel segment={currentSegment} />
         </div>
@@ -188,22 +193,6 @@ export default function HelperMode({
           onRemove={handleTextRemove}
         />
       )}
-
-      {/* Colour & Framing Controls. Sound now lives on the editor
-          toolbar (alongside Add Caption / T Text in MockEditorVisual). */}
-      <div
-        role="region"
-        aria-label="Visual adjustments"
-        className="rounded-2xl overflow-hidden mt-4 mb-4"
-        style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-      >
-        <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
-          <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Visual Adjustments</h2>
-        </div>
-        <div className="p-4 bg-white space-y-4">
-          <MockColourControls values={colourValues} onAdjust={onColourAdjust} />
-        </div>
-      </div>
 
       {/* Dismiss-screen-reader modal — blocks the helper UI until they
           confirm they've turned VoiceOver/TalkBack off (or chosen to keep

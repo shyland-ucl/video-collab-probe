@@ -104,7 +104,6 @@ export default function ResearcherMaterialsPanel() {
             if (!cancelled) {
               setAssignments(localCache);
               writeLocalCache(localCache);
-              console.log('[assignments] migrated from localStorage to server');
             }
           } catch (err) {
             console.warn('[assignments] migration failed:', err.message);

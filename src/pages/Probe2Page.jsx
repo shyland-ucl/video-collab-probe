@@ -10,7 +10,13 @@ import { announce, setAnnouncerMuted } from '../utils/announcer.js';
 import { buildAllSegments, buildInitialSources, getTotalDuration } from '../utils/buildInitialSources.js';
 import { filterClipsByKept, colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
 import { applyOperation, getClipMuted } from '../utils/sceneEditOps.js';
-import { describeEditOp } from '../utils/projectOverview.js';
+import { buildEditChangeSceneStamp } from '../utils/editChangeStamp.js';
+import {
+  describeEditOp,
+  labelEditActor,
+  summarizeEditStateChange,
+  summarizeVisualAdjustment,
+} from '../utils/projectOverview.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -27,6 +33,56 @@ import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 
+const VISUAL_PROPERTIES = ['brightness', 'contrast', 'saturation', 'zoom', 'rotate'];
+
+function baseSceneId(id) {
+  if (!id || typeof id !== 'string') return id || null;
+  return id.replace(/-split-\d+$/, '');
+}
+
+function sceneLabel(sceneId, segments = []) {
+  const baseId = baseSceneId(sceneId);
+  const index = segments.findIndex((scene) => scene.id === baseId);
+  if (index === -1) return 'a scene';
+  return `scene ${index + 1}`;
+}
+
+function getSceneIdAtTime(segments = [], time = 0) {
+  return segments.find((scene) => (
+    time >= scene.start_time && time < scene.end_time
+  ))?.id || segments[0]?.id || null;
+}
+
+function buildHelperReturnFeedback(startSnapshot, endSnapshot, segments = [], visualSceneIds = {}) {
+  if (!startSnapshot || !endSnapshot) return null;
+  const items = [];
+  const startColours = startSnapshot.colourValues || {};
+  const endColours = endSnapshot.colourValues || {};
+
+  VISUAL_PROPERTIES.forEach((property) => {
+    if (startColours[property] === endColours[property]) return;
+    const text = describeEditOp(property, { value: endColours[property] });
+    const sceneId = visualSceneIds[property] || endSnapshot.fallbackSceneId;
+    items.push(sceneId ? `${text} on ${sceneLabel(sceneId, segments)}` : text);
+  });
+
+  const prevClips = startSnapshot.editState?.clips || [];
+  const nextClips = endSnapshot.editState?.clips || [];
+  const nextClipIds = new Set(nextClips.map((clip) => clip.id));
+  prevClips.forEach((clip) => {
+    if (nextClipIds.has(clip.id)) return;
+    items.push(`Removed ${sceneLabel(clip.id, segments)}`);
+  });
+
+  if (items.length === 0) return null;
+  return {
+    id: Date.now(),
+    title: `Helper made ${items.length} ${items.length === 1 ? 'change' : 'changes'}`,
+    items,
+    announcement: `Phone returned to creator. Helper made ${items.length} ${items.length === 1 ? 'change' : 'changes'}: ${items.join('. ')}.`,
+  };
+}
+
 export default function Probe2Page() {
   const { setCondition, logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
@@ -39,6 +95,8 @@ export default function Probe2Page() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
+  const currentSegmentRef = useRef(null);
+  useEffect(() => { currentSegmentRef.current = currentSegment; }, [currentSegment]);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   // WoZ: when "Ask AI to Edit" finds no canned match, the request is parked
   // here so the researcher panel can craft a response. The promise from
@@ -51,6 +109,7 @@ export default function Probe2Page() {
   // before the handover flow begins. B3-with-library / M5 fix.
   const [phase, setPhase] = useState('library');
   const [selectedVideos, setSelectedVideos] = useState(null);
+  const [projectSummaryFocusToken, setProjectSummaryFocusToken] = useState(0);
 
   // Handover state
   const [mode, setMode] = useState('creator');
@@ -72,6 +131,13 @@ export default function Probe2Page() {
   // Day 1 fix #4: zoom + rotate live alongside colour values; same WS message
   // shape (COLOUR_UPDATE) so the slider broadcasts work without a new wire.
   const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 });
+  const colourValuesRef = useRef(colourValues);
+  useEffect(() => { colourValuesRef.current = colourValues; }, [colourValues]);
+  const helperSessionStartRef = useRef(null);
+  const helperVisualSceneIdsRef = useRef({});
+  const handoverFeedbackRef = useRef(null);
+  const handoverFeedbackDismissRef = useRef(null);
+  const [handoverFeedback, setHandoverFeedback] = useState(null);
   // Day 1 fix #3: per-scene edit stamp so SceneBlock can render an "Edited"
   // badge + a "What changed" prepend on the description. Keys are scene ids;
   // values are { text, actor, timestamp }.
@@ -139,8 +205,33 @@ export default function Probe2Page() {
         });
       } else if (msg.type === 'EDIT_STATE_UPDATE' && !isResearcher && msg.editState) {
         // Researcher Editor on the dashboard pushed an edit. Apply directly.
+        const previousState = editStateRef.current;
         setEditState(msg.editState);
+        const peer = labelEditActor(msg.actor, 'AI');
+        const sceneStamp = buildEditChangeSceneStamp(previousState, msg.editState, {
+          fallbackSceneId: currentSegmentRef.current?.id,
+        });
+        if (sceneStamp?.sceneId) {
+          setEditedScenes((prev) => ({
+            ...prev,
+            [sceneStamp.sceneId]: {
+              text: sceneStamp.text,
+              actor: peer,
+              timestamp: Date.now(),
+            },
+          }));
+        }
         if (msg.changeSummary?.announcement) announce(msg.changeSummary.announcement);
+      } else if (msg.type === 'COLOUR_UPDATE' && !isResearcher) {
+        if (typeof msg.property === 'string' && typeof msg.value === 'number') {
+          setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
+          const peer = labelEditActor(msg.actor, 'Helper');
+          const changeSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
+          announce(changeSummary.announcement);
+          if (msg.sceneId) {
+            stampSceneEdit(msg.sceneId, msg.property, { value: msg.value, actor: peer });
+          }
+        }
       } else if (msg.type === 'REQUEST_EDIT_STATE' && !isResearcher) {
         // Dashboard joined late; reply with current snapshot if we have one.
         if (editStateRef.current) {
@@ -158,7 +249,7 @@ export default function Probe2Page() {
       unsub();
       wsRelayService.disconnect();
     };
-  }, [isResearcher, logEvent]);
+  }, [isResearcher, logEvent, stampSceneEdit]);
 
   // Pipeline-video assignment filter for the current dyad — same convention
   // as Probes 1, 2b, 3.
@@ -249,9 +340,9 @@ export default function Probe2Page() {
     setSelectedVideos(videos);
     const initialEditState = { clips, captions: [], sources, textOverlays: [] };
     setEditState(initialEditState);
+    setProjectSummaryFocusToken((token) => token + 1);
     setPhase('exploring');
     logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, { videoIds: videos.map((v) => v.id), count: videos.length });
-    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Explore scenes below.`);
     // Broadcast the initial editState so the researcher dashboard's Live Edit
     // Mirror populates without waiting for the first edit.
     wsRelayService.sendData({
@@ -330,17 +421,33 @@ export default function Probe2Page() {
         return next.length > 20 ? next.slice(next.length - 20) : next;
       });
     }
+    editStateRef.current = nextState;
     setEditState(nextState);
+    const actorLabel = mode === 'helper' ? 'Helper' : 'Creator';
+    const changeSummary = summarizeEditStateChange(prev, nextState, actorLabel);
+    const sceneStamp = buildEditChangeSceneStamp(prev, nextState, {
+      fallbackSceneId: currentSegment?.id,
+    });
+    if (sceneStamp?.sceneId) {
+      setEditedScenes((prevScenes) => ({
+        ...prevScenes,
+        [sceneStamp.sceneId]: {
+          text: sceneStamp.text,
+          actor: mode === 'helper' ? 'Helper' : 'You',
+          timestamp: Date.now(),
+        },
+      }));
+    }
     // Broadcast to the researcher dashboard so its Live Edit Mirror stays
     // in sync. Same WS relay used for the AI WoZ flow.
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
       editState: nextState,
-      action: 'edit',
-      changeSummary: { announcement: '', shortText: 'Edit' },
-      actor: 'CREATOR',
+      action: changeSummary.actionText,
+      changeSummary,
+      actor: mode === 'helper' ? 'HELPER' : 'CREATOR',
     });
-  }, []);
+  }, [mode, currentSegment?.id]);
 
   const handleUndoEdit = useCallback(() => {
     setEditHistory((h) => {
@@ -521,12 +628,18 @@ export default function Probe2Page() {
     setKeptScenes((prev) => ({ ...prev, [sceneId]: prev[sceneId] === false ? true : false }));
   }, []);
 
-  const handleColourAdjust = useCallback((property, value) => {
+  const handleColourAdjust = useCallback((property, value, context = {}) => {
     setColourValues((prev) => ({ ...prev, [property]: value }));
-    if (currentSegment?.id) {
-      stampSceneEdit(currentSegment.id, property, { value, actor: 'Helper' });
+    const sceneId = baseSceneId(
+      context.sceneId
+      || currentSegment?.id
+      || getSceneIdAtTime(segments, currentTime),
+    );
+    if (sceneId) {
+      helperVisualSceneIdsRef.current[property] = sceneId;
+      stampSceneEdit(sceneId, property, { value, actor: 'Helper' });
     }
-  }, [currentSegment, stampSceneEdit]);
+  }, [currentSegment, currentTime, segments, stampSceneEdit]);
 
   // Derived: editState filtered to kept clips only (Removed scenes are
   // skipped during playback). Memoised so VideoPlayer's playback engine
@@ -584,6 +697,12 @@ export default function Probe2Page() {
   const handleTransitionComplete = useCallback(() => {
     setIsTransitioning(false);
     if (transitionDirection === 'toHelper') {
+      helperSessionStartRef.current = {
+        editState: editStateRef.current,
+        colourValues: colourValuesRef.current,
+      };
+      helperVisualSceneIdsRef.current = {};
+      setHandoverFeedback(null);
       setMode('helper');
       logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'helper', handoverMode });
       // Day 1 fix #9: web apps can't toggle Android TalkBack, so we (a) silence
@@ -602,21 +721,43 @@ export default function Probe2Page() {
       setMode('creator');
       setHandoverMode(null);
       logEvent(EventTypes.HANDOVER_COMPLETED, Actors.SYSTEM, { toMode: 'creator' });
+      const feedback = buildHelperReturnFeedback(
+        helperSessionStartRef.current,
+        {
+          editState: editStateRef.current,
+          colourValues: colourValuesRef.current,
+          fallbackSceneId: currentSegmentRef.current?.id || getSceneIdAtTime(segments, currentTime),
+        },
+        segments,
+        helperVisualSceneIdsRef.current,
+      );
+      setHandoverFeedback(feedback);
+      helperSessionStartRef.current = null;
       // Day 1 fix #9: when the device comes back, prompt the helper to re-enable
       // TalkBack so the BLV creator's screen reader works again on hand-back.
-      announce(
-        'Phone returned to creator. App announcements are on again. ' +
-          'If TalkBack was turned off, please re-enable it with the same gesture.',
-      );
+      const talkBackReminder = 'App announcements are on again. If TalkBack was turned off, please re-enable it with the same gesture.';
+      announce(feedback ? `${feedback.announcement} ${talkBackReminder}` : `Phone returned to creator. ${talkBackReminder}`);
     }
     setTransitionDirection(null);
-  }, [transitionDirection, handoverMode, logEvent]);
+  }, [transitionDirection, handoverMode, logEvent, segments, currentTime]);
 
   const handleReturnDevice = useCallback((summary) => {
     logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary });
     setTransitionDirection('toCreator');
     setIsTransitioning(true);
   }, [logEvent]);
+
+  useEffect(() => {
+    if (mode !== 'creator' || !handoverFeedback) return undefined;
+    const raf = requestAnimationFrame(() => {
+      handoverFeedbackRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [mode, handoverFeedback]);
+
+  const dismissHandoverFeedback = useCallback(() => {
+    setHandoverFeedback(null);
+  }, []);
 
   // m12: cancel a toHelper handover during the transition window. Reverts
   // mode/handoverMode/tasks to the pre-handover state so the creator stays
@@ -659,6 +800,7 @@ export default function Probe2Page() {
           <ConditionHeader condition="probe2" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 2a: Shared Device — Creator"
+            initialOpen={false}
             description="You and your helper share one phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you have three choices: Edit by Myself to remove, split, move, or caption the scene (with Undo if you change your mind); Ask AI to Edit to speak an instruction and confirm the result; or Ask Helper to tell your helper out loud what you want and hand the phone over. When the helper is done, they will return the device to you."
           />
           {/* Day 1 fix #1: video pinned at top via flex layout. The
@@ -696,10 +838,12 @@ export default function Probe2Page() {
             onPause={handlePause}
             accentColor="#5CB85C"
             videoCount={selectedVideos?.length || 1}
-            disableAutoFollow={playingSegmentEnd != null || isPlaying}
+            summaryFocusToken={projectSummaryFocusToken}
+            disableAutoFollow={playingSegmentEnd != null}
             vqaHistories={vqaHistories}
             keptScenes={keptScenes}
             editedScenes={editedScenes}
+            editState={editState}
             onSceneClose={(sceneId) => {
               setVqaHistories((prev) => {
                 if (!(sceneId in prev)) return prev;
@@ -736,37 +880,94 @@ export default function Probe2Page() {
             )}
           />
           </div>
+          {handoverFeedback && (
+            <div
+              className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 px-3 pb-4 sm:items-center sm:pb-0"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Helper changes"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') dismissHandoverFeedback();
+                if (event.key !== 'Tab') return;
+                if (event.shiftKey && document.activeElement === handoverFeedbackRef.current) {
+                  event.preventDefault();
+                  handoverFeedbackDismissRef.current?.focus();
+                } else if (!event.shiftKey && document.activeElement === handoverFeedbackDismissRef.current) {
+                  event.preventDefault();
+                  handoverFeedbackRef.current?.focus();
+                }
+              }}
+            >
+              <div className="w-full max-w-md rounded-xl border border-amber-300 bg-white shadow-2xl overflow-hidden">
+                <div className="bg-amber-50 px-4 py-3 border-b border-amber-200">
+                  <p className="text-sm font-bold text-amber-950" aria-hidden="true">
+                    {handoverFeedback.title}
+                  </p>
+                  <div
+                    ref={handoverFeedbackRef}
+                    id="handover-feedback-body"
+                    tabIndex={-1}
+                    className="mt-1 text-sm text-amber-950 focus:outline-2 focus:outline-offset-2 focus:outline-amber-600"
+                  >
+                    <p>{handoverFeedback.title}:</p>
+                    <ul className="mt-1 space-y-1">
+                      {handoverFeedback.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                <div className="px-4 py-3 bg-white">
+                  <button
+                    ref={handoverFeedbackDismissRef}
+                    type="button"
+                    onClick={dismissHandoverFeedback}
+                    className="w-full rounded-lg bg-[#1F3864] px-4 py-3 text-sm font-bold text-white focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+                    style={{ minHeight: '44px' }}
+                    aria-label="Dismiss helper changes summary"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
-        <div className="p-3 max-w-lg mx-auto w-full">
-          <ConditionHeader condition="probe2" modeLabel={modeLabel} />
-          <OnboardingBrief
-            pageTitle="Probe 2a: Shared Device — Helper"
-            description="The creator has handed you the phone with a task. Check the task description at the top to see what they want. Use the video editor, colour sliders, and framing tools below to make changes. When you are done, tap Return Device and describe what you did."
-          />
-          <HelperMode
-            playerRef={playerRef}
-            videoData={projectData}
-            currentTime={currentTime}
-            duration={videoDuration}
-            isPlaying={isPlaying}
-            currentSegment={currentSegment}
-            handoverMode={handoverMode}
-            tasks={tasks}
-            onTimeUpdate={handleTimeUpdate}
-            onSegmentChange={handleSegmentChange}
-            onSeek={handleSeek}
-            onReturnDevice={handleReturnDevice}
-            onTaskComplete={() => {}}
-            editState={editState}
-            playbackEditState={playbackEditState}
-            videoFilter={videoFilter}
-            videoTransform={videoTransform}
-            colourValues={colourValues}
-            onColourAdjust={handleColourAdjust}
-            onEditChange={handleEditChange}
-            initialSources={initialSources}
-          />
+        <div
+          className="fixed inset-0 bg-white overflow-y-auto"
+          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+        >
+          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
+            <ConditionHeader condition="probe2" modeLabel={modeLabel} />
+            <OnboardingBrief
+              pageTitle="Probe 2a: Shared Device — Helper"
+              description="The creator has handed you the phone with a task. Check the task description at the top to see what they want. Use the video editor, colour sliders, and framing tools below to make changes. When you are done, tap Return Device and describe what you did."
+            />
+            <HelperMode
+              playerRef={playerRef}
+              videoData={projectData}
+              currentTime={currentTime}
+              duration={videoDuration}
+              isPlaying={isPlaying}
+              currentSegment={currentSegment}
+              handoverMode={handoverMode}
+              tasks={tasks}
+              onTimeUpdate={handleTimeUpdate}
+              onSegmentChange={handleSegmentChange}
+              onSeek={handleSeek}
+              onReturnDevice={handleReturnDevice}
+              onTaskComplete={() => {}}
+              editState={editState}
+              playbackEditState={playbackEditState}
+              videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              colourValues={colourValues}
+              onColourAdjust={handleColourAdjust}
+              onEditChange={handleEditChange}
+              initialSources={initialSources}
+            />
+          </div>
         </div>
       )}
 

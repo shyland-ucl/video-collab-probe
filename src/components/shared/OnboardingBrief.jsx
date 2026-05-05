@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useRootInert } from '../../hooks/useRootInert.js';
 
 /**
  * OnboardingBrief — page-entry instructions surfaced as a modal popup.
@@ -17,79 +18,70 @@ import { createPortal } from 'react-dom';
  *     re-reads the full brief for the next dyad.
  *
  * Accessibility:
- *   - role="dialog", aria-modal="true", aria-labelledby and -describedby.
+ *   - role="dialog", aria-modal="true", and aria-describedby.
  *   - Portal'd to <body> + `inert` on #root while open, so VoiceOver /
- *     TalkBack focus is trapped inside the modal (mirrors the existing
- *     VoiceOver-modal pattern noted in MEMORY.md).
- *   - Auto-focus the dismiss button on open so screen readers begin at
- *     the actionable element.
+ *     TalkBack focus is trapped inside the modal.
+ *   - Auto-focus the instruction body on open so screen readers begin with
+ *     the meaningful instruction, not the decorative title or button.
  *   - Escape key dismisses.
  */
-export default function OnboardingBrief({ description, pageTitle }) {
-  const [open, setOpen] = useState(true);
-  const dismissBtnRef = useRef(null);
-  // Track exactly what WE set on the body and #root so cleanup always
+export default function OnboardingBrief({ description, pageTitle, initialOpen = true }) {
+  const [open, setOpen] = useState(() => initialOpen);
+  const descriptionRef = useRef(null);
+  const isDialogOpen = open && Boolean(description);
+  // Track exactly what WE set on the body so cleanup always
   // restores those values, even across StrictMode double-invocation,
-  // hot reload, fast phase transitions, etc. Without this guard, a stale
-  // `inert` left on #root makes the entire page unreachable to TalkBack
-  // (the "stuck after region, video library" symptom).
-  const setInertRef = useRef(false);
+  // hot reload, fast phase transitions, etc.
   const savedOverflowRef = useRef(null);
 
-  const lockBackground = () => {
-    const root = document.getElementById('root');
-    if (root && !setInertRef.current) {
-      root.setAttribute('inert', '');
-      setInertRef.current = true;
-    }
+  const lockBodyScroll = useCallback(() => {
     if (savedOverflowRef.current === null) {
       savedOverflowRef.current = document.body.style.overflow || '';
       document.body.style.overflow = 'hidden';
     }
-  };
+  }, []);
 
-  const releaseBackground = () => {
-    const root = document.getElementById('root');
-    if (root && setInertRef.current) {
-      root.removeAttribute('inert');
-      setInertRef.current = false;
-    }
+  const releaseBodyScroll = useCallback(() => {
     if (savedOverflowRef.current !== null) {
       document.body.style.overflow = savedOverflowRef.current;
       savedOverflowRef.current = null;
     }
-  };
+  }, []);
+
+  const getDescription = useCallback(() => descriptionRef.current, []);
+  const getNextFocusTarget = useCallback(() => (
+    document.querySelector('[data-onboarding-next-focus]')
+    || document.querySelector('[data-project-summary-focus]')
+  ), []);
+  useRootInert(isDialogOpen, {
+    initialFocus: getDescription,
+    restoreFocus: getNextFocusTarget,
+  });
 
   // Lock background interaction + screen-reader focus while the modal is
   // open. `inert` on #root removes the page from the AT tree without
   // relying on a wide aria-hidden cascade.
   useEffect(() => {
-    if (!open) {
-      releaseBackground();
+    if (!isDialogOpen) {
+      releaseBodyScroll();
       return undefined;
     }
-    lockBackground();
+    lockBodyScroll();
     const onKey = (e) => {
       if (e.key === 'Escape') setOpen(false);
     };
     window.addEventListener('keydown', onKey);
-    // Focus the primary action so a screen-reader user lands on the
-    // dismiss button and the description is read via aria-describedby.
-    const raf = requestAnimationFrame(() => {
-      dismissBtnRef.current?.focus();
-    });
     return () => {
-      cancelAnimationFrame(raf);
       window.removeEventListener('keydown', onKey);
-      releaseBackground();
+      releaseBodyScroll();
     };
-  }, [open]);
+  }, [isDialogOpen, lockBodyScroll, releaseBodyScroll]);
 
   // Belt-and-braces unmount cleanup: even if a parent unmounts the brief
   // while the modal was still open (phase transition, route change,
   // hot reload), we strip our attributes. The ref guard makes this safe
   // to call multiple times.
-  useEffect(() => () => releaseBackground(), []);
+  useEffect(() => () => releaseBodyScroll(), [releaseBodyScroll]);
 
   if (!description) return null;
 
@@ -122,7 +114,6 @@ export default function OnboardingBrief({ description, pageTitle }) {
           <div
             role="dialog"
             aria-modal="true"
-            aria-labelledby="onboarding-brief-title"
             aria-describedby="onboarding-brief-description"
             className="w-full sm:max-w-md mx-3 mb-3 sm:mb-0 bg-white rounded-2xl shadow-xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -130,12 +121,15 @@ export default function OnboardingBrief({ description, pageTitle }) {
             <div className="px-5 pt-5 pb-3">
               <h2
                 id="onboarding-brief-title"
+                aria-hidden="true"
                 className="text-base font-bold text-gray-900"
               >
                 {pageTitle || 'How this page works'}
               </h2>
               <p
+                ref={descriptionRef}
                 id="onboarding-brief-description"
+                tabIndex={-1}
                 className="mt-2 text-base text-gray-700 leading-relaxed"
               >
                 {description}
@@ -143,14 +137,13 @@ export default function OnboardingBrief({ description, pageTitle }) {
             </div>
             <div className="px-5 pb-5">
               <button
-                ref={dismissBtnRef}
                 type="button"
                 onClick={() => setOpen(false)}
                 className="w-full py-3 rounded-lg text-white font-bold text-sm focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
                 style={{ backgroundColor: '#2B579A', minHeight: '48px' }}
-                aria-label="Got it, close instructions"
+                aria-label="Got it, move to next"
               >
-                Got it
+                Got it, move to next
               </button>
             </div>
           </div>

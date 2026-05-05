@@ -30,6 +30,7 @@ export default function Probe1Page() {
   // Phase: 'library' → 'exploring'
   const [phase, setPhase] = useState('library');
   const [selectedVideos, setSelectedVideos] = useState(null);
+  const [projectSummaryFocusToken, setProjectSummaryFocusToken] = useState(0);
   const [vqaHistories, setVqaHistories] = useState({});
 
   const [pipelineVideos, setPipelineVideos] = useState([]);
@@ -182,9 +183,9 @@ export default function Probe1Page() {
       }
     });
     setEditState({ clips, captions: [], sources });
+    setProjectSummaryFocusToken((token) => token + 1);
     setPhase('exploring');
     logEvent(EventTypes.IMPORT_VIDEO, Actors.CREATOR, { videoIds: videos.map((v) => v.id), count: videos.length });
-    announce('Project created. Explore scenes below.');
   }, [logEvent]);
 
   const handleAskAI = useCallback(async (question, scene) => {
@@ -248,6 +249,7 @@ export default function Probe1Page() {
           <ConditionHeader condition="probe1" />
           <OnboardingBrief
             pageTitle="Probe 1: Solo Creator — Scene Explorer"
+            initialOpen={false}
             description="Your video is shown as a list of scenes below. Swipe up and down to browse scenes. Tap a scene to expand it and hear its AI-generated description. Once expanded, you can change the detail level between Overview, Detailed, and Technical using the controls at the top. You can also ask AI a question about what is happening in a scene, or flag a description if it seems wrong. Use the Play All button to listen to every scene description in order."
           />
           {/* Day 1 fix #1: video sits at the top in the page flex column.
@@ -277,9 +279,10 @@ export default function Probe1Page() {
             onSeek={handleSeek}
             onPlay={handlePlay}
             onPause={handlePause}
-            disableAutoFollow={playingSegmentEnd != null || isPlaying}
+            disableAutoFollow={playingSegmentEnd != null}
             accentColor="#2B579A"
             videoCount={selectedVideos?.length || 1}
+            summaryFocusToken={projectSummaryFocusToken}
             vqaHistories={vqaHistories}
             onSceneClose={(sceneId) => {
               // Lan 2026-04-27: wipe chat history on full collapse so the

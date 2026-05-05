@@ -5,11 +5,16 @@ import { announce } from '../utils/announcer.js';
 
 function getOverlaySignature(overlays = []) {
   return overlays
-    .map((overlay) => `${overlay.id}:${overlay.content}:${overlay.size}:${overlay.color}:${overlay.x}:${overlay.y}`)
+    .map((overlay) => `${overlay.id}:${overlay.sceneId || ''}:${overlay.content}:${overlay.size}:${overlay.color}:${overlay.x}:${overlay.y}:${overlay.appliedAt || ''}`)
     .join('|');
 }
 
-export default function useTextOverlay({ initialOverlays = [], onOverlaysChange } = {}) {
+export default function useTextOverlay({
+  initialOverlays = [],
+  onOverlaysChange,
+  actor = Actors.HELPER,
+  sceneId = null,
+} = {}) {
   const { logEvent } = useEventLogger();
   const [textOverlays, setTextOverlays] = useState(initialOverlays);
   const [activeOverlayId, setActiveOverlayId] = useState(null);
@@ -68,45 +73,51 @@ export default function useTextOverlay({ initialOverlays = [], onOverlaysChange 
       color: '#FFFFFF',
       x: 50,
       y: 50,
+      sceneId,
     };
     setTextOverlays(prev => [...prev, newOverlay]);
     setActiveOverlayId(newOverlay.id);
     setTextToolActive(true);
     announce('Text overlay tool activated. Type your text and drag to position.');
-  }, [textToolActive]);
+  }, [sceneId, textToolActive]);
 
   const handleTextMove = useCallback((id, x, y) => {
     setTextOverlays(prev => prev.map(o => o.id === id ? { ...o, x, y } : o));
-    logEvent(EventTypes.MOVE_TEXT_OVERLAY, Actors.HELPER, { overlayId: id, x, y });
-  }, [logEvent]);
+    logEvent(EventTypes.MOVE_TEXT_OVERLAY, actor, { overlayId: id, x, y });
+  }, [actor, logEvent]);
 
   const handleTextChange = useCallback((field, value) => {
     if (!activeOverlayId) return;
     setTextOverlays(prev => prev.map(o =>
       o.id === activeOverlayId ? { ...o, [field]: value } : o
     ));
-    logEvent(EventTypes.EDIT_TEXT_OVERLAY, Actors.HELPER, { overlayId: activeOverlayId, field, value });
-  }, [activeOverlayId, logEvent]);
+    logEvent(EventTypes.EDIT_TEXT_OVERLAY, actor, { overlayId: activeOverlayId, field, value });
+  }, [activeOverlayId, actor, logEvent]);
 
   const handleTextApply = useCallback(() => {
     const overlay = textOverlays.find(o => o.id === activeOverlayId);
     if (overlay) {
-      logEvent(EventTypes.ADD_TEXT_OVERLAY, Actors.HELPER, {
+      logEvent(EventTypes.ADD_TEXT_OVERLAY, actor, {
         content: overlay.content, size: overlay.size, color: overlay.color, x: overlay.x, y: overlay.y,
       });
+      setTextOverlays(prev => prev.map(o =>
+        o.id === activeOverlayId ? { ...o, appliedAt: Date.now() } : o
+      ));
+      announce(`Text overlay applied with text: ${overlay.content}`);
+    } else {
+      announce('Text overlay applied');
     }
     setActiveOverlayId(null);
     setTextToolActive(false);
-    announce('Text overlay applied');
-  }, [activeOverlayId, textOverlays, logEvent]);
+  }, [activeOverlayId, actor, textOverlays, logEvent]);
 
   const handleTextRemove = useCallback(() => {
-    logEvent(EventTypes.REMOVE_TEXT_OVERLAY, Actors.HELPER, { overlayId: activeOverlayId });
+    logEvent(EventTypes.REMOVE_TEXT_OVERLAY, actor, { overlayId: activeOverlayId });
     setTextOverlays(prev => prev.filter(o => o.id !== activeOverlayId));
     setActiveOverlayId(null);
     setTextToolActive(false);
     announce('Text overlay removed');
-  }, [activeOverlayId, logEvent]);
+  }, [activeOverlayId, actor, logEvent]);
 
   const activeOverlay = textOverlays.find(o => o.id === activeOverlayId) || null;
 

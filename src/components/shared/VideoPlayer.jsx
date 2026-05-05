@@ -3,8 +3,27 @@ import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import usePlaybackEngine from '../../hooks/usePlaybackEngine.js';
+import TextOverlay from './TextOverlay.jsx';
 
-const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTimeUpdate, onSegmentChange, editState, videoFilter, videoTransform, audioMuted = false, maxHeight, actor = Actors.CREATOR }, ref) {
+function clipBaseSceneId(id) {
+  if (typeof id !== 'string') return id;
+  const idx = id.lastIndexOf('-split-');
+  return idx >= 0 ? id.slice(0, idx) : id;
+}
+
+const VideoPlayer = forwardRef(function VideoPlayer({
+  src,
+  segments = [],
+  onTimeUpdate,
+  onSegmentChange,
+  editState,
+  videoFilter,
+  videoTransform,
+  audioMuted = false,
+  maxHeight,
+  actor = Actors.CREATOR,
+  renderTextOverlays = true,
+}, ref) {
   const singleVideoRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -16,6 +35,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
   const clips = editState?.clips || [];
   const captions = editState?.captions || [];
   const sources = editState?.sources || [];
+  const textOverlays = editState?.textOverlays || [];
   const isEngineActive = clips.length > 0;
 
   // Build videoRefs map: one ref per source
@@ -165,10 +185,15 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
 
   // Caption font size based on accessibility settings
   const captionFontSize = a11y.textSize === 'large' ? '1.25rem' : a11y.textSize === 'small' ? '0.75rem' : '1rem';
+  const activeClip = isEngineActive ? clips[engine.currentClipIndex] : null;
+  const activeSceneId = clipBaseSceneId(activeClip?.id || currentSegment?.id || null);
+  const visibleTextOverlays = textOverlays.filter((overlay) => (
+    !overlay.sceneId || (activeSceneId && clipBaseSceneId(overlay.sceneId) === activeSceneId)
+  ));
 
   return (
     <div
-      className="relative bg-black mx-auto"
+      className="relative bg-black mx-auto overflow-hidden"
       style={{
         aspectRatio: '16 / 9',
         width: '100%',
@@ -177,6 +202,7 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
         // browser shrinks the box (preserving 16:9) and `mx-auto` keeps
         // it centred when width-derived height would have exceeded the cap.
         maxHeight: maxHeight || undefined,
+        contain: 'paint',
       }}
     >
       {/* Multi-source: render one <video> per source, show only the active one */}
@@ -243,6 +269,17 @@ const VideoPlayer = forwardRef(function VideoPlayer({ src, segments = [], onTime
           tabIndex={-1}
         />
       )}
+
+      {/* Text overlays are part of editState, so creator-side playback needs
+          to render them even though only helper/researcher surfaces edit them. */}
+      {renderTextOverlays && visibleTextOverlays.map((overlay) => (
+        <TextOverlay
+          key={overlay.id}
+          overlay={overlay}
+          isEditing={false}
+          onMove={() => {}}
+        />
+      ))}
 
       {/* Caption overlay */}
       {isEngineActive && engine.activeCaption && (

@@ -17,7 +17,13 @@ const SLIDERS = [
 
 const DEFAULT_VALUES = { brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 };
 
-export default function MockColourControls({ values: controlledValues, onAdjust, disabled }) {
+export default function MockColourControls({
+  values: controlledValues,
+  onAdjust,
+  disabled,
+  actor = Actors.HELPER,
+  variant = 'light',
+}) {
   // Controlled when `values` prop is provided (parent owns state and wires
   // the resulting CSS filter into VideoPlayer); otherwise falls back to
   // local-only state so existing call sites keep working.
@@ -30,19 +36,23 @@ export default function MockColourControls({ values: controlledValues, onAdjust,
     if (!controlledValues) {
       setLocalValues((prev) => ({ ...prev, [property]: numVal }));
     }
-    logEvent(EventTypes.COLOUR_ADJUST, Actors.HELPER, { property, value: numVal });
+    logEvent(EventTypes.COLOUR_ADJUST, actor, { property, value: numVal });
     if (onAdjust) onAdjust(property, numVal);
     announce(`${property} set to ${numVal}.`);
-  }, [logEvent, onAdjust, controlledValues]);
+  }, [logEvent, onAdjust, controlledValues, actor]);
+
+  const isDark = variant === 'dark';
 
   return (
     <div className="space-y-3">
-      <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Visual Adjustments</h4>
+      <h4 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+        Visual Adjustments
+      </h4>
       {SLIDERS.map((slider) => (
         <div key={slider.id}>
-          <label className="flex items-center justify-between text-sm text-gray-700 mb-1">
+          <label className={`flex items-center justify-between text-sm mb-1 ${isDark ? 'text-white/85' : 'text-gray-700'}`}>
             <span>{slider.label}</span>
-            <span className="text-xs text-gray-500">
+            <span className={`text-xs ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
               {values[slider.id]}{slider.suffix}
             </span>
           </label>
@@ -54,7 +64,9 @@ export default function MockColourControls({ values: controlledValues, onAdjust,
             value={values[slider.id]}
             onChange={(e) => handleChange(slider.id, e.target.value)}
             disabled={disabled}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+            className={`w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-600 ${
+              isDark ? 'bg-white/20' : 'bg-gray-200'
+            }`}
             aria-label={`${slider.label}: ${values[slider.id]}${slider.suffix}`}
             style={{ minHeight: '44px' }}
           />

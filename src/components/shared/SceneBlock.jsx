@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import ttsService from '../../services/ttsService.js';
 import { announce } from '../../utils/announcer.js';
 
@@ -19,9 +18,12 @@ export default function SceneBlock({
   total,
   currentLevel,
   isExpanded,
+  isPlaying = false,
   autoFollowed = false,
+  playbackFocusToken = 0,
   onExpand,
   onCollapse,
+  onPausePlayback,
   vqaHistory = [],
   awareness,
   children,
@@ -51,9 +53,19 @@ export default function SceneBlock({
   // prepends a "What changed" line to the description so a TalkBack
   // creator hears the change without having to expand or replay.
   editSummary = null,
+  descriptionOverride = null,
 }) {
   const actionsRef = useRef(null);
-  const { audioEnabled, speechRate } = useAccessibility();
+  const headerButtonRef = useRef(null);
+
+  const setHeaderButtonRef = useCallback((el) => {
+    headerButtonRef.current = el;
+    if (typeof headerRef === 'function') {
+      headerRef(el);
+    } else if (headerRef && 'current' in headerRef) {
+      headerRef.current = el;
+    }
+  }, [headerRef]);
 
   // Per-element-instance debounce so a TalkBack swipe back-and-forth across
   // the same entry produces a few well-spaced events, not a flood. Keyed by
@@ -74,7 +86,7 @@ export default function SceneBlock({
 
   const duration = (scene.end_time || 0) - (scene.start_time || 0);
   const levelKey = `level_${currentLevel}`;
-  const description = scene.descriptions?.[levelKey] || '';
+  const description = descriptionOverride ?? scene.descriptions?.[levelKey] ?? '';
 
   // Auto-focus on expand. Fires for both manual click and auto-follow
   // during playback.
@@ -92,7 +104,9 @@ export default function SceneBlock({
     if (isExpanded && actionsRef.current) {
       ttsService.stop();
       if (autoFollowed) {
-        // Silent visual update only — no focus move, no announce.
+        // Visual follow only. Moving TalkBack focus here makes it speak at
+        // every scene boundary; playback should stay silent until pause.
+        headerButtonRef.current?.scrollIntoView?.({ behavior: 'auto', block: 'nearest' });
         return;
       }
       // Day 1 Android fix: `preventScroll` on focus so the browser
@@ -108,7 +122,7 @@ export default function SceneBlock({
       ttsService.stop();
     }
     // scene.name and index are stable for the lifecycle of this block
-  }, [isExpanded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isExpanded, autoFollowed, playbackFocusToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Browser back-button integration is owned by SceneBlockList — putting it
   // here caused auto-follow to break: when expandedIndex moves from N to N+1,
@@ -123,10 +137,14 @@ export default function SceneBlock({
           what's in each scene without having to expand it (Lan-confirmed
           override of M3 trade-off, 2026-04-26). */}
       <button
-        ref={headerRef}
+        ref={setHeaderButtonRef}
         data-scene-index={index}
         onClick={() => {
           if (isExpanded) {
+            if (isPlaying && onPausePlayback) {
+              onPausePlayback();
+              return;
+            }
             onCollapse();
             return;
           }
@@ -135,12 +153,14 @@ export default function SceneBlock({
           onExpand(index);
         }}
         aria-label={
-          `Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ` +
-          (isRemoved ? 'Removed from edit. ' : '') +
-          (editSummary ? `Edited: ${editSummary.text}. ` : '') +
-          (hasSuggestion ? 'AI suggestion available. ' : '') +
-          (description ? `${description} ` : '') +
-          (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
+          isExpanded && isPlaying
+            ? `Scene ${index + 1} of ${total}: ${scene.name}. Playing. Double tap to pause and hear this scene description.`
+            : `Scene ${index + 1} of ${total}: ${scene.name}. ${formatDuration(duration)}. ` +
+              (isRemoved ? 'Removed from edit. ' : '') +
+              (editSummary ? `Edited: ${editSummary.text}. ` : '') +
+              (hasSuggestion ? 'AI suggestion available. ' : '') +
+              (description ? `${description} ` : '') +
+              (isExpanded ? 'Tap to close actions.' : 'Tap to open actions.')
         }
         className={`w-full text-left px-4 py-3 hover:bg-gray-50 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors ${
           isExpanded ? 'border-b-2' : ''

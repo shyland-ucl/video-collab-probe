@@ -213,7 +213,12 @@ export function buildSessionGuide({ condition, projectStats = {} }) {
 
 function overlaysChanged(prevOverlays = [], nextOverlays = []) {
   if (prevOverlays.length !== nextOverlays.length) {
-    return { type: nextOverlays.length > prevOverlays.length ? 'added' : 'removed' };
+    if (nextOverlays.length > prevOverlays.length) {
+      const prevIds = new Set(prevOverlays.map((overlay) => overlay.id));
+      return { type: 'added', overlay: nextOverlays.find((overlay) => !prevIds.has(overlay.id)) };
+    }
+    const nextIds = new Set(nextOverlays.map((overlay) => overlay.id));
+    return { type: 'removed', overlay: prevOverlays.find((overlay) => !nextIds.has(overlay.id)) };
   }
 
   for (let i = 0; i < nextOverlays.length; i += 1) {
@@ -223,15 +228,28 @@ function overlaysChanged(prevOverlays = [], nextOverlays = []) {
     if (prev.id !== next.id) {
       return { type: 'reordered' };
     }
+    if (prev.appliedAt !== next.appliedAt) {
+      return { type: 'applied', overlay: next };
+    }
     if (prev.content !== next.content || prev.size !== next.size || prev.color !== next.color) {
-      return { type: 'updated' };
+      return { type: 'updated', overlay: next };
     }
     if (prev.x !== next.x || prev.y !== next.y) {
-      return { type: 'moved' };
+      return { type: 'moved', overlay: next };
     }
   }
 
   return null;
+}
+
+function findAddedItem(prevItems = [], nextItems = []) {
+  const prevIds = new Set(prevItems.map((item) => item.id));
+  return nextItems.find((item) => !prevIds.has(item.id)) || null;
+}
+
+function textContentPhrase(text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  return clean ? ` with text: ${clean}` : '';
 }
 
 function trimsChanged(prevClips = [], nextClips = []) {
@@ -336,6 +354,21 @@ function findSoundChange(prevClips, nextClips) {
 
 function sceneLabel(index) {
   return `scene ${index + 1}`;
+}
+
+export function labelEditActor(actor, fallback = 'Helper') {
+  switch (actor) {
+    case 'CREATOR':
+      return 'Creator';
+    case 'HELPER':
+      return 'Helper';
+    case 'RESEARCHER':
+      return 'AI';
+    case 'AI':
+      return 'AI';
+    default:
+      return fallback;
+  }
 }
 
 /**
@@ -445,7 +478,10 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     promptText = 'Check the timeline to review the new clip length.';
   } else if (nextCaptions.length > prevCaptions.length) {
     const idx = findCaptionChangeSceneIndex(prevCaptions, nextCaptions, prevClips, nextClips);
-    actionText = idx >= 0 ? `added a caption to ${sceneLabel(idx)}` : 'added a caption';
+    const addedCaption = findAddedItem(prevCaptions, nextCaptions);
+    actionText = idx >= 0
+      ? `added a caption to ${sceneLabel(idx)}${textContentPhrase(addedCaption?.text)}`
+      : `added a caption${textContentPhrase(addedCaption?.text)}`;
     promptText = 'Check the video to review the new caption.';
   } else if (nextCaptions.length < prevCaptions.length) {
     const idx = findCaptionChangeSceneIndex(prevCaptions, nextCaptions, prevClips, nextClips);
@@ -471,6 +507,9 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
       if (overlayChange?.type === 'added') {
         actionText = 'added a text overlay';
         promptText = 'Check the video to review the new text overlay.';
+      } else if (overlayChange?.type === 'applied') {
+        actionText = `applied a text overlay${textContentPhrase(overlayChange.overlay?.content)}`;
+        promptText = 'Check the video to review the applied text overlay.';
       } else if (overlayChange?.type === 'removed') {
         actionText = 'removed a text overlay';
         promptText = 'Check the video to confirm the text overlay changes.';
@@ -500,5 +539,19 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     overviewText,
     promptText,
     announcement: `${actorLabel} ${actionText}. ${overviewText} ${promptText}`.trim(),
+  };
+}
+
+export function summarizeVisualAdjustment(property, value, actorLabel = 'Collaborator') {
+  const visualText = describeEditOp(property, { value });
+  const actionText = `changed ${visualText.toLowerCase()}`;
+  const promptText = 'Review the video frame to confirm the visual change.';
+
+  return {
+    actionText,
+    shortText: `${actorLabel} ${actionText}`,
+    overviewText: 'Visual adjustment applied to the video.',
+    promptText,
+    announcement: `${actorLabel} ${actionText}. ${promptText}`,
   };
 }

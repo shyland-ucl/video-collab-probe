@@ -4,15 +4,18 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { loadDescriptions } from '../data/sampleDescriptions.js';
 import { loadPipelineVideos, fetchAssignments } from '../services/pipelineApi.js';
 import { findAssignmentsForDyad } from '../utils/dyadId.js';
-import { serialiseProjectState } from '../utils/projectState.js';
+import { colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
+import { summarizeEditStateChange } from '../utils/projectOverview.js';
 import { wsRelayService } from '../services/wsRelayService.js';
-import ResearcherHandoverPanel from '../components/probe2/ResearcherHandoverPanel.jsx';
 import ResearcherSuggestionPanel from '../components/probe3/ResearcherSuggestionPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
 import ResearcherMaterialsPanel from '../components/shared/ResearcherMaterialsPanel.jsx';
 import MockEditorVisual from '../components/shared/MockEditorVisual.jsx';
+import TextOverlay from '../components/shared/TextOverlay.jsx';
+import TextOverlaySettings from '../components/shared/TextOverlaySettings.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import DataExportButton from '../components/shared/DataExportButton.jsx';
+import useTextOverlay from '../hooks/useTextOverlay.js';
 
 const COLORS = {
   navy: '#1F3864',
@@ -38,6 +41,13 @@ const ACTOR_COLORS = {
   RESEARCHER: { bg: '#FEF9E7', text: '#B7950B' },
   SYSTEM: { bg: '#F2F3F4', text: '#6B7280' },
 };
+const VISUAL_DEFAULT_VALUES = { brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 };
+
+function clipBaseSceneId(id) {
+  if (typeof id !== 'string') return id;
+  const idx = id.lastIndexOf('-split-');
+  return idx >= 0 ? id.slice(0, idx) : id;
+}
 
 function formatElapsed(ms) {
   const totalSec = Math.floor(ms / 1000);
@@ -84,10 +94,6 @@ export default function ResearcherPage() {
   const [serverAssignments, setServerAssignments] = useState(null);
   const [helperFallbackNote, setHelperFallbackNote] = useState('');
 
-  // Probe 2a state
-  const [currentMode] = useState('creator');
-  const [transitionInitiated, setTransitionInitiated] = useState(false);
-
   // Probe 3 state
   const [seekTime, setSeekTime] = useState('0');
   const [deployedSuggestions, setDeployedSuggestions] = useState({});
@@ -101,13 +107,35 @@ export default function ResearcherPage() {
   // edits directly in this mirror; changes broadcast back as EDIT_STATE_UPDATE
   // and apply to the participant's video in real time.
   const [mirrorEditState, setMirrorEditState] = useState(null);
-  const mirrorEditStateRef = useRef(null);
-  useEffect(() => { mirrorEditStateRef.current = mirrorEditState; }, [mirrorEditState]);
-
+  const [dashboardColourValues, setDashboardColourValues] = useState(VISUAL_DEFAULT_VALUES);
   // Dashboard's own playhead (independent of the participant's). Used to
   // drive the timeline playhead and seek when clicking clips.
   const dashboardPlayerRef = useRef(null);
   const [dashboardCurrentTime, setDashboardCurrentTime] = useState(0);
+  const mirrorEditStateRef = useRef(null);
+  useEffect(() => { mirrorEditStateRef.current = mirrorEditState; }, [mirrorEditState]);
+  const dashboardVideoFilter = useMemo(
+    () => colourValuesToFilter(dashboardColourValues),
+    [dashboardColourValues],
+  );
+  const dashboardVideoTransform = useMemo(
+    () => colourValuesToTransform(dashboardColourValues),
+    [dashboardColourValues],
+  );
+  const dashboardActiveSceneId = useMemo(() => {
+    const clips = mirrorEditState?.clips || [];
+    let offset = 0;
+    for (const clip of clips) {
+      const start = clip.startTime + (clip.trimStart || 0);
+      const end = clip.endTime - (clip.trimEnd || 0);
+      const duration = Math.max(0, end - start);
+      if (dashboardCurrentTime >= offset && dashboardCurrentTime < offset + duration) {
+        return clipBaseSceneId(clip.id);
+      }
+      offset += duration;
+    }
+    return clipBaseSceneId(clips[0]?.id || null);
+  }, [dashboardCurrentTime, mirrorEditState]);
 
   // Event log filters
   const [filterCondition, setFilterCondition] = useState('all');
@@ -183,6 +211,12 @@ export default function ResearcherPage() {
         setMirrorEditState(msg.editState);
         return;
       }
+      if (msg.type === 'COLOUR_UPDATE') {
+        if (typeof msg.property === 'string' && typeof msg.value === 'number') {
+          setDashboardColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
+        }
+        return;
+      }
       if (msg.type === 'EVENT_LOG' && msg.event) {
         ingestRemoteEvent(msg.event);
         return;
@@ -195,6 +229,18 @@ export default function ResearcherPage() {
     return unsub;
   }, [data, ingestRemoteEvent, ingestEventBacklog]);
 
+  const handleDashboardColourAdjust = useCallback((property, value) => {
+    const numVal = Number(value);
+    setDashboardColourValues((prev) => ({ ...prev, [property]: numVal }));
+    wsRelayService.sendData({
+      type: 'COLOUR_UPDATE',
+      property,
+      value: numVal,
+      actor: 'RESEARCHER',
+      sceneId: dashboardActiveSceneId,
+    });
+  }, [dashboardActiveSceneId]);
+
   const handleDashboardEditChange = useCallback((clips, captions, sources, textOverlays) => {
     const previous = mirrorEditStateRef.current;
     const newState = {
@@ -204,18 +250,46 @@ export default function ResearcherPage() {
       textOverlays: textOverlays ?? previous?.textOverlays ?? [],
     };
     setMirrorEditState(newState);
+    const changeSummary = summarizeEditStateChange(previous, newState, 'AI');
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
       editState: newState,
-      action: 'researcher edit',
-      changeSummary: {
-        announcement: 'The timeline was updated.',
-        shortText: 'Researcher edit',
-      },
+      action: changeSummary.actionText,
+      changeSummary,
       actor: 'RESEARCHER',
     });
     logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { source: 'dashboard_editor' });
   }, [logEvent]);
+
+  const handleDashboardTextOverlayChange = useCallback((nextTextOverlays) => {
+    const current = mirrorEditStateRef.current;
+    if (!current) return;
+    const currentTextOverlays = current.textOverlays || [];
+    if (JSON.stringify(currentTextOverlays) === JSON.stringify(nextTextOverlays || [])) return;
+    handleDashboardEditChange(
+      current.clips || [],
+      current.captions || [],
+      current.sources || [],
+      nextTextOverlays,
+    );
+  }, [handleDashboardEditChange]);
+
+  const {
+    textOverlays: dashboardTextOverlays,
+    activeOverlay: dashboardActiveOverlay,
+    activeOverlayId: dashboardActiveOverlayId,
+    textToolActive: dashboardTextToolActive,
+    handleTextTool: handleDashboardTextTool,
+    handleTextMove: handleDashboardTextMove,
+    handleTextChange: handleDashboardTextChange,
+    handleTextApply: handleDashboardTextApply,
+    handleTextRemove: handleDashboardTextRemove,
+  } = useTextOverlay({
+    initialOverlays: mirrorEditState?.textOverlays || [],
+    onOverlaysChange: handleDashboardTextOverlayChange,
+    actor: Actors.RESEARCHER,
+    sceneId: dashboardActiveSceneId,
+  });
 
   const handleAIEditSendResponse = useCallback((responseText, responseType) => {
     setPendingAIRequest(null);
@@ -351,44 +425,6 @@ export default function ResearcherPage() {
     setHelperFallbackNote('');
   }, [logEvent, helperFallbackNote]);
 
-  // Probe 2a: suggestion handler
-  const handleTriggerSuggestion = useCallback((text) => {
-    logEvent(EventTypes.HANDOVER_SUGGESTION_SHOWN, Actors.RESEARCHER, { suggestion: text });
-  }, [logEvent]);
-
-  // Probe 2a → 2b transition
-  const handleTransitionTo2b = useCallback(() => {
-    const projectState = serialiseProjectState({
-      editState: null, // Would need actual editState from Probe 2a
-      marks: [],
-      selectedVideoIds: [],
-    });
-
-    logEvent(EventTypes.PHASE_TRANSITION_2A_TO_2B, Actors.RESEARCHER, {
-      timestamp: new Date().toISOString(),
-      projectState: { exportedAt: projectState.exportedAt },
-    });
-
-    // Broadcast via WebSocket
-    wsRelayService.sendData({
-      type: 'PROJECT_STATE_EXPORT',
-      projectState,
-      actor: 'RESEARCHER',
-    });
-
-    // Store transition timestamp
-    try {
-      const stored = localStorage.getItem('sessionConfig');
-      if (stored) {
-        const config = JSON.parse(stored);
-        config.phaseTransitionTimestamp = new Date().toISOString();
-        localStorage.setItem('sessionConfig', JSON.stringify(config));
-      }
-    } catch { /* ignore */ }
-
-    setTransitionInitiated(true);
-  }, [logEvent]);
-
   // Probe 3: suggestion deploy
   const handleDeploySuggestion = useCallback((suggestion) => {
     logEvent(EventTypes.SUGGESTION_DEPLOYED, Actors.RESEARCHER, {
@@ -445,14 +481,25 @@ export default function ResearcherPage() {
           className="rounded overflow-hidden border-2 border-purple-400 bg-black"
           aria-label="Researcher editor (live two-way sync)"
         >
-          <div className="aspect-video max-h-[40vh] mx-auto">
+          <div className="aspect-video max-h-[40vh] mx-auto relative">
             <VideoPlayer
               ref={dashboardPlayerRef}
               src={mirrorEditState?.sources?.[0]?.src || null}
               editState={mirrorEditState}
               onTimeUpdate={setDashboardCurrentTime}
+              videoFilter={dashboardVideoFilter}
+              videoTransform={dashboardVideoTransform}
+              renderTextOverlays={false}
               actor={Actors.RESEARCHER}
             />
+            {dashboardTextOverlays.map((overlay) => (
+              <TextOverlay
+                key={overlay.id}
+                overlay={overlay}
+                isEditing={overlay.id === dashboardActiveOverlayId}
+                onMove={handleDashboardTextMove}
+              />
+            ))}
           </div>
           <MockEditorVisual
             editState={mirrorEditState}
@@ -462,7 +509,21 @@ export default function ResearcherPage() {
             currentTime={dashboardCurrentTime}
             onSeek={(t) => dashboardPlayerRef.current?.seek?.(t)}
             actor={Actors.RESEARCHER}
+            onTextTool={handleDashboardTextTool}
+            textToolActive={dashboardTextToolActive}
+            visualValues={dashboardColourValues}
+            onVisualAdjust={handleDashboardColourAdjust}
           />
+          {dashboardActiveOverlay && (
+            <div className="px-2 pb-3 bg-white">
+              <TextOverlaySettings
+                overlay={dashboardActiveOverlay}
+                onChange={handleDashboardTextChange}
+                onApply={handleDashboardTextApply}
+                onRemove={handleDashboardTextRemove}
+              />
+            </div>
+          )}
         </div>
       ) : (
         <p className="text-sm text-gray-400 italic">
@@ -494,6 +555,7 @@ export default function ResearcherPage() {
         pendingRequest={pendingAIRequest}
         onSendResponse={handleAIEditSendResponse}
         onApplyEdit={handleAIEditApply}
+        showVisualOverride={false}
       />
     </div>
   );
@@ -632,37 +694,6 @@ export default function ResearcherPage() {
                   <div className="space-y-4">
                     {researcherEditorPanel}
                     {aiEditRequestsPanel}
-                    <ResearcherHandoverPanel onTriggerSuggestion={handleTriggerSuggestion} currentMode={currentMode} />
-
-                    {/* Transition to Phase 2b */}
-                    <div className="border-2 rounded-lg p-4 shadow-sm" style={{ borderColor: COLORS.green, backgroundColor: '#F0FFF4' }}>
-                      <div className="flex items-center gap-2 mb-3">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: COLORS.green }} aria-hidden="true" />
-                        <h3 className="font-bold text-sm" style={{ color: COLORS.navy }}>Phase Transition</h3>
-                      </div>
-                      {transitionInitiated ? (
-                        <div className="flex items-center gap-2 text-green-700">
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          <span className="text-sm font-medium">Transition to Phase 2b initiated</span>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-xs text-gray-500 mb-3">
-                            Serialises the current project state and broadcasts to Phase 2b devices.
-                          </p>
-                          <button
-                            onClick={handleTransitionTo2b}
-                            className="w-full py-2 rounded text-sm font-bold text-white transition-colors hover:brightness-110 focus:outline-2 focus:outline-offset-2"
-                            style={{ backgroundColor: COLORS.green, minHeight: '44px' }}
-                            aria-label="Transition to Phase 2b"
-                          >
-                            Transition to Phase 2b
-                          </button>
-                        </>
-                      )}
-                    </div>
                   </div>
                 )}
 

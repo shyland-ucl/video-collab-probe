@@ -9,8 +9,16 @@ import { EventTypes, Actors } from '../utils/eventTypes.js';
 import { announce } from '../utils/announcer.js';
 import { buildInitialSources, buildAllSegments, getTotalDuration } from '../utils/buildInitialSources.js';
 import { filterClipsByKept, colourValuesToFilter, colourValuesToTransform } from '../utils/editStateView.js';
-import { buildProjectStats, summarizeEditStateChange, describeEditOp } from '../utils/projectOverview.js';
+import {
+  buildProjectStats,
+  describeEditOp,
+  labelEditActor,
+  summarizeEditStateChange,
+  summarizeVisualAdjustment,
+} from '../utils/projectOverview.js';
 import { applyOperation, getClipMuted } from '../utils/sceneEditOps.js';
+import { buildEditChangeSceneStamp } from '../utils/editChangeStamp.js';
+import { buildHelperTaskStatusUpdate } from '../utils/taskFeedback.js';
 import { captureFrame, askGemini } from '../services/geminiService.js';
 import ttsService from '../services/ttsService.js';
 import { wsRelayService } from '../services/wsRelayService.js';
@@ -20,6 +28,7 @@ import OnboardingBrief from '../components/shared/OnboardingBrief.jsx';
 import VideoPlayer from '../components/shared/VideoPlayer.jsx';
 import VideoLibrary from '../components/probe1/VideoLibrary.jsx';
 import SceneBlockList from '../components/shared/SceneBlockList.jsx';
+import ProjectUpdateToast from '../components/shared/ProjectUpdateToast.jsx';
 import Probe2bSceneActions from '../components/probe2/Probe2bSceneActions.jsx';
 import ResearcherVQAPanel from '../components/probe1/ResearcherVQAPanel.jsx';
 import ResearcherAIEditPanel from '../components/probe3/ResearcherAIEditPanel.jsx';
@@ -32,6 +41,17 @@ const COLORS = {
   green: '#5CB85C',
   blue: '#2B579A',
 };
+
+function baseSceneId(id) {
+  if (!id || typeof id !== 'string') return id || null;
+  return id.replace(/-split-\d+$/, '');
+}
+
+function getSceneIdAtTime(segments = [], time = 0) {
+  return segments.find((scene) => (
+    time >= scene.start_time && time < scene.end_time
+  ))?.id || segments[0]?.id || null;
+}
 
 export default function Probe2bPage() {
   const { setCondition, logEvent } = useEventLogger();
@@ -52,10 +72,13 @@ export default function Probe2bPage() {
   const [duration, setDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentSegment, setCurrentSegment] = useState(null);
+  const currentSegmentRef = useRef(null);
+  useEffect(() => { currentSegmentRef.current = currentSegment; }, [currentSegment]);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   const [editState, setEditState] = useState(null);
 
   const [librarySelection, setLibrarySelection] = useState(new Set());
+  const [projectSummaryFocusToken, setProjectSummaryFocusToken] = useState(0);
   const [feedItems, setFeedItems] = useState([]);
   const [pendingAIRequest, setPendingAIRequest] = useState(null);
   // Parked resolver for "Ask AI to edit": when no canned response matches we
@@ -67,6 +90,7 @@ export default function Probe2bPage() {
   const [creatorActivities, setCreatorActivities] = useState([]);
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
+  const sentHelperTasksRef = useRef(new Map());
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
@@ -203,8 +227,13 @@ export default function Probe2bPage() {
     () => (currentSegment ? getClipMuted(editState, currentSegment.id) : false),
     [editState, currentSegment],
   );
-  const handleColourAdjust = useCallback((property, value) => {
+  const handleColourAdjust = useCallback((property, value, context = {}) => {
     setColourValues((prev) => ({ ...prev, [property]: value }));
+    const sceneId = baseSceneId(
+      context.sceneId
+      || currentSegment?.id
+      || getSceneIdAtTime(segments, currentTime),
+    );
     // Broadcast so the peer's VideoPlayer applies the same CSS filter live.
     // Without this, helper's brightness/contrast/saturation only affect the
     // helper's preview and the creator's video stays untouched.
@@ -213,14 +242,15 @@ export default function Probe2bPage() {
       property,
       value,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
+      sceneId,
     });
-    if (currentSegment?.id) {
-      stampSceneEdit(currentSegment.id, property, {
+    if (sceneId) {
+      stampSceneEdit(sceneId, property, {
         value,
         actor: role === 'creator' ? 'You' : 'Helper',
       });
     }
-  }, [role, currentSegment, stampSceneEdit]);
+  }, [role, currentSegment, currentTime, segments, stampSceneEdit]);
 
   const allVideos = useMemo(() => {
     const sampleVideos = data ? (data.videos || (data.video ? [data.video] : [])) : [];
@@ -362,6 +392,7 @@ export default function Probe2bPage() {
     });
     const nextEditState = { clips, captions: [], sources, textOverlays: [] };
     setEditState(nextEditState);
+    setProjectSummaryFocusToken((token) => token + 1);
     setSessionGuide(buildProjectStats({
       projectData: { videos },
       editState: nextEditState,
@@ -369,7 +400,6 @@ export default function Probe2bPage() {
     }));
     setProjectUpdate(null);
     logEvent(EventTypes.IMPORT_VIDEO, Actors.SYSTEM, { videoIds: videos.map((v) => v.id), count: videos.length });
-    announce(`Project created with ${videos.length} video${videos.length > 1 ? 's' : ''}. Starting session.`);
     wsRelayService.sendData({ type: 'PROJECT_CREATED', videoIds: videos.map((v) => v.id), actor: 'CREATOR' });
     // Also broadcast the full initial editState so the researcher dashboard's
     // mirror populates immediately (without waiting for the first edit). The
@@ -417,6 +447,19 @@ export default function Probe2bPage() {
     }
     const actorLabel = role === 'creator' ? 'Creator' : 'Helper';
     const changeSummary = summarizeEditStateChange(prev, newState, actorLabel);
+    const sceneStamp = buildEditChangeSceneStamp(prev, newState, {
+      fallbackSceneId: currentSegment?.id,
+    });
+    if (sceneStamp?.sceneId) {
+      setEditedScenes((prevScenes) => ({
+        ...prevScenes,
+        [sceneStamp.sceneId]: {
+          text: sceneStamp.text,
+          actor: role === 'creator' ? 'You' : 'Helper',
+          timestamp: Date.now(),
+        },
+      }));
+    }
     setEditState(newState);
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
@@ -425,7 +468,7 @@ export default function Probe2bPage() {
       changeSummary,
       actor: role === 'creator' ? 'CREATOR' : 'HELPER',
     });
-  }, [role]);
+  }, [role, currentSegment?.id]);
 
   const handleUndoEdit = useCallback(() => {
     setEditHistory((h) => {
@@ -447,6 +490,25 @@ export default function Probe2bPage() {
   }, [role, logEvent]);
 
   // Task routing callbacks
+  const handleSendTaskToHelper = useCallback((task) => {
+    const taskId = `task-${Date.now()}`;
+    const sentTask = {
+      id: taskId,
+      text: task.instruction,
+      segment: task.segmentName,
+      segmentId: task.segmentId,
+    };
+    sentHelperTasksRef.current.set(taskId, sentTask);
+    wsRelayService.sendData({
+      type: 'TASK_TO_HELPER',
+      taskId,
+      text: task.instruction,
+      segment: task.segmentName,
+      segmentId: task.segmentId,
+      actor: 'CREATOR',
+    });
+  }, []);
+
   const handleHelperTaskStatus = useCallback((taskId, status) => {
     setFeedItems((prev) => prev.map((item) =>
       item.id === taskId ? { ...item, status } : item
@@ -514,8 +576,21 @@ export default function Probe2bPage() {
         case 'EDIT_STATE_UPDATE': {
           const previousState = editStateRef.current;
           setEditState(msg.editState);
-          const peerLabel = msg.actor === 'CREATOR' ? 'Creator' : 'Helper';
+          const peerLabel = labelEditActor(msg.actor);
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
+          const sceneStamp = buildEditChangeSceneStamp(previousState, msg.editState, {
+            fallbackSceneId: currentSegmentRef.current?.id,
+          });
+          if (sceneStamp?.sceneId) {
+            setEditedScenes((prev) => ({
+              ...prev,
+              [sceneStamp.sceneId]: {
+                text: sceneStamp.text,
+                actor: peerLabel,
+                timestamp: Date.now(),
+              },
+            }));
+          }
           // Suppress the visible "peer made an edit" surface for empty
           // change summaries (snapshots sent on REQUEST_EDIT_STATE / pair-up
           // replay carry empty announcements/shortText) — an empty toast
@@ -603,12 +678,19 @@ export default function Probe2bPage() {
           announce(`Creator sent you a task: ${msg.text}`);
           break;
         }
-        case 'TASK_STATUS_UPDATE':
+        case 'TASK_STATUS_UPDATE': {
+          const task = sentHelperTasksRef.current.get(msg.taskId);
+          if (currentRole === 'creator') {
+            const update = buildHelperTaskStatusUpdate(task || { id: msg.taskId }, msg.status, 'Helper');
+            setProjectUpdate(update);
+            announce(update.announcement);
+          }
           if (typeof window.__taskStatusUpdate === 'function') {
             window.__taskStatusUpdate(msg.taskId, msg.status);
           }
           logEvent(EventTypes.HELPER_TASK_STATUS, Actors.HELPER, { taskId: msg.taskId, status: msg.status });
           break;
+        }
         case 'AI_EDIT_NOTIFY': {
           const item = {
             id: `ai-${Date.now()}`,
@@ -670,16 +752,21 @@ export default function Probe2bPage() {
           // alone, and there's no slider on the creator's screen to flip).
           if (typeof msg.property === 'string' && typeof msg.value === 'number') {
             setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
-            const peer = msg.actor === 'CREATOR' ? 'Creator'
-              : msg.actor === 'HELPER' ? 'Helper'
-              : msg.actor === 'RESEARCHER' ? 'AI' : 'Peer';
-            announce(`${peer} set ${msg.property} to ${msg.value}.`);
+            const peer = labelEditActor(msg.actor, 'Peer');
+            const changeSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
+            announce(changeSummary.announcement);
+            if (currentRole === 'creator') {
+              setProjectUpdate({ ...changeSummary, id: Date.now() });
+            } else {
+              setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
+            }
             // Day 1 fix #3: stamp the active scene so the badge shows up
             // for the BLV creator without needing the slider in their UI.
-            if (currentSegment?.id) {
+            const sceneId = msg.sceneId || currentSegmentRef.current?.id;
+            if (sceneId) {
               setEditedScenes((prev) => ({
                 ...prev,
-                [currentSegment.id]: {
+                [sceneId]: {
                   text: describeEditOp(msg.property, { value: msg.value }),
                   actor: peer,
                   timestamp: Date.now(),
@@ -958,11 +1045,17 @@ export default function Probe2bPage() {
   // Active Session
   return (
     <div className="fixed inset-0 bg-white flex flex-col overflow-hidden">
+      <ProjectUpdateToast
+        update={role === 'creator' ? projectUpdate : null}
+        onDismiss={() => setProjectUpdate(null)}
+        accentColor={COLORS.green}
+      />
       {role === 'creator' ? (
         <div className="flex flex-col flex-1 min-h-0 max-w-lg mx-auto w-full">
           <ConditionHeader condition="probe2b" modeLabel={modeLabel} />
           <OnboardingBrief
             pageTitle="Probe 2b: Two Devices — Creator"
+            initialOpen={false}
             description="You and your helper each have a phone. Below is a list of scenes from your video. Tap a scene to expand it. Inside each scene you can edit by yourself, ask AI to edit, or send a task to your helper's device without handing over. Activity indicators show what your helper is working on. All changes sync between phones automatically."
           />
           {/* Day 1 fix #1: video pinned at top via flex layout. Outer is
@@ -1001,13 +1094,15 @@ export default function Probe2bPage() {
               playerRef.current?.pause();
               wsRelayService.sendData({ type: 'PAUSE', time: currentTime, actor: 'CREATOR' });
             }}
-            disableAutoFollow={playingSegmentEnd != null || isPlaying}
+            disableAutoFollow={playingSegmentEnd != null}
             accentColor={COLORS.green}
             videoCount={selectedVideos?.length || 1}
+            summaryFocusToken={projectSummaryFocusToken}
             vqaHistories={vqaHistories}
             awarenessData={awarenessData}
             keptScenes={keptScenes}
             editedScenes={editedScenes}
+            editState={editState}
             onSceneClose={(sceneId) => {
               setVqaHistories((prev) => {
                 if (!(sceneId in prev)) return prev;
@@ -1050,16 +1145,7 @@ export default function Probe2bPage() {
                   }
                 }}
                 onAskAIEdit={(instruction, s) => handleAskAIEdit(instruction, s)}
-                onSendToHelper={(task) => {
-                  wsRelayService.sendData({
-                    type: 'TASK_TO_HELPER',
-                    taskId: `task-${Date.now()}`,
-                    text: task.instruction,
-                    segment: task.segmentName,
-                    segmentId: task.segmentId,
-                    actor: 'CREATOR',
-                  });
-                }}
+                onSendToHelper={handleSendTaskToHelper}
                 onEditSelf={handleApplySceneEdit}
                 isKept={keptScenes[scene.id] !== false}
                 onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
@@ -1074,36 +1160,41 @@ export default function Probe2bPage() {
           />
         </div>
       ) : (
-        <div className="p-3 max-w-lg mx-auto">
-          <DecoupledHelperDevice
-            condition="probe2b"
-            accentColor={COLORS.green}
-            videoRef={playerRef}
-            videoData={projectData}
-            webrtcService={wsRelayService}
-            creatorActivities={creatorActivities}
-            currentTime={currentTime}
-            duration={duration}
-            isPlaying={isPlaying}
-            currentSegment={currentSegment}
-            onTimeUpdate={handleTimeUpdate}
-            onSegmentChange={handleSegmentChange}
-            onSeek={handleSeek}
-            editState={editState}
-            playbackEditState={playbackEditState}
-            videoFilter={videoFilter}
-            videoTransform={videoTransform}
-            colourValues={colourValues}
-            onColourAdjust={handleColourAdjust}
-            onEditChange={handleEditChange}
-            initialSources={initialSources}
-            feedItems={feedItems}
-            onTaskStatus={handleHelperTaskStatus}
-            onAIReview={handleAIReview}
-            onAIUndo={handleAIUndo}
-            onAwarenessViewed={handleAwarenessViewed}
-            peerEditNotification={peerEditNotification}
-          />
+        <div
+          className="fixed inset-0 bg-white overflow-y-auto"
+          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+        >
+          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
+            <DecoupledHelperDevice
+              condition="probe2b"
+              accentColor={COLORS.green}
+              videoRef={playerRef}
+              videoData={projectData}
+              webrtcService={wsRelayService}
+              creatorActivities={creatorActivities}
+              currentTime={currentTime}
+              duration={duration}
+              isPlaying={isPlaying}
+              currentSegment={currentSegment}
+              onTimeUpdate={handleTimeUpdate}
+              onSegmentChange={handleSegmentChange}
+              onSeek={handleSeek}
+              editState={editState}
+              playbackEditState={playbackEditState}
+              videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              colourValues={colourValues}
+              onColourAdjust={handleColourAdjust}
+              onEditChange={handleEditChange}
+              initialSources={initialSources}
+              feedItems={feedItems}
+              onTaskStatus={handleHelperTaskStatus}
+              onAIReview={handleAIReview}
+              onAIUndo={handleAIUndo}
+              onAwarenessViewed={handleAwarenessViewed}
+              peerEditNotification={peerEditNotification}
+            />
+          </div>
         </div>
       )}
 

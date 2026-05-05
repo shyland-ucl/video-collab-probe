@@ -40,7 +40,13 @@ function scorePrepared(instruction, key, val) {
   return hits;
 }
 
-export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendResponse, onApplyEdit }) {
+export default function ResearcherAIEditPanel({
+  segment,
+  pendingRequest,
+  onSendResponse,
+  onApplyEdit,
+  showVisualOverride = true,
+}) {
   const [customResponse, setCustomResponse] = useState('');
   const [selectedAction, setSelectedAction] = useState(null);
   const [sending, setSending] = useState(false);
@@ -322,6 +328,7 @@ export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendR
       {/* Day 1 fix #4: WoZ visual override. Each slider broadcasts a
           COLOUR_UPDATE so the participant's video reflects the AI "fix"
           immediately. Mirrors the helper's panel — same component. */}
+      {showVisualOverride && (
       <div className="border-t border-gray-200 pt-4 mt-2">
         <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
           Apply visual edit (override buffer)
@@ -330,7 +337,7 @@ export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendR
           Sliders broadcast live to the participant's video. Use to apply the
           fix described in your response (e.g. brightness +15, zoom 120%).
         </p>
-        <MockColourControls values={wozVisuals} onAdjust={handleWozAdjust} />
+        <MockColourControls values={wozVisuals} onAdjust={handleWozAdjust} actor={Actors.RESEARCHER} />
         <button
           type="button"
           onClick={handleResetWoz}
@@ -340,6 +347,7 @@ export default function ResearcherAIEditPanel({ segment, pendingRequest, onSendR
           Reset visual edit
         </button>
       </div>
+      )}
     </div>
   );
 }
