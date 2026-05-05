@@ -182,6 +182,7 @@ export default function Probe2bSceneActions({
       {/* Edit by myself — blue (creator/self) */}
       <div>
         <button
+          data-edit-self-toggle={scene.id}
           onClick={() => {
             // Symmetric with 2a — emit TASK_ROUTE_SELF on open so the
             // channel-selection distribution covers all three branches.

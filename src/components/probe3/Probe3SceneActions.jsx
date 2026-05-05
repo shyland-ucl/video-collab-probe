@@ -1,7 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
-import { announce } from '../../utils/announcer.js';
 import Probe2bSceneActions from '../probe2/Probe2bSceneActions.jsx';
 
 const CATEGORY_COLORS = {
@@ -10,24 +9,28 @@ const CATEGORY_COLORS = {
   creative: { bg: 'bg-cyan-50', border: 'border-cyan-300', badge: 'bg-cyan-100 text-cyan-800' },
 };
 
-function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onDismiss, helperName, resolution }) {
+function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, helperName, resolution }) {
   const colors = CATEGORY_COLORS[suggestion.category] || CATEGORY_COLORS.creative;
-  // Day 1 fix #7 + #8: AI button only appears when the suggestion has a
-  // fix_template the override buffer can execute. Without a template the
-  // suggestion routes to helper or self only — preserves Lan's triadic
-  // design intent that some suggestions can't bypass the helper.
-  const aiFixable = !!suggestion.fix_template;
-  const fixLabel = suggestion.fix_template?.label;
+  const resolutionContainerRef = useRef(null);
+  // Move focus into the resolution container as soon as routing lands.
+  // Without this, the routing buttons unmount, browser focus falls back to
+  // <body>, and TalkBack reads the page title instead. Skip the self route
+  // because Probe3Page.handleSuggestionRoute('self') already moves focus to
+  // the related scene's "Edit by Myself" button via requestAnimationFrame.
+  useEffect(() => {
+    if (!resolution || !resolutionContainerRef.current) return;
+    if (resolution.routedTo === 'self') return;
+    resolutionContainerRef.current.focus({ preventScroll: false });
+  }, [resolution?.routedTo]);
 
-  // Day 1 fix #8: when a routing decision has been made, render the
-  // resolution badge instead of the four buttons. Keeps the suggestion
-  // visible (instead of vanishing) so the triadic record stays intact.
+  // The category badge and "Scene N" chrome are decorative — the suggestion
+  // text already conveys both. Marking them aria-hidden keeps TalkBack from
+  // reading "issue Scene 3" before the sentence.
   if (resolution) {
     const badgeColor = {
       ai: 'bg-purple-100 text-purple-800 border-purple-300',
       self: 'bg-blue-100 text-blue-800 border-blue-300',
       helper: 'bg-orange-100 text-orange-800 border-orange-300',
-      dismissed: 'bg-gray-100 text-gray-700 border-gray-300',
     }[resolution.routedTo] || 'bg-gray-100 text-gray-700 border-gray-300';
     const outcomeColor = {
       pending: 'text-amber-700',
@@ -38,15 +41,15 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onD
       ai: 'Routed to AI',
       self: 'Doing it myself',
       helper: `Routed to ${helperName}`,
-      dismissed: 'Dismissed',
     }[resolution.routedTo] || 'Resolved';
     return (
       <div
-        className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border} opacity-90`}
-        role="status"
-        aria-label={`Suggestion: ${suggestion.text}. ${routedLabel}. Status: ${resolution.outcomeStatus || 'pending'}.`}
+        ref={resolutionContainerRef}
+        tabIndex={-1}
+        aria-label={`${routedLabel}: ${suggestion.text} Status: ${resolution.outcomeStatus || 'pending'}.`}
+        className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border} opacity-90 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500`}
       >
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2" aria-hidden="true">
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors.badge}`}>
             {suggestion.category}
           </span>
@@ -58,28 +61,25 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onD
             </span>
           )}
         </div>
-        <p className="text-sm text-gray-800 mb-2">{suggestion.text}</p>
-        <div className={`flex items-center gap-2 text-xs px-2 py-1 rounded border ${badgeColor}`}>
+        <p className="text-sm text-gray-800 mb-2" aria-hidden="true">{suggestion.text}</p>
+        <div
+          className={`flex items-center gap-2 text-xs px-2 py-1 rounded border ${badgeColor}`}
+          aria-hidden="true"
+        >
           <span className="font-bold">{routedLabel}</span>
-          {resolution.routedTo !== 'dismissed' && (
-            <span className={`font-medium ${outcomeColor}`}>
-              · {resolution.outcomeStatus === 'applied' ? 'applied'
-                : resolution.outcomeStatus === 'failed' ? 'failed'
-                : 'pending'}
-            </span>
-          )}
+          <span className={`font-medium ${outcomeColor}`}>
+            · {resolution.outcomeStatus === 'applied' ? 'applied'
+              : resolution.outcomeStatus === 'failed' ? 'failed'
+              : 'pending'}
+          </span>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border}`}
-      role="alert"
-      aria-label={`AI suggestion: ${suggestion.text}`}
-    >
-      <div className="flex items-center gap-2 mb-2">
+    <div className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border}`}>
+      <div className="flex items-center gap-2 mb-2" aria-hidden="true">
         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors.badge}`}>
           {suggestion.category}
         </span>
@@ -93,38 +93,29 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, onD
       </div>
       <p className="text-sm text-gray-800 mb-3">{suggestion.text}</p>
 
-      {/* Forced routing — creator must choose a channel */}
+      {/* Three routing options — every suggestion can go to self, helper, or AI.
+          Dismiss removed per user spec (every suggestion must be routed). */}
       <div className="space-y-2">
         <button
           onClick={() => onRouteSelf(suggestion)}
           className="w-full py-2 text-sm font-medium rounded bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '44px' }}
         >
-          I'll Do It
+          I'll fix it
         </button>
-        {aiFixable && (
-          <button
-            onClick={() => onRouteAI(suggestion)}
-            className="w-full py-2 text-sm font-medium rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
-            style={{ minHeight: '44px' }}
-            aria-label={fixLabel ? `Ask AI to fix: ${fixLabel}` : 'Ask AI to fix'}
-          >
-            Ask AI to Fix{fixLabel ? ` (${fixLabel})` : ''}
-          </button>
-        )}
         <button
           onClick={() => onRouteHelper(suggestion)}
           className="w-full py-2 text-sm font-medium rounded bg-orange-100 text-orange-800 hover:bg-orange-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '44px' }}
         >
-          Ask {helperName} to fix
+          Ask {helperName} to fix it
         </button>
         <button
-          onClick={() => onDismiss(suggestion)}
-          className="w-full py-2 text-sm font-medium rounded bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
+          onClick={() => onRouteAI(suggestion)}
+          className="w-full py-2 text-sm font-medium rounded bg-purple-100 text-purple-800 hover:bg-purple-200 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
           style={{ minHeight: '44px' }}
         >
-          Dismiss
+          Ask AI to fix it
         </button>
       </div>
     </div>
@@ -149,6 +140,11 @@ export default function Probe3SceneActions({
 }) {
   const { logEvent } = useEventLogger();
 
+  // Routing handlers log the event and delegate to onSuggestionRoute. The
+  // user-facing announce() is owned by the parent (Probe3Page) so it can
+  // tailor the message to the actual outcome (e.g. "Edit by myself opened
+  // for Scene 2.") and avoid double-readout from a generic local announce
+  // followed by the parent's specific one.
   const handleRouteSelf = useCallback(
     (suggestion) => {
       logEvent(EventTypes.SUGGESTION_ROUTE_SELF, Actors.CREATOR, {
@@ -156,7 +152,6 @@ export default function Probe3SceneActions({
         category: suggestion.category,
       });
       if (onSuggestionRoute) onSuggestionRoute(suggestion, 'self');
-      announce('Suggestion routed to yourself.');
     },
     [logEvent, onSuggestionRoute]
   );
@@ -168,7 +163,6 @@ export default function Probe3SceneActions({
         category: suggestion.category,
       });
       if (onSuggestionRoute) onSuggestionRoute(suggestion, 'ai');
-      announce('Suggestion routed to AI.');
     },
     [logEvent, onSuggestionRoute]
   );
@@ -180,21 +174,8 @@ export default function Probe3SceneActions({
         category: suggestion.category,
       });
       if (onSuggestionRoute) onSuggestionRoute(suggestion, 'helper');
-      announce(`Suggestion sent to ${helperName}.`);
     },
-    [logEvent, onSuggestionRoute, helperName]
-  );
-
-  const handleDismiss = useCallback(
-    (suggestion) => {
-      logEvent(EventTypes.SUGGESTION_DISMISSED, Actors.CREATOR, {
-        suggestionId: suggestion.id,
-        category: suggestion.category,
-      });
-      if (onSuggestionDismiss) onSuggestionDismiss(suggestion);
-      announce('Suggestion dismissed.');
-    },
-    [logEvent, onSuggestionDismiss]
+    [logEvent, onSuggestionRoute]
   );
 
   // Filter suggestions relevant to this scene
@@ -217,7 +198,6 @@ export default function Probe3SceneActions({
               onRouteSelf={handleRouteSelf}
               onRouteAI={handleRouteAI}
               onRouteHelper={handleRouteHelper}
-              onDismiss={handleDismiss}
               helperName={helperName}
               resolution={suggestionResolutions[suggestion.id] || null}
             />

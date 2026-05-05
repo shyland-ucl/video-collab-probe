@@ -862,7 +862,9 @@ export default function Probe3Page() {
           break;
 
         case 'SUGGESTION_ROUTED_TO_HELPER':
-          // Helper receives a routed suggestion
+          // Helper receives a routed suggestion. Push to the activity feed AND
+          // surface a visible toast via peerEditNotification so the helper
+          // doesn't have to scan the feed to notice the new task.
           if (currentRole === 'helper' && msg.suggestion) {
             const item = {
               id: `sug-task-${Date.now()}`,
@@ -873,7 +875,11 @@ export default function Probe3Page() {
               timestamp: Date.now(),
             };
             setFeedItems((prev) => [item, ...prev]);
-            announce(`AI observation routed from Creator: ${msg.suggestion.text}`);
+            setPeerEditNotification({
+              text: `Creator routed an AI suggestion: "${msg.suggestion.text}"`,
+              id: Date.now(),
+            });
+            announce(`AI suggestion routed from Creator: ${msg.suggestion.text}`);
           }
           break;
 
@@ -951,13 +957,44 @@ export default function Probe3Page() {
           break;
         }
         case 'AI_EDIT_RESPONSE': {
-          if (!isResearcher && aiEditResolverRef.current) {
-            aiEditResolverRef.current({
-              description: msg.text,
-              text: msg.text,
-              operation: msg.responseType || 'researcher_response',
-            });
-            aiEditResolverRef.current = null;
+          if (!isResearcher) {
+            // Resolve the parked promise from the legacy "Ask AI to edit"
+            // flow if it's waiting (Probe 2/2b path).
+            if (aiEditResolverRef.current) {
+              aiEditResolverRef.current({
+                description: msg.text,
+                text: msg.text,
+                operation: msg.responseType || 'researcher_response',
+              });
+              aiEditResolverRef.current = null;
+            }
+            // Announce + surface the response on the creator side regardless
+            // of whether a resolver was parked. Suggestion-route 'ai' picks
+            // this path: the request was sent without parking a resolver, so
+            // the response would otherwise arrive silently.
+            if (msg.text && currentRole === 'creator') {
+              announce(`AI response: ${msg.text}`);
+              setFeedItems((prev) => [{
+                id: `ai-resp-${Date.now()}`,
+                type: 'ai_edit',
+                text: msg.text,
+                responseType: msg.responseType,
+                timestamp: Date.now(),
+                undone: false,
+              }, ...prev]);
+              // Flip the routed-to-AI suggestion's badge from pending →
+              // applied so the resolution log reflects the WoZ outcome.
+              if (msg.suggestionId) {
+                setSuggestionResolutions((prev) => {
+                  const cur = prev[msg.suggestionId];
+                  if (!cur) return prev;
+                  return {
+                    ...prev,
+                    [msg.suggestionId]: { ...cur, outcomeStatus: 'applied' },
+                  };
+                });
+              }
+            }
           }
           break;
         }
@@ -1148,12 +1185,32 @@ export default function Probe3Page() {
 
   const handleSuggestionRoute = useCallback((suggestion, channel) => {
     if (!suggestion) return;
+    // Resolve target scene (relatedScene is zero-based index, single int or array)
+    const sceneIdx = Array.isArray(suggestion.relatedScene)
+      ? suggestion.relatedScene[0]
+      : suggestion.relatedScene;
+    const sceneArr = orderedScenes.length > 0 ? orderedScenes : segments;
+    const targetScene = typeof sceneIdx === 'number' ? sceneArr[sceneIdx] : null;
+
     if (channel === 'self') {
       setNotedSuggestions((prev) => [...prev, suggestion]);
       setSuggestionResolutions((prev) => ({
         ...prev,
         [suggestion.id]: { routedTo: 'self', outcomeStatus: 'pending', timestamp: Date.now() },
       }));
+      // Jump to the related scene's "Edit by Myself" button so the creator
+      // lands in the right edit context. One paint delay so the resolution
+      // badge has rendered before focus moves away.
+      if (targetScene?.id) {
+        requestAnimationFrame(() => {
+          const btn = document.querySelector(`[data-edit-self-toggle="${targetScene.id}"]`);
+          if (btn) {
+            btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            btn.focus({ preventScroll: true });
+          }
+        });
+      }
+      announce(`Edit by myself opened for ${targetScene?.name || 'this scene'}.`);
     } else if (channel === 'helper') {
       wsRelayService.sendData({ type: 'SUGGESTION_ROUTED_TO_HELPER', suggestion, actor: 'CREATOR' });
       setNotedSuggestions((prev) => [...prev, { ...suggestion, routedToHelper: true }]);
@@ -1161,32 +1218,36 @@ export default function Probe3Page() {
         ...prev,
         [suggestion.id]: { routedTo: 'helper', outcomeStatus: 'pending', timestamp: Date.now() },
       }));
+      announce('Suggestion sent to helper.');
     } else if (channel === 'ai') {
-      // Apply the fix_template through the override buffer primitives.
-      const applied = applyFixTemplate(suggestion);
+      // Route to the researcher panel via WoZ instead of auto-applying. The
+      // researcher's ResearcherAIEditPanel picks up pendingRequest and either
+      // sends a prepared response or applies a slider/edit override.
+      const request = {
+        instruction: suggestion.text,
+        segment: targetScene?.name,
+        segmentId: targetScene?.id,
+        suggestionId: suggestion.id,
+        timestamp: Date.now(),
+      };
+      setPendingAIRequest(request);
+      wsRelayService.sendData({ type: 'AI_EDIT_REQUEST', request });
       setSuggestionResolutions((prev) => ({
         ...prev,
         [suggestion.id]: {
           routedTo: 'ai',
-          outcomeStatus: applied ? 'applied' : 'failed',
+          outcomeStatus: 'pending',
           timestamp: Date.now(),
-          fix_template: suggestion.fix_template || null,
         },
       }));
-      if (applied) {
-        announce(
-          `AI applied: ${suggestion.fix_template?.label || 'visual fix'}.`,
-        );
-      } else {
-        announce('AI could not apply this fix automatically. Try Send to Helper instead.');
-      }
+      announce('AI is preparing the fix. Researcher is reviewing.');
     }
     setDeployedSuggestions((prev) => ({
       ...prev,
       [suggestion.id]: { ...prev[suggestion.id], response: channel },
     }));
     setActiveSuggestion(null);
-  }, [applyFixTemplate]);
+  }, [orderedScenes, segments]);
 
   // Apply an operation key (AI accept OR self-edit button) against editState.
   // Reuses handleEditChange so the control-owner check + EDIT_STATE_UPDATE
@@ -1216,6 +1277,10 @@ export default function Probe3Page() {
   }, [currentTime, handleEditChange, logEvent, stampSceneEdit, role]);
 
   const handleAIEditResponse = useCallback((responseText, responseType) => {
+    // Capture the suggestionId from the pending request before clearing — the
+    // creator side uses it to flip the routed-to-AI suggestion's resolution
+    // badge from "pending" to "applied" when the response arrives.
+    const suggestionId = pendingAIRequest?.suggestionId || null;
     setPendingAIRequest(null);
     logEvent(EventTypes.AI_EDIT_PROPOSED, Actors.RESEARCHER, {
       source: 'researcher_woz', response: responseText, responseType,
@@ -1228,8 +1293,13 @@ export default function Probe3Page() {
       });
       aiEditResolverRef.current = null;
     }
-    wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
-  }, [logEvent]);
+    wsRelayService.sendData({
+      type: 'AI_EDIT_RESPONSE',
+      text: responseText,
+      responseType,
+      suggestionId,
+    });
+  }, [logEvent, pendingAIRequest]);
 
   const handleApplyEdit = useCallback((editAction) => {
     logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
