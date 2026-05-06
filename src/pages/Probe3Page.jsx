@@ -124,6 +124,9 @@ export default function Probe3Page() {
   const [showSuggestionHistory, setShowSuggestionHistory] = useState(false);
   const suggestionDeployTimeRef = useRef({});
   const autoSuggestionTimeoutRef = useRef(null);
+  // Per-property debounce timers for incoming COLOUR_UPDATE messages so a
+  // peer dragging a slider only triggers one final-state announcement.
+  const colourAnnounceTimersRef = useRef({});
   // Day 1 fix #8: per-suggestion resolution log so the SuggestionItem can
   // render a badge (Routed to AI · applied / Routed to helper · pending /
   // Dismissed) and stay visible after the routing decision. Shape:
@@ -922,13 +925,6 @@ export default function Probe3Page() {
           if (typeof msg.property === 'string' && typeof msg.value === 'number') {
             setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
             const peer = labelEditActor(msg.actor, 'Peer');
-            const changeSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
-            announce(changeSummary.announcement);
-            if (currentRole === 'creator') {
-              setProjectUpdate({ ...changeSummary, id: Date.now() });
-            } else {
-              setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
-            }
             const sceneId = msg.sceneId || currentSegmentRef.current?.id;
             if (sceneId) {
               setEditedScenes((prev) => ({
@@ -940,6 +936,23 @@ export default function Probe3Page() {
                 },
               }));
             }
+            // Debounce announcement + toast/banner per (actor, property) so a
+            // slider drag only reports its final value once. The CSS filter
+            // above still updates every tick for live visual feedback.
+            const key = `${msg.actor}:${msg.property}`;
+            if (colourAnnounceTimersRef.current[key]) {
+              clearTimeout(colourAnnounceTimersRef.current[key]);
+            }
+            colourAnnounceTimersRef.current[key] = setTimeout(() => {
+              const finalSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
+              announce(finalSummary.announcement);
+              if (currentRole === 'creator') {
+                setProjectUpdate({ ...finalSummary, id: Date.now() });
+              } else {
+                setPeerEditNotification({ text: finalSummary.shortText, id: Date.now() });
+              }
+              delete colourAnnounceTimersRef.current[key];
+            }, 500);
           }
           break;
         }
@@ -1539,6 +1552,11 @@ export default function Probe3Page() {
               onSegmentChange={handleSegmentChange}
               onSeek={handleSeek}
               editState={editState}
+              playbackEditState={playbackEditState}
+              videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              colourValues={colourValues}
+              onColourAdjust={handleColourAdjust}
               onEditChange={handleEditChange}
               initialSources={initialSources}
               feedItems={feedItems}

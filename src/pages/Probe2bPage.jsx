@@ -91,6 +91,9 @@ export default function Probe2bPage() {
   const [connected, setConnected] = useState(false);
   const [projectUpdate, setProjectUpdate] = useState(null);
   const sentHelperTasksRef = useRef(new Map());
+  // Per-property debounce timers for incoming COLOUR_UPDATE messages so a
+  // peer dragging a slider only triggers one final-state announcement.
+  const colourAnnounceTimersRef = useRef({});
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
@@ -753,13 +756,6 @@ export default function Probe2bPage() {
           if (typeof msg.property === 'string' && typeof msg.value === 'number') {
             setColourValues((prev) => ({ ...prev, [msg.property]: msg.value }));
             const peer = labelEditActor(msg.actor, 'Peer');
-            const changeSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
-            announce(changeSummary.announcement);
-            if (currentRole === 'creator') {
-              setProjectUpdate({ ...changeSummary, id: Date.now() });
-            } else {
-              setPeerEditNotification({ text: changeSummary.shortText, id: Date.now() });
-            }
             // Day 1 fix #3: stamp the active scene so the badge shows up
             // for the BLV creator without needing the slider in their UI.
             const sceneId = msg.sceneId || currentSegmentRef.current?.id;
@@ -773,6 +769,23 @@ export default function Probe2bPage() {
                 },
               }));
             }
+            // Debounce announcement + toast/banner per (actor, property) so a
+            // slider drag only reports its final value once. The CSS filter
+            // above still updates every tick for live visual feedback.
+            const key = `${msg.actor}:${msg.property}`;
+            if (colourAnnounceTimersRef.current[key]) {
+              clearTimeout(colourAnnounceTimersRef.current[key]);
+            }
+            colourAnnounceTimersRef.current[key] = setTimeout(() => {
+              const finalSummary = summarizeVisualAdjustment(msg.property, msg.value, peer);
+              announce(finalSummary.announcement);
+              if (currentRole === 'creator') {
+                setProjectUpdate({ ...finalSummary, id: Date.now() });
+              } else {
+                setPeerEditNotification({ text: finalSummary.shortText, id: Date.now() });
+              }
+              delete colourAnnounceTimersRef.current[key];
+            }, 500);
           }
           break;
         }

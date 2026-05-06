@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import { announce } from '../../utils/announcer.js';
@@ -30,6 +30,12 @@ export default function MockColourControls({
   const [localValues, setLocalValues] = useState(DEFAULT_VALUES);
   const values = { ...DEFAULT_VALUES, ...(controlledValues || localValues) };
   const { logEvent } = useEventLogger();
+  const announceTimersRef = useRef({});
+
+  useEffect(() => () => {
+    Object.values(announceTimersRef.current).forEach(clearTimeout);
+    announceTimersRef.current = {};
+  }, []);
 
   const handleChange = useCallback((property, value) => {
     const numVal = Number(value);
@@ -38,7 +44,15 @@ export default function MockColourControls({
     }
     logEvent(EventTypes.COLOUR_ADJUST, actor, { property, value: numVal });
     if (onAdjust) onAdjust(property, numVal);
-    announce(`${property} set to ${numVal}.`);
+    // Debounce the live-region announcement so dragging a slider only reads
+    // the final value once, not every tick.
+    if (announceTimersRef.current[property]) {
+      clearTimeout(announceTimersRef.current[property]);
+    }
+    announceTimersRef.current[property] = setTimeout(() => {
+      announce(`${property} set to ${numVal}.`);
+      delete announceTimersRef.current[property];
+    }, 500);
   }, [logEvent, onAdjust, controlledValues, actor]);
 
   const isDark = variant === 'dark';
