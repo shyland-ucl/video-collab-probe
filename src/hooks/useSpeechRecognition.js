@@ -1,13 +1,24 @@
 import { useState, useRef, useCallback } from 'react';
 import { announce } from '../utils/announcer.js';
+import { playEarcon } from '../utils/earcon.js';
+
+// Two-tone earcons frame the listening window so a BLV participant knows
+// exactly when the mic is hot (rising "go" chime) and when it has captured
+// their speech (falling "got it" tone). Frequencies are picked to be
+// distinct from typical phone notification ranges.
+const READY_EARCON = { freq: 880, duration: 140 };   // bright "speak now"
+const HEARD_EARCON = { freq: 587, duration: 110 };   // soft "got it"
+const ERROR_EARCON = { freq: 330, duration: 220 };   // low "something went wrong"
 
 export default function useSpeechRecognition({
   lang = 'en-GB',
   onResult,
-  announcement = 'Listening...',
+  announcement = 'Speak now.',
 } = {}) {
   const [isListening, setIsListening] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
   const recognitionRef = useRef(null);
+  const gotResultRef = useRef(false);
 
   const toggleListening = useCallback(() => {
     const SpeechRecognition =
@@ -18,9 +29,10 @@ export default function useSpeechRecognition({
       return;
     }
 
-    if (isListening && recognitionRef.current) {
+    if ((isListening || isPreparing) && recognitionRef.current) {
       recognitionRef.current.stop();
       setIsListening(false);
+      setIsPreparing(false);
       return;
     }
 
@@ -29,14 +41,30 @@ export default function useSpeechRecognition({
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
+    // onstart fires when the speech service has actually opened the mic —
+    // not at recognition.start() which returns synchronously well before
+    // capture begins. This is the correct moment to tell the participant
+    // they can speak.
+    recognition.onstart = () => {
+      setIsPreparing(false);
+      setIsListening(true);
+      gotResultRef.current = false;
+      playEarcon(READY_EARCON.freq, READY_EARCON.duration);
+      announce(announcement);
+    };
+
     recognition.onresult = (event) => {
       const transcript = event.results[0][0].transcript;
+      gotResultRef.current = true;
       setIsListening(false);
+      setIsPreparing(false);
+      playEarcon(HEARD_EARCON.freq, HEARD_EARCON.duration);
       onResult(transcript);
     };
 
     recognition.onerror = (event) => {
       setIsListening(false);
+      setIsPreparing(false);
       // Chrome on Android refuses microphone access on insecure origins
       // (anything that isn't HTTPS or localhost) and surfaces it as
       // 'not-allowed' before even prompting the user. Detect that case
@@ -59,16 +87,30 @@ export default function useSpeechRecognition({
           : 'Speech recognition service unavailable.',
       };
       const msg = messages[event.error];
-      if (msg) announce(msg);
+      if (msg) {
+        playEarcon(ERROR_EARCON.freq, ERROR_EARCON.duration);
+        announce(msg);
+      }
     };
 
-    recognition.onend = () => setIsListening(false);
+    recognition.onend = () => {
+      setIsListening(false);
+      setIsPreparing(false);
+      // If the recogniser ended without ever firing onresult (user stopped
+      // early, silence timeout, etc.), nudge them so they're not left
+      // wondering whether they were heard.
+      if (!gotResultRef.current) {
+        announce('Microphone closed.');
+      }
+    };
 
     recognitionRef.current = recognition;
     recognition.start();
-    setIsListening(true);
-    announce(announcement);
-  }, [isListening, lang, onResult, announcement]);
+    // Pre-flight state: button shows "preparing" / "Wait..." until onstart
+    // confirms the mic is hot. Brief on most devices, ~300–500ms on Android.
+    setIsPreparing(true);
+    announce('Getting the microphone ready.');
+  }, [isListening, isPreparing, lang, onResult, announcement]);
 
-  return { isListening, toggleListening };
+  return { isListening, isPreparing, toggleListening };
 }

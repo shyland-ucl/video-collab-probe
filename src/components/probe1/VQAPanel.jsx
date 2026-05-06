@@ -5,14 +5,13 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import ttsService from '../../services/ttsService.js';
 import { captureFrame, askGemini } from '../../services/geminiService.js';
 import { announce } from '../../utils/announcer.js';
+import useSpeechRecognition from '../../hooks/useSpeechRecognition.js';
 
 export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const scrollRef = useRef(null);
-  const recognitionRef = useRef(null);
   const answeredRef = useRef(false);
   const timeoutRef = useRef(null);
   const inputRef = useRef(null);
@@ -100,45 +99,21 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
     }
   }, [handleSubmit]);
 
-  // Speech-to-text — auto-submits after recognition completes
-  const toggleListening = useCallback(() => {
+  // Speech-to-text — auto-submits after recognition completes.
+  const { isListening, isPreparing, toggleListening } = useSpeechRecognition({
+    onResult: (transcript) => submitQuestion(transcript),
+    announcement: 'Speak now. Ask your question.',
+  });
+
+  const handleVoiceClick = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      // Fallback: focus the text input so keyboard appears
+      // Fallback: focus the text input so keyboard appears.
       inputRef.current?.focus();
       return;
     }
-
-    if (isListening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'en-GB';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setIsListening(false);
-      // Auto-submit the recognized question
-      submitQuestion(transcript);
-    };
-
-    recognition.onerror = () => {
-      setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
-  }, [isListening, submitQuestion]);
+    toggleListening();
+  }, [toggleListening]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col" style={{ maxHeight: '400px' }}>
@@ -197,10 +172,18 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
           aria-label="Type a question about the video"
         />
         <button
-          onClick={toggleListening}
-          aria-label={isListening ? 'Stop listening' : 'Voice input — speak your question'}
+          onClick={handleVoiceClick}
+          aria-label={
+            isPreparing ? 'Preparing microphone, please wait'
+              : isListening ? 'Listening, speak now or tap to stop'
+                : 'Voice input — speak your question'
+          }
+          aria-pressed={isListening || isPreparing}
+          aria-busy={isPreparing || undefined}
           className={`flex items-center justify-center rounded transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
-            isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            isListening ? 'bg-red-500 text-white animate-pulse'
+              : isPreparing ? 'bg-amber-300 text-amber-900'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
           }`}
           style={{ minHeight: '44px', minWidth: '44px' }}
         >

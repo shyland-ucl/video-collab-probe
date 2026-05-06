@@ -58,6 +58,13 @@ export default function MockEditorVisual({
   const sourcesRef = useRef(sources);
   const clipsRef = useRef(clips);
   const captionsRef = useRef(captions);
+  // Per-clip debounce timer for the scene-volume announcement so a slider
+  // drag only reads the final settled value.
+  const volumeAnnounceTimersRef = useRef({});
+  useEffect(() => () => {
+    Object.values(volumeAnnounceTimersRef.current).forEach(clearTimeout);
+    volumeAnnounceTimersRef.current = {};
+  }, []);
   useEffect(() => { onEditChangeRef.current = onEditChange; }, [onEditChange]);
   useEffect(() => { sourcesRef.current = sources; }, [sources]);
   useEffect(() => { clipsRef.current = clips; }, [clips]);
@@ -1019,6 +1026,7 @@ export default function MockEditorVisual({
         const targetClip = targetIndex >= 0 ? clips[targetIndex] : null;
         const currentSound = targetClip?.sound || null;
         const targetSceneNumber = targetIndex >= 0 ? targetIndex + 1 : null;
+        const targetVolume = typeof targetClip?.volume === 'number' ? targetClip.volume : 100;
 
         const applySound = (sound) => {
           if (!targetClip || !onEditChange) return;
@@ -1040,6 +1048,34 @@ export default function MockEditorVisual({
             : `Sound removed from scene ${targetSceneNumber || '?'}.`);
         };
 
+        const applyVolume = (volumeValue) => {
+          if (!targetClip || !onEditChange) return;
+          const numVal = Math.max(0, Math.min(200, Number(volumeValue)));
+          const newClips = clips.map((c) => (
+            c.id === targetClip.id ? { ...c, volume: numVal } : c
+          ));
+          setClips(newClips);
+          onEditChange(newClips, captions, sources);
+          if (logEvent) {
+            logEvent(EventTypes.VOLUME_ADJUST, actor, {
+              segmentId: targetClip.id,
+              volume: numVal,
+            });
+          }
+          // Debounce announcement so dragging only reads the final value.
+          const key = targetClip.id;
+          if (volumeAnnounceTimersRef.current[key]) {
+            clearTimeout(volumeAnnounceTimersRef.current[key]);
+          }
+          volumeAnnounceTimersRef.current[key] = setTimeout(() => {
+            const label = numVal === 0
+              ? `Scene ${targetSceneNumber || '?'} muted.`
+              : `Scene ${targetSceneNumber || '?'} volume set to ${numVal}%.`;
+            announce(label);
+            delete volumeAnnounceTimersRef.current[key];
+          }, 500);
+        };
+
         return (
           <div className="mx-2 mb-3 p-3 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
             <h3 className="text-white text-sm font-semibold mb-2">Sound</h3>
@@ -1053,6 +1089,23 @@ export default function MockEditorVisual({
                     </span>
                   )}
                 </p>
+                <div className="mb-3">
+                  <label className="flex items-center justify-between text-sm mb-1 text-white/85">
+                    <span>Scene Volume</span>
+                    <span className="text-xs text-white/60">{targetVolume}%</span>
+                  </label>
+                  <input
+                    type="range"
+                    min={0}
+                    max={200}
+                    step={10}
+                    value={targetVolume}
+                    onChange={(e) => applyVolume(e.target.value)}
+                    aria-label={`Scene ${targetSceneNumber} volume: ${targetVolume} percent`}
+                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-purple-500 bg-white/20"
+                    style={{ minHeight: '44px' }}
+                  />
+                </div>
                 <div className="grid grid-cols-2 gap-2 mb-2">
                   {SOUND_LIBRARY.map((sound) => {
                     const active = currentSound?.id === sound.id;

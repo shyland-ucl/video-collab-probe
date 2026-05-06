@@ -9,19 +9,30 @@ const CATEGORY_COLORS = {
   creative: { bg: 'bg-cyan-50', border: 'border-cyan-300', badge: 'bg-cyan-100 text-cyan-800' },
 };
 
-function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, helperName, resolution }) {
+function SuggestionItem({
+  suggestion,
+  onRouteSelf,
+  onRouteAI,
+  onRouteHelper,
+  helperName,
+  resolution,
+  justRouted = false,
+  onConsumeJustRouted,
+}) {
   const colors = CATEGORY_COLORS[suggestion.category] || CATEGORY_COLORS.creative;
   const resolutionContainerRef = useRef(null);
-  // Move focus into the resolution container as soon as routing lands.
-  // Without this, the routing buttons unmount, browser focus falls back to
-  // <body>, and TalkBack reads the page title instead. Skip the self route
-  // because Probe3Page.handleSuggestionRoute('self') already moves focus to
-  // the related scene's "Edit by Myself" button via requestAnimationFrame.
+  // Focus the resolution container ONLY when the parent says the user just
+  // tapped a routing button. This avoids stealing focus when AI/helper later
+  // updates outcomeStatus (or whenever the item remounts with an existing
+  // resolution) — those updates should be readout-only via the live region.
   useEffect(() => {
-    if (!resolution || !resolutionContainerRef.current) return;
-    if (resolution.routedTo === 'self') return;
-    resolutionContainerRef.current.focus({ preventScroll: false });
-  }, [resolution?.routedTo]);
+    if (!justRouted || !resolution || !resolutionContainerRef.current) return;
+    if (resolution.routedTo !== 'self') {
+      resolutionContainerRef.current.focus({ preventScroll: false });
+    }
+    // Always consume the flag so it can't fire twice for the same routing.
+    onConsumeJustRouted?.(suggestion.id);
+  }, [justRouted, resolution, suggestion.id, onConsumeJustRouted]);
 
   // The category badge and "Scene N" chrome are decorative — the suggestion
   // text already conveys both. Marking them aria-hidden keeps TalkBack from
@@ -42,11 +53,19 @@ function SuggestionItem({ suggestion, onRouteSelf, onRouteAI, onRouteHelper, hel
       self: 'Doing it myself',
       helper: `Routed to ${helperName}`,
     }[resolution.routedTo] || 'Resolved';
+    // Terse focus label: parent already announced "AI is preparing..." /
+    // "Suggestion sent to helper." / "Edit by myself opened for...". When focus
+    // lands on this container, repeating the full suggestion text would have
+    // TalkBack read it twice (once at announce, once at focus). Keep the focus
+    // confirmation to just the routing decision and outcome status.
+    const outcomeLabel = resolution.outcomeStatus === 'applied' ? 'applied'
+      : resolution.outcomeStatus === 'failed' ? 'failed'
+      : 'pending';
     return (
       <div
         ref={resolutionContainerRef}
         tabIndex={-1}
-        aria-label={`${routedLabel}: ${suggestion.text} Status: ${resolution.outcomeStatus || 'pending'}.`}
+        aria-label={`${routedLabel}. ${outcomeLabel}.`}
         className={`p-3 rounded-lg border-2 ${colors.bg} ${colors.border} opacity-90 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500`}
       >
         <div className="flex items-center gap-2 mb-2" aria-hidden="true">
@@ -136,6 +155,12 @@ export default function Probe3SceneActions({
   // map. When a suggestion appears in this map, the SuggestionItem renders
   // its resolution badge instead of the action buttons.
   suggestionResolutions = {},
+  // Suggestion id whose badge should grab focus on the next render — set by
+  // the page when the user taps a routing button, cleared via
+  // onConsumeJustRouted after the badge consumes it. Keeps later AI/helper
+  // outcome updates from re-stealing focus.
+  justRoutedSuggestionId = null,
+  onConsumeJustRouted,
   ...probe2bProps
 }) {
   const { logEvent } = useEventLogger();
@@ -200,6 +225,8 @@ export default function Probe3SceneActions({
               onRouteHelper={handleRouteHelper}
               helperName={helperName}
               resolution={suggestionResolutions[suggestion.id] || null}
+              justRouted={justRoutedSuggestionId === suggestion.id}
+              onConsumeJustRouted={onConsumeJustRouted}
             />
           ))}
         </div>

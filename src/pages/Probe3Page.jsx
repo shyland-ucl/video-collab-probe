@@ -1196,6 +1196,18 @@ export default function Probe3Page() {
     return false;
   }, [orderedScenes, segments, stampSceneEdit, handleEditChange]);
 
+  // Tracks the suggestion id whose routing badge should receive focus on the
+  // very next render — set synchronously inside handleSuggestionRoute and
+  // cleared after the badge has consumed it. Prevents the badge from re-
+  // grabbing focus on subsequent ambient re-renders (e.g. when AI/helper
+  // applies the fix and only outcomeStatus flips). The user wants those
+  // updates to be readout-only, not focus-stealing.
+  const [justRoutedSuggestionId, setJustRoutedSuggestionId] = useState(null);
+
+  const consumeJustRouted = useCallback((id) => {
+    setJustRoutedSuggestionId((cur) => (cur === id ? null : cur));
+  }, []);
+
   const handleSuggestionRoute = useCallback((suggestion, channel) => {
     if (!suggestion) return;
     // Resolve target scene (relatedScene is zero-based index, single int or array)
@@ -1204,6 +1216,10 @@ export default function Probe3Page() {
       : suggestion.relatedScene;
     const sceneArr = orderedScenes.length > 0 ? orderedScenes : segments;
     const targetScene = typeof sceneIdx === 'number' ? sceneArr[sceneIdx] : null;
+
+    // Mark this suggestion as "just routed" so the badge focuses ONCE on the
+    // next render and never again on outcome updates.
+    setJustRoutedSuggestionId(suggestion.id);
 
     if (channel === 'self') {
       setNotedSuggestions((prev) => [...prev, suggestion]);
@@ -1504,6 +1520,8 @@ export default function Probe3Page() {
                   setActiveSuggestion(null);
                 }}
                 suggestionResolutions={suggestionResolutions}
+                justRoutedSuggestionId={justRoutedSuggestionId}
+                onConsumeJustRouted={consumeJustRouted}
                 onAskAI={async (question, s) => {
                   setVqaHistories((prev) => ({
                     ...prev,

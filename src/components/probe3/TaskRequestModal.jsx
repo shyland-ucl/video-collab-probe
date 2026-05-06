@@ -2,11 +2,10 @@ import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { announce } from '../../utils/announcer.js';
 import { useRootInert } from '../../hooks/useRootInert.js';
+import useSpeechRecognition from '../../hooks/useSpeechRecognition.js';
 
 export default function TaskRequestModal({ route, segment, onSend, onClose, pendingAIResponse, aiResponse }) {
   const [text, setText] = useState('');
-  const [listening, setListening] = useState(false);
-  const recognitionRef = useRef(null);
   const modalRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -17,40 +16,15 @@ export default function TaskRequestModal({ route, segment, onSend, onClose, pend
   const getInputFocus = useCallback(() => inputRef.current, []);
   useRootInert(true, { initialFocus: getInputFocus, focusDelay: 100 });
 
-  // Voice input (Web Speech API — same pattern as VQAPanel)
-  const toggleListening = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      announce('Voice input not available on this device.');
-      return;
-    }
+  const handleResult = useCallback((transcript) => {
+    setText(transcript);
+    announce(`Heard: ${transcript}`);
+  }, []);
 
-    if (listening && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setListening(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'en-GB';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setText(transcript);
-      setListening(false);
-      announce(`Heard: ${transcript}`);
-    };
-
-    recognition.onerror = () => setListening(false);
-    recognition.onend = () => setListening(false);
-
-    recognition.start();
-    setListening(true);
-    announce('Listening...');
-  }, [listening]);
+  const { isListening: listening, isPreparing, toggleListening } = useSpeechRecognition({
+    onResult: handleResult,
+    announcement: isAI ? 'Speak now. Ask the AI.' : 'Speak now. Ask the helper.',
+  });
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -118,15 +92,22 @@ export default function TaskRequestModal({ route, segment, onSend, onClose, pend
             <button
               onClick={toggleListening}
               disabled={isPending}
+              aria-busy={isPreparing || undefined}
               className={`px-3 py-2 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-offset-1 ${
                 listening
-                  ? 'bg-red-500 text-white focus:ring-red-400'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200 focus:ring-gray-400'
+                  ? 'bg-red-500 text-white animate-pulse focus:ring-red-400'
+                  : isPreparing
+                    ? 'bg-amber-300 text-amber-900 focus:ring-amber-400'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200 focus:ring-gray-400'
               } disabled:opacity-40`}
               style={{ minHeight: '48px', minWidth: '48px' }}
-              aria-label={listening ? 'Stop listening' : 'Voice input'}
+              aria-label={
+                isPreparing ? 'Preparing microphone, please wait'
+                  : listening ? 'Listening, speak now or tap to stop'
+                    : 'Voice input'
+              }
             >
-              {listening ? '...' : 'Mic'}
+              {listening ? '...' : isPreparing ? 'Wait' : 'Mic'}
             </button>
           </div>
 

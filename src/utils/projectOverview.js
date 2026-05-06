@@ -352,6 +352,21 @@ function findSoundChange(prevClips, nextClips) {
   return null;
 }
 
+function findVolumeChange(prevClips, nextClips) {
+  if (prevClips.length !== nextClips.length) return null;
+  for (let i = 0; i < prevClips.length; i += 1) {
+    const prev = prevClips[i];
+    const next = nextClips[i];
+    if (!next || prev.id !== next.id) continue;
+    const prevVol = typeof prev.volume === 'number' ? prev.volume : 100;
+    const nextVol = typeof next.volume === 'number' ? next.volume : 100;
+    if (prevVol !== nextVol) {
+      return { index: i, prevVolume: prevVol, nextVolume: nextVol };
+    }
+  }
+  return null;
+}
+
 function sceneLabel(index) {
   return `scene ${index + 1}`;
 }
@@ -421,6 +436,9 @@ export function describeEditOp(operation, options = {}) {
     case 'unmute':
     case 'unmute_audio':
       return 'Original audio unmuted';
+    case 'volume':
+      if (num === 0) return 'Muted';
+      return num != null ? `Volume ${num}%` : 'Volume changed';
     case 'brightness':
       return num != null ? `Brightness ${num >= 0 ? '+' : ''}${num}` : 'Brightness changed';
     case 'contrast':
@@ -489,6 +507,7 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     promptText = 'Check the video to confirm the caption changes.';
   } else {
     const soundChange = findSoundChange(prevClips, nextClips);
+    const volumeChange = soundChange ? null : findVolumeChange(prevClips, nextClips);
     if (soundChange) {
       const label = sceneLabel(soundChange.index);
       const soundName = soundChange.sound?.name || 'sound';
@@ -502,6 +521,17 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
         actionText = `changed sound on ${label} to ${soundName}`;
         promptText = 'Check the video to hear the updated sound.';
       }
+    } else if (volumeChange) {
+      const label = sceneLabel(volumeChange.index);
+      const next = volumeChange.nextVolume;
+      if (next === 0) {
+        actionText = `muted ${label}`;
+      } else if (next === 100) {
+        actionText = `restored ${label} volume to 100%`;
+      } else {
+        actionText = `set ${label} volume to ${next}%`;
+      }
+      promptText = 'Play the scene to hear the volume change.';
     } else {
       const overlayChange = overlaysChanged(prevTextOverlays, nextTextOverlays);
       if (overlayChange?.type === 'added') {
@@ -538,7 +568,7 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     shortText: `${actorLabel} ${actionText}`,
     overviewText,
     promptText,
-    announcement: `${actorLabel} ${actionText}. ${overviewText} ${promptText}`.trim(),
+    announcement: `${actorLabel} ${actionText}. ${promptText}`.trim(),
   };
 }
 

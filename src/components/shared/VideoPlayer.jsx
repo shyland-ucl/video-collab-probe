@@ -116,6 +116,22 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     return () => clearInterval(interval);
   }, [isEngineActive, hasMultiSource, engine.edlTime, setVideoTime, onTimeUpdate]);
 
+  // Per-clip volume: reads clip.volume (0–200, percent) for the active clip
+  // and applies it to the underlying <video> element. Default 100 = unchanged.
+  // Slider drags update editState per tick, so this runs on every change.
+  useEffect(() => {
+    const activeClip = isEngineActive ? clips[engine.currentClipIndex] : null;
+    const pct = typeof activeClip?.volume === 'number' ? activeClip.volume : 100;
+    const v = Math.max(0, Math.min(1, pct / 100));
+    if (hasMultiSource) {
+      const sourceId = engine.activeSourceId || sources[0]?.id;
+      const el = sourceId ? videoRefs[sourceId]?.current : null;
+      if (el) el.volume = v;
+    } else if (singleVideoRef.current) {
+      singleVideoRef.current.volume = v;
+    }
+  }, [isEngineActive, clips, engine.currentClipIndex, engine.activeSourceId, hasMultiSource, videoRefs, sources]);
+
   useImperativeHandle(ref, () => ({
     play() {
       if (isEngineActive) {

@@ -49,9 +49,9 @@ export default function InlineVQAComposer({ onSubmit, disabled, accentColor = '#
     [onSubmit, disabled]
   );
 
-  const { isListening, toggleListening } = useSpeechRecognition({
+  const { isListening, isPreparing, toggleListening } = useSpeechRecognition({
     onResult: submitQuestion,
-    announcement: 'Listening for your question.',
+    announcement: 'Speak now. Ask your question.',
   });
 
   const handleVoiceClick = useCallback(() => {
@@ -84,11 +84,18 @@ export default function InlineVQAComposer({ onSubmit, disabled, accentColor = '#
       <button
         ref={voiceButtonRef}
         onClick={handleVoiceClick}
-        aria-label={isListening ? 'Stop listening' : 'Voice input — speak your question'}
-        aria-pressed={isListening}
+        aria-label={
+          isPreparing ? 'Preparing microphone, please wait'
+            : isListening ? 'Listening, speak now or tap to stop'
+              : 'Voice input — speak your question'
+        }
+        aria-pressed={isListening || isPreparing}
+        aria-busy={isPreparing || undefined}
         aria-disabled={disabled || undefined}
         className={`flex items-center justify-center rounded transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 ${
-          isListening ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          isListening ? 'bg-red-500 text-white animate-pulse'
+            : isPreparing ? 'bg-amber-300 text-amber-900'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
         } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
         style={{ minHeight: '44px', minWidth: '44px' }}
       >
