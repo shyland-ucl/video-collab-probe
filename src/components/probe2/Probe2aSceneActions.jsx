@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { useAccessibility } from '../../contexts/AccessibilityContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
@@ -47,6 +47,15 @@ export default function Probe2aSceneActions({
   const [thinking, setThinking] = useState(false);
   const { logEvent } = useEventLogger();
   const { audioEnabled, speechRate } = useAccessibility();
+  const helperHandoverInstructionRef = useRef(null);
+
+  useEffect(() => {
+    if (!showIntentLocker) return undefined;
+    const frame = requestAnimationFrame(() => {
+      helperHandoverInstructionRef.current?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [showIntentLocker]);
 
   // "Play this scene" — bounded playback, pauses at scene end. Default action.
   const handlePlayThisScene = useCallback(() => {
@@ -167,10 +176,11 @@ export default function Probe2aSceneActions({
         {isSegmentPlaying ? 'Pause' : 'Play this scene'}
       </button>
       <button
+        type="button"
         onClick={handlePlayFromHereOrPause}
         className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '44px' }}
-        aria-label={isPlaying ? 'Pause video and hear the current scene description' : 'Play the whole video from here'}
+        aria-label={isPlaying ? 'Double tap to pause' : 'Play from here'}
       >
         {isPlaying ? 'Pause' : 'Play from here'}
       </button>
@@ -288,13 +298,14 @@ export default function Probe2aSceneActions({
             role="region"
             aria-label="Confirm handover to helper"
           >
-            <p className="text-sm text-gray-800 font-medium">
-              Tell your helper what you would like changed for scene {index + 1}.
+            <p
+              ref={helperHandoverInstructionRef}
+              tabIndex={-1}
+              className="text-sm text-gray-800 font-medium focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
+            >
+              Tell your helper what you want changed for scene {index + 1}, then tap Hand Over.
             </p>
-            <p className="text-sm text-gray-700">
-              Speak clearly so they can hear. They will edit on this device.
-            </p>
-            <p className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            <p hidden aria-hidden="true" className="text-sm text-gray-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
               <span className="font-medium">Helper, on hand-over:</span> the
               app pauses its own announcements automatically. To silence
               TalkBack itself, hold both volume keys for 3 seconds (Android)

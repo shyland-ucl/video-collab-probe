@@ -47,33 +47,23 @@ function sceneLabel(sceneId, segments = []) {
   return `scene ${index + 1}`;
 }
 
-function getSceneIdAtTime(segments = [], time = 0) {
-  return segments.find((scene) => (
-    time >= scene.start_time && time < scene.end_time
-  ))?.id || segments[0]?.id || null;
+function cleanFeedbackText(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
 }
 
-function buildHelperReturnFeedback(startSnapshot, endSnapshot, segments = [], visualSceneIds = {}) {
-  if (!startSnapshot || !endSnapshot) return null;
-  const items = [];
-  const startColours = startSnapshot.colourValues || {};
-  const endColours = endSnapshot.colourValues || {};
+function addFeedbackItem(items, item) {
+  const text = cleanFeedbackText(item);
+  if (text && !items.includes(text)) items.push(text);
+}
 
-  VISUAL_PROPERTIES.forEach((property) => {
-    if (startColours[property] === endColours[property]) return;
-    const text = describeEditOp(property, { value: endColours[property] });
-    const sceneId = visualSceneIds[property] || endSnapshot.fallbackSceneId;
-    items.push(sceneId ? `${text} on ${sceneLabel(sceneId, segments)}` : text);
-  });
+function formatHelperSessionChange(change, segments = []) {
+  const text = cleanFeedbackText(change?.text);
+  if (!text) return '';
+  const sceneId = baseSceneId(change?.sceneId);
+  return sceneId ? `${text} on ${sceneLabel(sceneId, segments)}` : text;
+}
 
-  const prevClips = startSnapshot.editState?.clips || [];
-  const nextClips = endSnapshot.editState?.clips || [];
-  const nextClipIds = new Set(nextClips.map((clip) => clip.id));
-  prevClips.forEach((clip) => {
-    if (nextClipIds.has(clip.id)) return;
-    items.push(`Removed ${sceneLabel(clip.id, segments)}`);
-  });
-
+function buildHelperFeedback(items) {
   if (items.length === 0) return null;
   return {
     id: Date.now(),
@@ -81,6 +71,42 @@ function buildHelperReturnFeedback(startSnapshot, endSnapshot, segments = [], vi
     items,
     announcement: `Phone returned to creator. Helper made ${items.length} ${items.length === 1 ? 'change' : 'changes'}: ${items.join('. ')}.`,
   };
+}
+
+function getSceneIdAtTime(segments = [], time = 0) {
+  return segments.find((scene) => (
+    time >= scene.start_time && time < scene.end_time
+  ))?.id || segments[0]?.id || null;
+}
+
+function buildHelperReturnFeedback(startSnapshot, endSnapshot, segments = [], visualSceneIds = {}, sessionChanges = []) {
+  const items = [];
+
+  sessionChanges.forEach((change) => {
+    addFeedbackItem(items, formatHelperSessionChange(change, segments));
+  });
+
+  if (!startSnapshot || !endSnapshot) return buildHelperFeedback(items);
+
+  const startColours = startSnapshot.colourValues || {};
+  const endColours = endSnapshot.colourValues || {};
+
+  VISUAL_PROPERTIES.forEach((property) => {
+    if (startColours[property] === endColours[property]) return;
+    const text = describeEditOp(property, { value: endColours[property] });
+    const sceneId = visualSceneIds[property] || endSnapshot.fallbackSceneId;
+    addFeedbackItem(items, sceneId ? `${text} on ${sceneLabel(sceneId, segments)}` : text);
+  });
+
+  const prevClips = startSnapshot.editState?.clips || [];
+  const nextClips = endSnapshot.editState?.clips || [];
+  const nextClipIds = new Set(nextClips.map((clip) => clip.id));
+  prevClips.forEach((clip) => {
+    if (nextClipIds.has(clip.id)) return;
+    addFeedbackItem(items, `Removed ${sceneLabel(clip.id, segments)}`);
+  });
+
+  return buildHelperFeedback(items);
 }
 
 export default function Probe2Page() {
@@ -134,6 +160,7 @@ export default function Probe2Page() {
   const colourValuesRef = useRef(colourValues);
   useEffect(() => { colourValuesRef.current = colourValues; }, [colourValues]);
   const helperSessionStartRef = useRef(null);
+  const helperSessionChangesRef = useRef([]);
   const helperVisualSceneIdsRef = useRef({});
   const handoverFeedbackRef = useRef(null);
   const handoverFeedbackDismissRef = useRef(null);
@@ -312,6 +339,27 @@ export default function Probe2Page() {
     return projectData.video?.title || 'Untitled Video';
   }, [projectData]);
 
+  const recordHelperSessionChange = useCallback((change) => {
+    if (mode !== 'helper') return;
+    const text = cleanFeedbackText(change?.text);
+    if (!text) return;
+    const sceneId = baseSceneId(
+      change?.sceneId
+      || currentSegmentRef.current?.id
+      || getSceneIdAtTime(segments, currentTime),
+    );
+    const key = change?.key || `${sceneId || 'project'}:${text}`;
+    const entry = { key, sceneId, text, timestamp: Date.now() };
+    const existingIndex = helperSessionChangesRef.current.findIndex((item) => item.key === key);
+    if (existingIndex === -1) {
+      helperSessionChangesRef.current = [...helperSessionChangesRef.current, entry];
+    } else {
+      helperSessionChangesRef.current = helperSessionChangesRef.current.map((item, index) => (
+        index === existingIndex ? entry : item
+      ));
+    }
+  }, [mode, segments, currentTime]);
+
   // Build editState from the imported selection. Runs once when selectedVideos
   // is first set; subsequent edits flow through handleEditChange.
   const handleImport = useCallback((videos) => {
@@ -425,18 +473,28 @@ export default function Probe2Page() {
     setEditState(nextState);
     const actorLabel = mode === 'helper' ? 'Helper' : 'Creator';
     const changeSummary = summarizeEditStateChange(prev, nextState, actorLabel);
+    const fallbackSceneId = currentSegment?.id || getSceneIdAtTime(segments, currentTime);
     const sceneStamp = buildEditChangeSceneStamp(prev, nextState, {
-      fallbackSceneId: currentSegment?.id,
+      fallbackSceneId,
     });
-    if (sceneStamp?.sceneId) {
+    const changedSceneId = sceneStamp?.sceneId || (mode === 'helper' ? fallbackSceneId : null);
+    const changedText = sceneStamp?.text || (mode === 'helper' ? changeSummary.actionText : '');
+    if (changedSceneId && changedText) {
       setEditedScenes((prevScenes) => ({
         ...prevScenes,
-        [sceneStamp.sceneId]: {
-          text: sceneStamp.text,
+        [changedSceneId]: {
+          text: changedText,
           actor: mode === 'helper' ? 'Helper' : 'You',
           timestamp: Date.now(),
         },
       }));
+    }
+    if (mode === 'helper') {
+      recordHelperSessionChange({
+        sceneId: changedSceneId,
+        text: changedText,
+        key: `edit:${changedSceneId || 'project'}:${changedText}`,
+      });
     }
     // Broadcast to the researcher dashboard so its Live Edit Mirror stays
     // in sync. Same WS relay used for the AI WoZ flow.
@@ -447,7 +505,7 @@ export default function Probe2Page() {
       changeSummary,
       actor: mode === 'helper' ? 'HELPER' : 'CREATOR',
     });
-  }, [mode, currentSegment?.id]);
+  }, [mode, currentSegment?.id, currentTime, segments, recordHelperSessionChange]);
 
   const handleUndoEdit = useCallback(() => {
     setEditHistory((h) => {
@@ -637,9 +695,15 @@ export default function Probe2Page() {
     );
     if (sceneId) {
       helperVisualSceneIdsRef.current[property] = sceneId;
+      const text = describeEditOp(property, { value });
       stampSceneEdit(sceneId, property, { value, actor: 'Helper' });
+      recordHelperSessionChange({
+        sceneId,
+        text,
+        key: `visual:${property}:${sceneId}`,
+      });
     }
-  }, [currentSegment, currentTime, segments, stampSceneEdit]);
+  }, [currentSegment, currentTime, segments, stampSceneEdit, recordHelperSessionChange]);
 
   // Derived: editState filtered to kept clips only (Removed scenes are
   // skipped during playback). Memoised so VideoPlayer's playback engine
@@ -701,6 +765,7 @@ export default function Probe2Page() {
         editState: editStateRef.current,
         colourValues: colourValuesRef.current,
       };
+      helperSessionChangesRef.current = [];
       helperVisualSceneIdsRef.current = {};
       setHandoverFeedback(null);
       setMode('helper');
@@ -730,9 +795,11 @@ export default function Probe2Page() {
         },
         segments,
         helperVisualSceneIdsRef.current,
+        helperSessionChangesRef.current,
       );
       setHandoverFeedback(feedback);
       helperSessionStartRef.current = null;
+      helperSessionChangesRef.current = [];
       // Day 1 fix #9: when the device comes back, prompt the helper to re-enable
       // TalkBack so the BLV creator's screen reader works again on hand-back.
       const talkBackReminder = 'App announcements are on again. If TalkBack was turned off, please re-enable it with the same gesture.';

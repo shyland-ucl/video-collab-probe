@@ -103,10 +103,11 @@ export default function Probe1SceneActions({
         {isSegmentPlaying ? 'Pause' : 'Play this scene'}
       </button>
       <button
+        type="button"
         onClick={handlePlayFromHereOrPause}
         className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
         style={{ minHeight: '44px' }}
-        aria-label={isPlaying ? 'Pause video and hear the current scene description' : 'Play the whole video from here'}
+        aria-label={isPlaying ? 'Double tap to pause' : 'Play from here'}
       >
         {isPlaying ? 'Pause' : 'Play from here'}
       </button>

@@ -78,16 +78,13 @@ export async function segmentVideo(projectDir, sourceFile, segmentLength, totalD
     const segFile = path.join(segmentsDir, `${segId}.mp4`);
     const kfFile = path.join(keyframesDir, `${segId}_kf.jpg`);
 
-    // Extract segment — try stream copy first, fall back to re-encode
-    try {
-      await execAsync(
-        `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c copy -avoid_negative_ts make_zero "${segFile}"`
-      );
-    } catch {
-      await execAsync(
-        `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
-      );
-    }
+    // Extract segment — re-encode for frame-accurate cuts. Stream copy (-c copy)
+    // can only cut at keyframes, which on phone videos are irregularly spaced
+    // (e.g. every 5–10s) and rarely line up with requested boundaries, producing
+    // wildly variable, overlapping clips.
+    await execAsync(
+      `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
+    );
 
     // Extract keyframe at midpoint
     const midpoint = start + duration / 2;
@@ -145,15 +142,9 @@ export async function resegment(projectDir, sourceFile, changedSegments) {
     const { start_seconds: start, end_seconds: end } = seg;
     const midpoint = start + (end - start) / 2;
 
-    try {
-      await execAsync(
-        `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c copy -avoid_negative_ts make_zero "${segFile}"`
-      );
-    } catch {
-      await execAsync(
-        `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
-      );
-    }
+    await execAsync(
+      `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
+    );
 
     try {
       await execAsync(

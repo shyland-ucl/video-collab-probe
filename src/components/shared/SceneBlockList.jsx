@@ -4,8 +4,8 @@ import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import ttsService from '../../services/ttsService.js';
 import { announce } from '../../utils/announcer.js';
 import GlobalControlsBar from './GlobalControlsBar.jsx';
+import PlainScreenReaderAction from './PlainScreenReaderAction.jsx';
 import SceneBlock from './SceneBlock.jsx';
-import { LEVELS } from '../../utils/detailLevels.js';
 import { buildSceneDescriptionAddendum } from '../../utils/descriptionAddenda.js';
 
 const FOCUS_SCROLL_GUARD_MS = 350;
@@ -14,6 +14,11 @@ const VISIBILITY_TOLERANCE_PX = 2;
 const HORIZONTAL_SWIPE_THRESHOLD_PX = 10;
 const HORIZONTAL_SWIPE_LOCK_MS = 550;
 const MANUAL_SCROLL_ALLOW_MS = 600;
+const DETAIL_LEVEL_ANNOUNCE_DELAY_MS = 120;
+
+function createSceneHistoryToken() {
+  return `scene-block-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function getContentTop(container, target) {
   const containerRect = container.getBoundingClientRect();
@@ -64,7 +69,7 @@ export default function SceneBlockList({
   // hint so a TalkBack creator can find suggestion-bearing scenes by swiping
   // the list. Empty set = no decoration (default before analysis trigger).
   sceneIndicesWithSuggestions,
-  // When the page is doing single-segment playback ("Play from here"), it
+  // When the page is doing single-segment playback ("Play this scene"), it
   // sets this true so we skip the auto-expand-next-scene effect. Without
   // it, a video timeUpdate tick that lands a few ms past the segment end
   // (the player's tick can be ~100-200ms wide) lets us expand the next
@@ -91,6 +96,7 @@ export default function SceneBlockList({
   const focusRestoreTimersRef = useRef([]);
   const touchScrollLockRef = useRef(null);
   const manualScrollAllowedUntilRef = useRef(0);
+  const levelAnnounceTimerRef = useRef(null);
   // Refs to each SceneBlock's collapsed-header button. Used to restore
   // focus when a scene is fully collapsed — otherwise the browser drops
   // focus to <body> and TalkBack/VoiceOver swipe-navigates from page top
@@ -99,6 +105,9 @@ export default function SceneBlockList({
   const prevExpandedRef = useRef(null);
   const wasPlayingForFocusRef = useRef(false);
   const playbackPauseButtonRef = useRef(null);
+  const sceneHistoryTokenRef = useRef(null);
+  const ignoreNextScenePopRef = useRef(false);
+  const wasAnyExpandedRef = useRef(false);
   const { logEvent } = useEventLogger();
 
   const clearFocusRestoreTimers = useCallback(() => {
@@ -144,7 +153,24 @@ export default function SceneBlockList({
     return isFullyVisibleAtScrollTop(container, header, scrollTop);
   }, []);
 
+  const shouldKeepExpandedSceneForFocusedAction = useCallback(() => {
+    if (expandedIndex === null) return false;
+    const active = document.activeElement;
+    if (!(active instanceof Element) || !listRef.current?.contains(active)) return false;
+
+    const actionsRegion = active.closest('[data-scene-actions-region]');
+    if (!actionsRegion || !listRef.current.contains(actionsRegion)) return false;
+
+    return actionsRegion.getAttribute('data-scene-actions-region') === String(expandedIndex);
+  }, [expandedIndex]);
+
   useEffect(() => clearFocusRestoreTimers, [clearFocusRestoreTimers]);
+
+  useEffect(() => () => {
+    if (levelAnnounceTimerRef.current !== null) {
+      clearTimeout(levelAnnounceTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     stableScrollTopRef.current = scrollContainerRef.current?.scrollTop || 0;
@@ -294,47 +320,43 @@ export default function SceneBlockList({
 
   const handleLevelChange = useCallback(
     (level) => {
-      logEvent(EventTypes.DESCRIPTION_LEVEL_CHANGE, Actors.CREATOR, {
-        fromLevel: currentLevel,
-        toLevel: level,
-      });
-      setCurrentLevel(level);
-      // Announce the new level *and* the description for the currently
-      // expanded scene so the user immediately hears what changed
-      // (2026-04-26 Lan request — the level name alone doesn't tell them
-      // what's now in the description). Falls back to the level name only
-      // when no scene is open. announce() is queued, never speak() — see
-      // memory `feedback_scene_block_a11y.md`.
-      //
-      // Avoid the phrase "detailed description" — it's a recognised
-      // assistive-tech term (long-description / aria-describedby) and
-      // TalkBack on Android sometimes filters or mis-routes it. Phrasing
-      // the level as "{label} view" sidesteps the collision.
-      const label = LEVELS.find((l) => l.value === level)?.label;
+      // Only log when the level actually changes — re-tapping the active
+      // button is a "read again" gesture, not a level change.
+      if (level !== currentLevel) {
+        logEvent(EventTypes.DESCRIPTION_LEVEL_CHANGE, Actors.CREATOR, {
+          fromLevel: currentLevel,
+          toLevel: level,
+        });
+        setCurrentLevel(level);
+      }
+      // Read out only the description for the now-current level. The
+      // target's aria-label already told the user what they tapped
+      // ("Change to {label} description"), so this announce never repeats
+      // the label. announce() is queued, never speak() - see memory
+      // `feedback_scene_block_a11y.md`.
       const expandedScene = expandedIndex !== null ? scenes[expandedIndex] : null;
       const desc = expandedScene ? getSceneDescription(expandedScene, level) : '';
-      // Assertive carries BOTH the level label and the description. We
-      // tried trimming this to just `${label}.` and relying on the chip's
-      // aria-label being read on focus move — but on Android TalkBack the
-      // programmatic focus to the chip's `tabIndex={-1}` <span> doesn't
-      // reliably trigger a re-read, so the description disappeared
-      // (Lan-confirmed regression, 2026-04-26). The chip's accessible
-      // name is now just the visible level word (no duplication risk),
-      // so we put the description back into the assertive announce
-      // — that's the only channel Android can hear.
-      const text = expandedScene && desc ? `${label}. ${desc}` : `${label}.`;
-      announce(text, { assertive: true });
+      if (levelAnnounceTimerRef.current !== null) {
+        clearTimeout(levelAnnounceTimerRef.current);
+        levelAnnounceTimerRef.current = null;
+      }
+      if (!desc) return;
+
+      // Let TalkBack/VoiceOver finish their activation feedback first. The
+      // delayed assertive live-region write then interrupts with only the
+      // scene prose, including when the same active level is tapped again.
+      levelAnnounceTimerRef.current = setTimeout(() => {
+        levelAnnounceTimerRef.current = null;
+        announce(desc, { assertive: true });
+      }, DETAIL_LEVEL_ANNOUNCE_DELAY_MS);
     },
     [currentLevel, logEvent, expandedIndex, scenes, getSceneDescription]
   );
 
-  // Auto-navigate to the scene matching current playback time. Setting
-  // expandedIndex collapses the previous SceneBlock and expands the new one,
-  // so the expanded options visibly follow playback. We deliberately do NOT
-  // announce a boundary cue here — Lan 2026-04-26 wants playback to stay
-  // quiet so the video audio isn't talked over. Focus still moves to the
-  // new scene's play button (via SceneBlock's expand effect with
-  // autoFollowed=true), and TalkBack reads the focused button on its own.
+  // Auto-navigate to the scene matching current playback time. On unbounded
+  // "Play from here", move focus to the stable pause control under the video
+  // instead of keeping it on the scene-local button, which can unmount when
+  // the list follows playback into the next scene.
   useEffect(() => {
     const wasPlaying = wasPlayingForFocusRef.current;
     wasPlayingForFocusRef.current = isPlaying;
@@ -343,11 +365,11 @@ export default function SceneBlockList({
     const activeIndex = scenes.findIndex(
       (s) => currentTime >= s.start_time && currentTime < s.end_time
     );
-    if (activeIndex === -1) return;
-
-    setExpandSource('auto');
-    setExpandedIndex(activeIndex);
-    setPlaybackFocusToken((token) => token + 1);
+    if (activeIndex !== -1) {
+      setExpandSource('auto');
+      setExpandedIndex(activeIndex);
+      setPlaybackFocusToken((token) => token + 1);
+    }
     requestAnimationFrame(() => {
       playbackPauseButtonRef.current?.focus({ preventScroll: true });
     });
@@ -356,6 +378,7 @@ export default function SceneBlockList({
   useEffect(() => {
     if (!isPlaying) return;
     if (disableAutoFollow) return;
+    if (shouldKeepExpandedSceneForFocusedAction()) return;
     const activeIndex = scenes.findIndex(
       (s) => currentTime >= s.start_time && currentTime < s.end_time
     );
@@ -363,7 +386,7 @@ export default function SceneBlockList({
       setExpandSource('auto');
       setExpandedIndex(activeIndex);
     }
-  }, [currentTime, isPlaying, scenes, expandedIndex, disableAutoFollow]);
+  }, [currentTime, isPlaying, scenes, expandedIndex, disableAutoFollow, shouldKeepExpandedSceneForFocusedAction]);
 
   // Pause read-out: when playback transitions playing → paused while a
   // scene is expanded, announce the current scene's description so the
@@ -377,6 +400,12 @@ export default function SceneBlockList({
     let firstFrame = null;
     let secondFrame = null;
     if (wasPlaying && !isPlaying && expandedIndex !== null) {
+      if (shouldKeepExpandedSceneForFocusedAction()) return undefined;
+      // Bounded "Play this scene" parks disableAutoFollow through the
+      // boundary pause. Stay on the current expanded scene and keep focus on
+      // the existing control instead of following currentTime into the next
+      // scene.
+      if (disableAutoFollow) return undefined;
       const activeIndex = scenes.findIndex(
         (s) => currentTime >= s.start_time && currentTime < s.end_time
       );
@@ -408,7 +437,16 @@ export default function SceneBlockList({
       if (firstFrame !== null) cancelAnimationFrame(firstFrame);
       if (secondFrame !== null) cancelAnimationFrame(secondFrame);
     };
-  }, [isPlaying, expandedIndex, scenes, currentLevel, currentTime, getSceneDescription]);
+  }, [
+    isPlaying,
+    disableAutoFollow,
+    expandedIndex,
+    scenes,
+    currentLevel,
+    currentTime,
+    getSceneDescription,
+    shouldKeepExpandedSceneForFocusedAction,
+  ]);
 
   // Full-collapse side effects: when expandedIndex transitions from N to
   // null (Close button, header re-tap, or browser-back), restore focus to
@@ -449,28 +487,49 @@ export default function SceneBlockList({
   }, [keptScenes, expandedIndex, scenes]);
 
   // Single push/pop tied to "is any scene expanded" so the browser back
-  // button closes the open scene without inflating history. Putting this
-  // here instead of in each SceneBlock avoids the auto-follow regression
-  // where block N's cleanup history.back() collapsed block N+1 via
-  // async popstate.
+  // button closes the open scene without inflating history. This is split
+  // into a stable popstate listener plus a transition effect; doing
+  // history.back() from an effect cleanup can convert unrelated updates
+  // (like changing detail level) into an accidental Scene closed event.
   const anyExpanded = expandedIndex !== null;
   useEffect(() => {
-    if (!anyExpanded) return;
-    let triggeredByBack = false;
     const handlePopState = () => {
-      triggeredByBack = true;
+      if (ignoreNextScenePopRef.current) {
+        ignoreNextScenePopRef.current = false;
+        return;
+      }
+      if (!sceneHistoryTokenRef.current) return;
+      sceneHistoryTokenRef.current = null;
+      wasAnyExpandedRef.current = false;
       setExpandedIndex(null);
       ttsService.stop();
       announce('Scene closed.');
     };
-    window.history.pushState({ sceneBlock: true }, '');
     window.addEventListener('popstate', handlePopState);
     return () => {
       window.removeEventListener('popstate', handlePopState);
-      if (!triggeredByBack && window.history.state?.sceneBlock === true) {
+    };
+  }, []);
+
+  useEffect(() => {
+    const wasAnyExpanded = wasAnyExpandedRef.current;
+    if (anyExpanded && !wasAnyExpanded) {
+      const token = createSceneHistoryToken();
+      const currentState =
+        window.history.state && typeof window.history.state === 'object'
+          ? window.history.state
+          : {};
+      sceneHistoryTokenRef.current = token;
+      window.history.pushState({ ...currentState, sceneBlock: true, sceneBlockToken: token }, '');
+    } else if (!anyExpanded && wasAnyExpanded) {
+      const token = sceneHistoryTokenRef.current;
+      if (token && window.history.state?.sceneBlockToken === token) {
+        ignoreNextScenePopRef.current = true;
         window.history.back();
       }
-    };
+      sceneHistoryTokenRef.current = null;
+    }
+    wasAnyExpandedRef.current = anyExpanded;
   }, [anyExpanded]);
 
   return (
@@ -484,16 +543,15 @@ export default function SceneBlockList({
 
       {isPlaying && !disableAutoFollow && (
         <div className="px-4 py-2 bg-white border-b border-gray-200">
-          <button
-            ref={playbackPauseButtonRef}
-            type="button"
-            onClick={onPause}
+          <PlainScreenReaderAction
+            actionRef={playbackPauseButtonRef}
+            onActivate={onPause}
             className="w-full py-2 text-sm font-medium rounded bg-gray-100 hover:bg-gray-200 text-gray-800 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 transition-colors"
             style={{ minHeight: '44px' }}
-            aria-label="Pause video and hear the current scene description"
+            ariaLabel="Double tap to pause"
           >
-            Pause
-          </button>
+            <span aria-hidden="true">Pause</span>
+          </PlainScreenReaderAction>
         </div>
       )}
 

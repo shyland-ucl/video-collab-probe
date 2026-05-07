@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   listProjects,
   uploadFootage,
@@ -66,6 +66,9 @@ export default function ResearcherMaterialsPanel() {
   const [uploadProgress, setUploadProgress] = useState('');
   const [segmentLength, setSegmentLength] = useState(3);
   const fileInputRef = useRef(null);
+
+  // Filter: '' = all, '__unassigned__' = projects with no dyad, else specific dyad code
+  const [dyadFilter, setDyadFilter] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -263,6 +266,20 @@ export default function ResearcherMaterialsPanel() {
     [assignments, refresh, persistAssignments]
   );
 
+  // Sorted list of dyad codes that currently appear in assignments. Used to
+  // populate the filter dropdown.
+  const allDyads = useMemo(() => Object.keys(assignments).sort(), [assignments]);
+
+  // Apply the dyad filter to the project list. Empty filter shows all;
+  // '__unassigned__' shows projects with no dyad assignment.
+  const filteredProjects = useMemo(() => {
+    if (!dyadFilter) return projects;
+    if (dyadFilter === '__unassigned__') {
+      return projects.filter((p) => getDyadsForProject(p.project_id).length === 0);
+    }
+    return projects.filter((p) => getDyadsForProject(p.project_id).includes(dyadFilter));
+  }, [projects, dyadFilter, getDyadsForProject]);
+
   if (loading) {
     return <p className="text-sm text-gray-500 py-4">Loading projects...</p>;
   }
@@ -305,16 +322,35 @@ export default function ResearcherMaterialsPanel() {
       </div>
 
       {/* ── Project List Header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h3 className="font-bold text-sm text-gray-900">
-          Footage Projects ({projects.length})
+          Footage Projects ({dyadFilter ? `${filteredProjects.length}/${projects.length}` : projects.length})
         </h3>
-        <button
-          onClick={refresh}
-          className="px-3 py-1.5 text-xs border rounded-md hover:bg-gray-50 transition-colors"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <label htmlFor="dyad-filter" className="text-xs text-gray-500">
+            Filter by dyad:
+          </label>
+          <select
+            id="dyad-filter"
+            value={dyadFilter}
+            onChange={(e) => setDyadFilter(e.target.value)}
+            className="px-2 py-1 border rounded text-xs focus:outline-2 focus:outline-blue-500"
+          >
+            <option value="">All dyads</option>
+            <option value="__unassigned__">Unassigned</option>
+            {allDyads.map((dyadId) => (
+              <option key={dyadId} value={dyadId}>
+                {dyadId}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={refresh}
+            className="px-3 py-1.5 text-xs border rounded-md hover:bg-gray-50 transition-colors"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -330,9 +366,19 @@ export default function ResearcherMaterialsPanel() {
         <div className="py-6 text-center text-sm text-gray-400">
           No footage yet. Upload a video above to get started.
         </div>
+      ) : filteredProjects.length === 0 ? (
+        <div className="py-6 text-center text-sm text-gray-400">
+          No projects match the current filter.{' '}
+          <button
+            onClick={() => setDyadFilter('')}
+            className="underline text-blue-600 hover:text-blue-700"
+          >
+            Clear filter
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
-          {projects.map((project) => {
+          {filteredProjects.map((project) => {
             const dyads = getDyadsForProject(project.project_id);
             const dyadInput = assigningDyad[project.project_id] || '';
             const isGenerating = generating[project.project_id];

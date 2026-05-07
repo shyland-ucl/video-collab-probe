@@ -249,6 +249,7 @@ export default function SceneBlock({
         <div
           ref={actionsRef}
           tabIndex={-1}
+          data-scene-actions-region={index}
           className="px-4 py-3"
           role="region"
           aria-label={`Actions for scene ${index + 1}`}
