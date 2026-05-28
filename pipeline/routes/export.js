@@ -19,9 +19,11 @@ function transformForProbe(project) {
   return {
     video: {
       id: project.project_id,
-      title: project.project_id.replace(/[_-]/g, ' '),
+      title: project.ai_title || project.project_id.replace(/[_-]/g, ' '),
       src: `/workspace/${project.project_id}/original/source.mp4`,
       duration: project.source.duration_seconds,
+      summary: project.ai_summary || '',
+      suggestions: project.suggestions || [],
       segments: project.segments.map((seg, i) => ({
         id: seg.id.replace('_', '-'),
         start_time: seg.start_seconds,

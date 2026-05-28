@@ -42,9 +42,10 @@ router.post('/:projectId/generate_descriptions', async (req, res) => {
     );
 
     project.status.descriptions_generated = true;
-    if (result.failed === 0 && project.status.reviewed) {
-      project.status.ready_for_probe = true;
-    }
+    project.status.descriptions_reviewed = false;
+    project.status.suggestions_generated = false;
+    project.suggestions = [];
+    project.status.ready_for_probe = false;
     await writeProject(workspace, projectId, project);
 
     res.json(result);

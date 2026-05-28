@@ -44,6 +44,7 @@ export default function SegmentCard({
 
   const videoUrl = getWorkspaceUrl(`${projectId}/${segment.file}`);
   const hasDescriptions = segment.descriptions?.level_1;
+  const review = segment.description_review;
 
   return (
     <div
@@ -160,6 +161,43 @@ export default function SegmentCard({
               </p>
             </div>
           ))}
+          {review && (
+            <div className="pt-3 border-t border-gray-200 text-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                  review.status === 'needs_context'
+                    ? 'bg-amber-100 text-amber-800'
+                    : review.status === 'failed'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-green-100 text-green-800'
+                }`}>
+                  AI review: {review.status?.replace(/_/g, ' ') || 'complete'}
+                </span>
+                {review.reviewed_at && (
+                  <span className="text-xs text-gray-400">
+                    {new Date(review.reviewed_at).toLocaleString()}
+                  </span>
+                )}
+              </div>
+              {review.changes?.length > 0 && (
+                <ul className="list-disc pl-5 text-gray-600 space-y-1">
+                  {review.changes.map((change, i) => (
+                    <li key={i}>{change}</li>
+                  ))}
+                </ul>
+              )}
+              {review.context_questions?.length > 0 && (
+                <div className="mt-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-900">
+                  <p className="font-medium mb-1">Context to confirm</p>
+                  <ul className="list-disc pl-5 space-y-1">
+                    {review.context_questions.map((question, i) => (
+                      <li key={i}>{question}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -76,9 +76,10 @@ async function main() {
   console.log('');
 
   project.status.descriptions_generated = true;
-  if (result.failed === 0 && project.status.reviewed) {
-    project.status.ready_for_probe = true;
-  }
+  project.status.descriptions_reviewed = false;
+  project.status.suggestions_generated = false;
+  project.status.ready_for_probe = false;
+  project.suggestions = [];
   await writeProject(workspace, args.projectId, project);
 
   console.log(`\nResults: ${result.generated} generated, ${result.failed} failed`);

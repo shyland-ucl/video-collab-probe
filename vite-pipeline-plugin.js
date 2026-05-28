@@ -8,6 +8,7 @@ import { createProject, readProject, writeProject, listProjects, deleteProject }
 import { getVideoMeta, segmentVideo, resegment } from './pipeline/services/segmentation.js';
 import { generateDescriptions, generateVideoMeta } from './pipeline/services/geminiDescriptions.js';
 import { readAssignments, writeAssignments } from './pipeline/services/assignmentsStore.js';
+import workflowRouter from './pipeline/routes/workflow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,6 +48,7 @@ export default function pipelinePlugin() {
       // Use a full Express app (not Router) so res.status()/res.json() work
       // inside Vite's Connect-based middleware stack.
       const app = express();
+      app.locals.workspace = WORKSPACE;
       app.use(express.json());
 
       // Multer for file uploads
@@ -186,7 +188,10 @@ export default function pipelinePlugin() {
           project.status.reviewed = true;
           if (changed.length > 0) {
             project.status.descriptions_generated = false;
+            project.status.descriptions_reviewed = false;
+            project.status.suggestions_generated = false;
             project.status.ready_for_probe = false;
+            project.suggestions = [];
           }
           await writeProject(WORKSPACE, id, project);
           res.json(project);
@@ -229,9 +234,10 @@ export default function pipelinePlugin() {
           );
 
           project.status.descriptions_generated = true;
-          if (result.failed === 0 && project.status.reviewed) {
-            project.status.ready_for_probe = true;
-          }
+          project.status.descriptions_reviewed = false;
+          project.status.suggestions_generated = false;
+          project.status.ready_for_probe = false;
+          project.suggestions = [];
 
           // Generate AI title and summary from descriptions
           try {
@@ -283,9 +289,11 @@ export default function pipelinePlugin() {
           const probeData = {
             video: {
               id: project.project_id,
-              title: project.project_id.replace(/[_-]/g, ' '),
+              title: project.ai_title || project.project_id.replace(/[_-]/g, ' '),
               src: `/pipeline-workspace/${project.project_id}/original/source.mp4`,
               duration: project.source.duration_seconds,
+              summary: project.ai_summary || '',
+              suggestions: project.suggestions || [],
               segments: project.segments.map((seg, i) => ({
                 id: seg.id.replace('_', '-'),
                 start_time: seg.start_seconds,
@@ -337,6 +345,8 @@ export default function pipelinePlugin() {
           res.status(400).json({ error: err.message });
         }
       });
+
+      app.use('/projects', workflowRouter);
 
       // ── Serve workspace files (videos, keyframes) ──
       // Must be mounted BEFORE the Express app so it doesn't get caught by Express 404

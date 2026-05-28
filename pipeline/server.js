@@ -5,6 +5,7 @@ import uploadRouter from './routes/upload.js';
 import projectsRouter from './routes/projects.js';
 import descriptionsRouter from './routes/descriptions.js';
 import exportRouter from './routes/export.js';
+import workflowRouter from './routes/workflow.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,7 @@ app.use('/api', uploadRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/projects', descriptionsRouter);
 app.use('/api/projects', exportRouter);
+app.use('/api/projects', workflowRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

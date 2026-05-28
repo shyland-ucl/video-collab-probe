@@ -58,7 +58,10 @@ router.put('/:projectId/segments', async (req, res) => {
     // Reset description status since segments changed
     if (changedSegments.length > 0) {
       project.status.descriptions_generated = false;
+      project.status.descriptions_reviewed = false;
+      project.status.suggestions_generated = false;
       project.status.ready_for_probe = false;
+      project.suggestions = [];
     }
     await writeProject(workspace, projectId, project);
 

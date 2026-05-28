@@ -9,7 +9,8 @@
     "build": "vite build",
     "check": "npm run build",
     "preview": "vite preview",
-    "pipeline": "node pipeline/server.js"
+    "pipeline": "node pipeline/server.js",
+    "workflow": "node scripts/process_footage_workflow.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

@@ -62,6 +62,8 @@ export async function createProject(workspace, projectId, filename, segmentLengt
       segmented: false,
       reviewed: false,
       descriptions_generated: false,
+      descriptions_reviewed: false,
+      suggestions_generated: false,
       ready_for_probe: false,
     },
   };

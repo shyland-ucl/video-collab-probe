@@ -1,0 +1,59 @@
+================================================================
+TASK: DESCRIPTION REVIEW AND REFINEMENT
+================================================================
+
+You will be given one short video segment and the existing Gemini
+descriptions for that segment. Your job is to fact-check the existing
+descriptions against the actual segment, then return a safer and more
+useful refined version.
+
+This is a review pass, not a rewrite for style only. Correct factual
+errors, remove invented details, add important visible details that help a
+blind or low-vision creator make editing decisions, and keep useful
+details that are already correct.
+
+OVERRIDE FOR THIS REVIEW TASK
+
+- You receive the short video segment, not only a still keyframe.
+- Use visible motion across the segment when refining the descriptions.
+- Keep the descriptions visual. Do not transcribe lyrics, dialogue, or
+  speech content. Audio-aware improvement suggestions are generated in a
+  separate task.
+- If the real-world context is unclear, do not guess. Use cautious
+  wording in the descriptions and list a short context question.
+
+WHEN TO ASK FOR CONTEXT
+
+Only set `needs_context` to true when the uncertainty would change how a
+researcher should describe or use the clip, for example:
+
+- unclear event or activity type
+- unclear on-screen text that may identify a place, brand, person, or
+  event
+- uncertainty about who the main subject is
+- uncertainty about whether an action is intentional or accidental
+
+Do not ask context questions for ordinary visual uncertainty that can be
+handled by hedging, such as "appears to be" or "partially visible".
+
+================================================================
+OUTPUT FORMAT
+================================================================
+
+Respond with valid JSON only, matching this schema exactly:
+
+{
+  "descriptions": {
+    "level_1": "string",
+    "level_2": "string",
+    "level_3": "string"
+  },
+  "review": {
+    "status": "confirmed" | "revised" | "needs_context",
+    "changes": ["short string"],
+    "needs_context": true | false,
+    "context_questions": ["short string"]
+  }
+}
+
+No markdown fences. No explanation outside the JSON.

@@ -52,6 +52,13 @@ export async function generateDescriptions(projectId) {
   return request(`/api/pipeline/projects/${projectId}/generate_descriptions`, { method: 'POST' });
 }
 
+export async function runProcessingWorkflow(projectId, options = {}) {
+  return request(`/api/pipeline/projects/${projectId}/run_workflow`, {
+    method: 'POST',
+    body: JSON.stringify(options),
+  });
+}
+
 export async function updateSegmentDescriptions(projectId, segmentId, descriptions) {
   return request(`/api/pipeline/projects/${projectId}/segments/${segmentId}/descriptions`, {
     method: 'PUT',
@@ -147,8 +154,8 @@ export async function uploadAndProcess(file, segmentLength = 3, onProgress) {
   const uploadResult = await uploadFootage(file, segmentLength);
   const projectId = uploadResult.project_id;
 
-  if (onProgress) onProgress('generating', 50);
-  await generateDescriptions(projectId);
+  if (onProgress) onProgress('reviewing', 50);
+  await runProcessingWorkflow(projectId);
 
   // Auto-save for probe
   if (onProgress) onProgress('finalizing', 85);

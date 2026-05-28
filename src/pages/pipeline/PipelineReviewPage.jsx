@@ -5,6 +5,7 @@ import {
   updateSegments,
   markReviewed,
   generateDescriptions,
+  runProcessingWorkflow,
   updateSegmentDescriptions,
   exportForProbe,
   getWorkspaceUrl,
@@ -21,7 +22,9 @@ export default function PipelineReviewPage() {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [workflowRunning, setWorkflowRunning] = useState(false);
   const [genResult, setGenResult] = useState(null);
+  const [workflowResult, setWorkflowResult] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [editingDescSeg, setEditingDescSeg] = useState(null);
@@ -174,7 +177,25 @@ export default function PipelineReviewPage() {
     }
   }
 
-  // Finalise — mark project as ready for probe (saves export data in project folder)
+  // Run the full review workflow: refine descriptions and create suggestions.
+  async function handleRunWorkflow() {
+    setWorkflowRunning(true);
+    setWorkflowResult(null);
+    setError('');
+    try {
+      const result = await runProcessingWorkflow(projectId);
+      setWorkflowResult(result);
+      const updated = await getProject(projectId);
+      setProject(updated);
+      setSegments(updated.segments);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setWorkflowRunning(false);
+    }
+  }
+
+  // Finalise: mark project as ready for probe (saves export data in project folder)
   const [finalising, setFinalising] = useState(false);
   async function handleFinalise() {
     setFinalising(true);
@@ -264,6 +285,15 @@ export default function PipelineReviewPage() {
             {generating ? 'Generating...' : 'Generate Descriptions'}
           </button>
 
+          <button
+            onClick={handleRunWorkflow}
+            disabled={workflowRunning || generating || dirty || !project.status.segmented}
+            className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 disabled:opacity-50"
+            title={dirty ? 'Save segment changes before running the workflow' : undefined}
+          >
+            {workflowRunning ? 'Reviewing...' : 'Review + 3 Suggestions'}
+          </button>
+
           {project.status.descriptions_generated && !project.status.ready_for_probe && (
             <button
               onClick={handleFinalise}
@@ -305,6 +335,17 @@ export default function PipelineReviewPage() {
           )}
         </div>
       )}
+      {workflowResult && (
+        <div className="mx-6 mt-4 p-3 bg-indigo-50 border border-indigo-200 rounded-md text-indigo-800 text-sm" role="status">
+          Workflow complete: reviewed {workflowResult.descriptions_reviewed?.reviewed ?? 0} descriptions,
+          generated {workflowResult.suggestions_generated?.generated ?? 0} suggestions.
+          {workflowResult.context_questions?.length > 0 && (
+            <span className="ml-2 font-medium">
+              {workflowResult.context_questions.length} context check{workflowResult.context_questions.length === 1 ? '' : 's'} flagged.
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Description editor overlay */}
       {editingDescSeg && (
@@ -320,6 +361,39 @@ export default function PipelineReviewPage() {
         <p className="text-xs text-gray-500 mb-2">
           Keyboard: <kbd className="px-1 border rounded">j</kbd>/<kbd className="px-1 border rounded">k</kbd> to navigate segments
         </p>
+
+        {project.suggestions?.length > 0 && (
+          <div className="bg-white border border-indigo-200 rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold text-indigo-900">
+                Prototype-feasible suggestions
+              </h2>
+              <span className="text-xs text-gray-500">
+                {project.suggestions.length} generated
+              </span>
+            </div>
+            <ol className="space-y-2">
+              {project.suggestions.map((suggestion) => (
+                <li key={suggestion.id} className="text-sm text-gray-800">
+                  <span className="font-medium capitalize text-gray-600">
+                    {suggestion.category}
+                  </span>
+                  <span className="text-gray-400 mx-1">/</span>
+                  <span className="text-gray-500">
+                    Scene {Array.isArray(suggestion.relatedScene)
+                      ? suggestion.relatedScene.map((scene) => Number(scene) + 1).join(', ')
+                      : Number(suggestion.relatedScene) + 1}
+                  </span>
+                  <p className="mt-1">{suggestion.text}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Prototype action: {suggestion.prototype_action || suggestion.fix_template?.action || 'helper check'}
+                    {suggestion.fix_template?.label ? ` (${suggestion.fix_template.label})` : ''}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
 
         {segments.map((seg, i) => (
           <div key={seg.id} ref={(el) => (cardRefs.current[i] = el)}>
