@@ -158,7 +158,7 @@ export default function Probe2bSceneActions({
         onClick={handlePlayFromHereOrPause}
         className="w-full py-2 text-sm font-medium rounded bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors focus:outline-2 focus:outline-offset-2 focus:outline-blue-500"
         style={{ minHeight: '44px' }}
-        aria-label={isPlaying ? 'Double tap to pause' : 'Play from here'}
+        aria-label={isPlaying ? 'Double tap to pause' : 'Play the whole video from here'}
       >
         {isPlaying ? 'Pause' : 'Play from here'}
       </button>

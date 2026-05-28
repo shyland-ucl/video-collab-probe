@@ -93,51 +93,57 @@ export default function HelperMode({
   }, [onReturnDevice]);
 
   return (
-    <div>
+    <div className="flex-1 flex flex-col min-h-0">
 
-      {/* Minimal top bar: just the Return Device button. The mode title,
-          Creator's Intent banner, and Task Queue are intentionally absent in
-          2a — the creator already spoke the request to the helper, so on-
-          screen task metadata is redundant. */}
-      <div className="mb-4">
-        <button
-          onClick={handleReturnClick}
-          className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
-          style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '48px' }}
-          aria-label="Return device to creator"
-        >
-          <span aria-hidden="true">↩ </span>Return Device
-        </button>
-      </div>
+      {/* Top section — pinned to the top of the viewport. Holds the Return
+          button, the Live Collaboration card, the video player, and the
+          transport. Stays put while the editor below scrolls so the helper
+          can see edits update live without scrolling back up. */}
+      <div className="flex-shrink-0">
+        {/* Minimal top bar: just the Return Device button. The mode title,
+            Creator's Intent banner, and Task Queue are intentionally absent in
+            2a — the creator already spoke the request to the helper, so on-
+            screen task metadata is redundant. */}
+        <div className="mb-4">
+          <button
+            onClick={handleReturnClick}
+            className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all duration-150 active:scale-[0.98] focus:outline-2 focus:outline-offset-2 focus:outline-blue-400"
+            style={{ background: 'linear-gradient(135deg, #2B579A, #1e3f73)', boxShadow: '0 2px 8px rgba(43,87,154,0.3)', minHeight: '48px' }}
+            aria-label="Return device to creator"
+          >
+            <span aria-hidden="true">↩ </span>Return Device
+          </button>
+        </div>
 
-      {/* Live Collaboration Card */}
-      {handoverMode === 'live' && (
-        <div
-          role="region"
-          aria-label="Live collaboration"
-          className="rounded-2xl overflow-hidden mb-4"
-          style={{ border: '1px solid rgba(43,87,154,0.15)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
-        >
-          <div className="px-4 py-2.5" style={{ background: '#f0f6ff', borderBottom: '1px solid #dbe9fe' }}>
-            <h2 className="text-xs font-bold tracking-wider text-[#2B579A] uppercase">Live Collaboration</h2>
-          </div>
-          <div className="p-4 bg-white">
-            <div className="flex items-center gap-2.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: '0 0 6px rgba(16,185,129,0.4)' }} aria-hidden="true" />
-              <p className="text-sm font-medium text-[#1e3a5f]">
-                Creator is guiding you. Use the editor to make changes.
-              </p>
+        {/* Live Collaboration Card */}
+        {handoverMode === 'live' && (
+          <div
+            role="region"
+            aria-label="Live collaboration"
+            className="rounded-2xl overflow-hidden mb-4"
+            style={{ border: '1px solid rgba(43,87,154,0.15)', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+          >
+            <div className="px-4 py-2.5" style={{ background: '#f0f6ff', borderBottom: '1px solid #dbe9fe' }}>
+              <h2 className="text-xs font-bold tracking-wider text-[#2B579A] uppercase">Live Collaboration</h2>
+            </div>
+            <div className="p-4 bg-white">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" style={{ boxShadow: '0 0 6px rgba(16,185,129,0.4)' }} aria-hidden="true" />
+                <p className="text-sm font-medium text-[#1e3a5f]">
+                  Creator is guiding you. Use the editor to make changes.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Video Editor Card */}
-      <div role="region" aria-label="Video editor" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
-        <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
-          <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</h2>
-        </div>
-        <div className="flex flex-col">
+        {/* Video player card */}
+        <div
+          role="region"
+          aria-label="Video preview"
+          className="rounded-2xl overflow-hidden mb-4 bg-white"
+          style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}
+        >
           <div className="relative">
             <VideoPlayer
               ref={playerRef}
@@ -150,6 +156,7 @@ export default function HelperMode({
               videoTransform={videoTransform}
               renderTextOverlays={false}
               actor={Actors.HELPER}
+              maxHeight="32vh"
             />
             {textOverlays.map(overlay => (
               <TextOverlay
@@ -166,6 +173,20 @@ export default function HelperMode({
             currentTime={currentTime}
             duration={duration || videoDuration}
           />
+        </div>
+      </div>
+
+      {/* Editor tools — scrolls internally so the video stays pinned above. */}
+      <div
+        role="region"
+        aria-label="Editor tools"
+        className="flex-1 min-h-0 overflow-y-auto rounded-2xl"
+        style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+      >
+        <div className="px-4 py-2.5 sticky top-0 z-10" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
+          <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</h2>
+        </div>
+        <div className="flex flex-col">
           <MockEditorVisual
             segments={segments}
             initialSources={initialSources}

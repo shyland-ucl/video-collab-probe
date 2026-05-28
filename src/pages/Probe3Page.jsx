@@ -316,6 +316,11 @@ export default function Probe3Page() {
     return [...filteredPipeline, ...filteredSamples];
   }, [data, pipelineVideos, serverAssignments]);
 
+  // Mirror allVideos into a ref so the WS handler closure can read the
+  // current value when bootstrapping the helper from EDIT_STATE_UPDATE.
+  const allVideosRef = useRef([]);
+  useEffect(() => { allVideosRef.current = allVideos; }, [allVideos]);
+
   useEffect(() => {
     if (phase !== 'active') return;
     const interval = setInterval(() => {
@@ -440,6 +445,11 @@ export default function Probe3Page() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   const selectedVideosRef = useRef(selectedVideos);
   useEffect(() => { selectedVideosRef.current = selectedVideos; }, [selectedVideos]);
+  // Keep the resolved video pool reachable from the WS handler closure so the
+  // helper bootstrap can look up `suggestions` (and other rich fields the
+  // creator's EDIT_STATE_UPDATE doesn't carry) by id. Without this the helper
+  // rebuilds videos from sources/clips and AI suggestions disappear from the
+  // helper view (AIAnalysisTriggerCard reports "No suggestions surfaced").
 
   // Both creator and helper edit freely; see Probe2bPage.jsx for rationale.
   const handleEditChange = useCallback((clips, captions, sources, textOverlays) => {
@@ -782,13 +792,24 @@ export default function Probe3Page() {
                 end_time: clip.endTime,
               });
             }
-            const videos = sources.map((s) => ({
-              id: s.id,
-              title: s.name,
-              src: s.src,
-              duration: s.duration,
-              segments: clipsBySource.get(s.id) || [],
-            }));
+            // EDIT_STATE_UPDATE only carries source/clip metadata, not the
+            // suggestion bank. Look each source up in allVideos (the rich
+            // pool loaded from sample data + pipeline assignments) so the
+            // helper inherits the same `suggestions` the creator sees,
+            // otherwise AIAnalysisTriggerCard reports "No suggestions
+            // surfaced" even when the creator has them.
+            const knownById = new Map((allVideosRef.current || []).map((v) => [v.id, v]));
+            const videos = sources.map((s) => {
+              const known = knownById.get(s.id);
+              return {
+                id: s.id,
+                title: s.name,
+                src: s.src,
+                duration: s.duration,
+                segments: clipsBySource.get(s.id) || [],
+                suggestions: known?.suggestions || [],
+              };
+            });
             setSelectedVideos(videos);
             setSessionGuide(buildProjectStats({
               projectData: { videos },
@@ -1056,6 +1077,32 @@ export default function Probe3Page() {
     if (phase === 'waiting' && connected) setPhase('library');
   }, [phase, connected]);
 
+  // Helper-side: if we bootstrapped from EDIT_STATE_UPDATE before allVideos
+  // had loaded (pipeline fetch still pending), the resulting video objects
+  // have empty `suggestions` and AIAnalysisTriggerCard reports "No
+  // suggestions surfaced". When allVideos later resolves, retroactively
+  // merge the suggestion bank in by id so the helper's view matches the
+  // creator's. No-op for the creator (whose selectedVideos always come
+  // from the rich allVideos pool).
+  useEffect(() => {
+    if (role !== 'helper') return;
+    if (!Array.isArray(selectedVideos) || selectedVideos.length === 0) return;
+    if (typeof selectedVideos[0] === 'string') return;
+    if (!allVideos || allVideos.length === 0) return;
+    const knownById = new Map(allVideos.map((v) => [v.id, v]));
+    let mutated = false;
+    const next = selectedVideos.map((v) => {
+      const existing = Array.isArray(v.suggestions) ? v.suggestions : [];
+      if (existing.length > 0) return v;
+      const known = knownById.get(v.id);
+      const incoming = known?.suggestions;
+      if (!incoming || incoming.length === 0) return v;
+      mutated = true;
+      return { ...v, suggestions: incoming };
+    });
+    if (mutated) setSelectedVideos(next);
+  }, [role, selectedVideos, allVideos]);
+
   // Resolve video IDs from PROJECT_CREATED
   useEffect(() => {
     if (selectedVideos && Array.isArray(selectedVideos) && typeof selectedVideos[0] === 'string') {
@@ -1150,7 +1197,7 @@ export default function Probe3Page() {
     };
     setPendingAIRequest(request);
     wsRelayService.sendData({ type: 'AI_EDIT_REQUEST', request });
-    announce('AI is preparing the edit. Researcher is reviewing.');
+    announce('AI is preparing the edit.');
     return new Promise((resolve) => {
       aiEditResolverRef.current = resolve;
     });
@@ -1269,7 +1316,7 @@ export default function Probe3Page() {
           timestamp: Date.now(),
         },
       }));
-      announce('AI is preparing the fix. Researcher is reviewing.');
+      announce('AI is preparing the fix.');
     }
     setDeployedSuggestions((prev) => ({
       ...prev,
@@ -1329,10 +1376,6 @@ export default function Probe3Page() {
       suggestionId,
     });
   }, [logEvent, pendingAIRequest]);
-
-  const handleApplyEdit = useCallback((editAction) => {
-    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
-  }, [logEvent]);
 
   const handleManualSync = useCallback((action) => {
     if (!playerRef.current) return;
@@ -1552,11 +1595,8 @@ export default function Probe3Page() {
           />
         </div>
       ) : (
-        <div
-          className="fixed inset-0 bg-white overflow-y-auto"
-          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
-        >
-          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
+        <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 max-w-lg mx-auto w-full p-3">
             <HelperDevice
               videoRef={playerRef}
               videoData={projectData}
@@ -1607,7 +1647,6 @@ export default function Probe3Page() {
             segment={currentSegment}
             pendingRequest={pendingAIRequest}
             onSendResponse={handleAIEditResponse}
-            onApplyEdit={handleApplyEdit}
           />
           <ResearcherSuggestionPanel
             suggestions={videoSuggestions}

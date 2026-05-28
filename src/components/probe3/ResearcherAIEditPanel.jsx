@@ -5,14 +5,6 @@ import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../../utils/eventTypes.js';
 import MockColourControls from '../shared/MockColourControls.jsx';
 
-const ACTIONS = [
-  { key: 'trim_start', label: 'Trim Start' },
-  { key: 'split', label: 'Split' },
-  { key: 'delete', label: 'Delete' },
-  { key: 'reorder', label: 'Reorder' },
-  { key: 'add_caption', label: 'Add Caption' },
-];
-
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were', 'be', 'to',
   'of', 'in', 'on', 'at', 'for', 'with', 'this', 'that', 'it', 'i', 'you',
@@ -44,11 +36,9 @@ export default function ResearcherAIEditPanel({
   segment,
   pendingRequest,
   onSendResponse,
-  onApplyEdit,
   showVisualOverride = true,
 }) {
   const [customResponse, setCustomResponse] = useState('');
-  const [selectedAction, setSelectedAction] = useState(null);
   const [sending, setSending] = useState(false);
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState(null);
@@ -96,7 +86,6 @@ export default function ResearcherAIEditPanel({
   useEffect(() => {
     if (pendingRequest) {
       setCustomResponse('');
-      setSelectedAction(null);
       setDraftError(null);
       setShowAllPrepared(false);
     }
@@ -128,9 +117,8 @@ export default function ResearcherAIEditPanel({
 
   const visiblePrepared = showAllPrepared ? preparedEntries : rankedPrepared;
 
-  const populateFromPrepared = useCallback((key, responseText) => {
+  const populateFromPrepared = useCallback((responseText) => {
     setCustomResponse(responseText || '');
-    setSelectedAction(key);
     setDraftError(null);
   }, []);
 
@@ -142,7 +130,6 @@ export default function ResearcherAIEditPanel({
       const desc = segment?.descriptions?.level_2 || segment?.descriptions?.level_1 || '';
       const draft = await draftAIEditResponse(pendingRequest.instruction, desc);
       setCustomResponse(draft.description);
-      setSelectedAction(draft.action);
     } catch (err) {
       setDraftError(err?.message || 'Gemini draft failed');
     } finally {
@@ -157,13 +144,11 @@ export default function ResearcherAIEditPanel({
     // Artificial 2–3 s delay so the response feels like AI thinking.
     const delay = 2000 + Math.random() * 1000;
     setTimeout(() => {
-      onSendResponse?.(text, selectedAction || 'success');
-      if (selectedAction) onApplyEdit?.(selectedAction);
+      onSendResponse?.(text, 'success');
       setCustomResponse('');
-      setSelectedAction(null);
       setSending(false);
     }, delay);
-  }, [customResponse, selectedAction, sending, onSendResponse, onApplyEdit]);
+  }, [customResponse, sending, onSendResponse]);
 
   return (
     <div className="space-y-4">
@@ -209,7 +194,7 @@ export default function ResearcherAIEditPanel({
               <div key={editType} className="flex flex-col gap-1">
                 <button
                   type="button"
-                  onClick={() => populateFromPrepared(editType, data.response)}
+                  onClick={() => populateFromPrepared(data.response)}
                   className="w-full text-left px-3 py-2 rounded border border-gray-200 bg-white text-sm hover:bg-green-50 hover:border-green-300 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-green-500"
                   title={data.response}
                   aria-label={`Use prepared response for ${editType}: ${data.response}`}
@@ -220,7 +205,7 @@ export default function ResearcherAIEditPanel({
                 {data.partial && (
                   <button
                     type="button"
-                    onClick={() => populateFromPrepared(editType, data.partial)}
+                    onClick={() => populateFromPrepared(data.partial)}
                     className="w-full text-left px-3 py-2 rounded border border-gray-200 bg-white text-sm hover:bg-amber-50 hover:border-amber-300 transition-colors focus:outline-2 focus:outline-offset-1 focus:outline-amber-500"
                     title={data.partial}
                     aria-label={`Use partial response for ${editType}: ${data.partial}`}
@@ -273,35 +258,6 @@ export default function ResearcherAIEditPanel({
         />
       </div>
 
-      {/* Action chips — single-select, auto-set when a prepared response is chosen */}
-      <div>
-        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-          Suggested action <span className="font-normal text-gray-400">(applied alongside the response)</span>
-        </p>
-        <div className="flex flex-wrap gap-1.5">
-          {ACTIONS.map((a) => {
-            const active = selectedAction === a.key;
-            return (
-              <button
-                key={a.key}
-                type="button"
-                onClick={() => setSelectedAction(active ? null : a.key)}
-                className={[
-                  'px-3 py-1.5 rounded border text-sm transition-colors',
-                  'focus:outline-2 focus:outline-offset-1 focus:outline-blue-500',
-                  active
-                    ? 'border-blue-500 bg-blue-50 text-blue-700 font-semibold'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-blue-50 hover:border-blue-300',
-                ].join(' ')}
-                aria-pressed={active}
-              >
-                {a.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Send */}
       <div className="flex items-center gap-2">
         <button
@@ -316,8 +272,8 @@ export default function ResearcherAIEditPanel({
         </button>
         <button
           type="button"
-          onClick={() => { setCustomResponse(''); setSelectedAction(null); }}
-          disabled={sending || (!customResponse && !selectedAction)}
+          onClick={() => setCustomResponse('')}
+          disabled={sending || !customResponse}
           className="px-3 py-2 rounded text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 focus:outline-2 focus:outline-offset-2"
           aria-label="Clear response"
         >

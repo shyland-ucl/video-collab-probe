@@ -96,7 +96,7 @@ export default function DecoupledHelperDevice({
   }, [onSeek, sendActivity]);
 
   return (
-    <div>
+    <div className="flex-1 flex flex-col min-h-0">
       {/* Peer edit toast notification */}
       {toastVisible && (
         <div
@@ -114,6 +114,54 @@ export default function DecoupledHelperDevice({
         </div>
       )}
 
+      {/* Top section — pinned. Holds the video preview so the helper can
+          see edits update live while scrolling the activity feed and editor
+          tools below. */}
+      <div className="flex-shrink-0 mb-4">
+        <div
+          role="region"
+          aria-label="Video preview"
+          className="rounded-2xl overflow-hidden bg-white"
+          style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}
+        >
+          <div className="relative">
+            <VideoPlayer
+              ref={videoRef}
+              src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
+              segments={segments}
+              onTimeUpdate={onTimeUpdate}
+              onSegmentChange={onSegmentChange}
+              editState={playbackEditState || editState}
+              videoFilter={videoFilter}
+              videoTransform={videoTransform}
+              renderTextOverlays={false}
+              actor={Actors.HELPER}
+              maxHeight="32vh"
+            />
+            {textOverlays.map(overlay => (
+              <TextOverlay
+                key={overlay.id}
+                overlay={overlay}
+                isEditing={overlay.id === activeOverlayId}
+                onMove={handleTextMove}
+              />
+            ))}
+          </div>
+          <TransportControls
+            playerRef={videoRef}
+            isPlaying={isPlaying}
+            currentTime={currentTime}
+            duration={duration || videoDuration}
+          />
+        </div>
+      </div>
+
+      {/* Scrollable section — children, intent banner, activity feed,
+          editor controls. The video above stays put as this scrolls. */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto"
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
+      >
       {/* Probe-specific extensions at top (e.g., suggestion routed tasks in Probe 3) */}
       {children}
 
@@ -160,40 +208,14 @@ export default function DecoupledHelperDevice({
         />
       </div>
 
-      {/* Video Editor Card */}
-      <div role="region" aria-label="Video editor" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
+      {/* Editor tools card — video preview is already pinned at the top of
+          the parent flex column, so this card just hosts the editor controls
+          and the segment marker panel. */}
+      <div role="region" aria-label="Editor tools" className="rounded-2xl overflow-hidden" style={{ border: '1px solid #dfe4ea', boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.03)' }}>
         <div className="px-4 py-2.5" style={{ background: '#f8f9fb', borderBottom: '1px solid #eef2f7' }}>
           <h2 className="text-xs font-bold tracking-wider text-[#64748b] uppercase">Video Editor</h2>
         </div>
         <div className="flex flex-col">
-          <div className="relative">
-            <VideoPlayer
-              ref={videoRef}
-              src={videoData?.video?.src || videoData?.videos?.[0]?.src || null}
-              segments={segments}
-              onTimeUpdate={onTimeUpdate}
-              onSegmentChange={onSegmentChange}
-              editState={playbackEditState || editState}
-              videoFilter={videoFilter}
-              videoTransform={videoTransform}
-              renderTextOverlays={false}
-              actor={Actors.HELPER}
-            />
-            {textOverlays.map(overlay => (
-              <TextOverlay
-                key={overlay.id}
-                overlay={overlay}
-                isEditing={overlay.id === activeOverlayId}
-                onMove={handleTextMove}
-              />
-            ))}
-          </div>
-          <TransportControls
-            playerRef={videoRef}
-            isPlaying={isPlaying}
-            currentTime={currentTime}
-            duration={duration || videoDuration}
-          />
           <MockEditorVisual
             segments={segments}
             initialSources={initialSources}
@@ -222,6 +244,7 @@ export default function DecoupledHelperDevice({
         />
       )}
 
+      </div>
     </div>
   );
 }

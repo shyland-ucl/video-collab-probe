@@ -950,7 +950,7 @@ export default function Probe2bPage() {
     };
     setPendingAIRequest(request);
     wsRelayService.sendData({ type: 'AI_EDIT_REQUEST', request });
-    announce('AI is preparing the edit. Researcher is reviewing.');
+    announce('AI is preparing the edit.');
     return new Promise((resolve) => {
       aiEditResolverRef.current = resolve;
     });
@@ -1000,10 +1000,6 @@ export default function Probe2bPage() {
     }
     // Cross-device path: relay to the participant.
     wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
-  }, [logEvent]);
-
-  const handleApplyEdit = useCallback((editAction) => {
-    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
   }, [logEvent]);
 
   const modeLabel = role
@@ -1173,11 +1169,8 @@ export default function Probe2bPage() {
           />
         </div>
       ) : (
-        <div
-          className="fixed inset-0 bg-white overflow-y-auto"
-          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
-        >
-          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
+        <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 max-w-lg mx-auto w-full p-3">
             <DecoupledHelperDevice
               condition="probe2b"
               accentColor={COLORS.green}
@@ -1219,7 +1212,6 @@ export default function Probe2bPage() {
             segment={currentSegment}
             pendingRequest={pendingAIRequest}
             onSendResponse={handleAIEditResponse}
-            onApplyEdit={handleApplyEdit}
           />
         </div>
       )}

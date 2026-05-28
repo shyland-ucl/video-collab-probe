@@ -468,8 +468,14 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
   const prevTextOverlays = prevState?.textOverlays || [];
   const nextTextOverlays = nextState?.textOverlays || [];
 
-  let actionText = 'updated the project';
-  let promptText = 'Check the timeline to review the latest version.';
+  // Start empty so we can tell "I detected a real change" apart from "nothing
+  // changed but I have to return something". The participant pages key the
+  // toast + announce on hasSummaryText; an empty summary stays silent, which
+  // matters because a spurious EDIT_STATE_UPDATE re-broadcast (e.g. dashboard
+  // remounting on tab switch) used to trigger TalkBack to read "AI updated
+  // the project" even though nothing actually changed.
+  let actionText = '';
+  let promptText = '';
 
   if (nextSources.length > prevSources.length) {
     actionText = 'imported new footage';
@@ -562,6 +568,18 @@ export function summarizeEditStateChange(prevState, nextState, actorLabel = 'Col
     captionCount: nextCaptions.length,
     textOverlayCount: nextTextOverlays.length,
   });
+
+  // No mutation detected — return an empty summary so the participant page's
+  // hasSummaryText check drops the toast + TalkBack announcement.
+  if (!actionText) {
+    return {
+      actionText: '',
+      shortText: '',
+      overviewText,
+      promptText: '',
+      announcement: '',
+    };
+  }
 
   return {
     actionText,

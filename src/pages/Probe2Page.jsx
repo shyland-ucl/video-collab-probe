@@ -623,7 +623,7 @@ export default function Probe2Page() {
     };
     setPendingAIRequest(request);
     wsRelayService.sendData({ type: 'AI_EDIT_REQUEST', request });
-    announce('AI is preparing the edit. Researcher is reviewing.');
+    announce('AI is preparing the edit.');
     return new Promise((resolve) => {
       aiEditResolverRef.current = resolve;
     });
@@ -646,10 +646,6 @@ export default function Probe2Page() {
     // messages to participants/creator/helper, never back to the sender,
     // so this is safe even when the researcher is also a participant.
     wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
-  }, [logEvent]);
-
-  const handleApplyEdit = useCallback((editAction) => {
-    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
   }, [logEvent]);
 
   // Applies an operation key (AI accept OR self-edit button) against the
@@ -1001,14 +997,10 @@ export default function Probe2Page() {
           )}
         </div>
       ) : (
-        <div
-          className="fixed inset-0 bg-white overflow-y-auto"
-          style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
-        >
-          <div className="p-3 max-w-lg mx-auto w-full min-h-full pb-8">
-            <ConditionHeader condition="probe2" modeLabel={modeLabel} />
+        <div className="fixed inset-0 flex flex-col bg-white overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 max-w-lg mx-auto w-full p-3">
             <OnboardingBrief
-              pageTitle="Probe 2a: Shared Device — Helper"
+              pageTitle="Helper"
               description="The creator has handed you the phone with a task. Check the task description at the top to see what they want. Use the video editor, colour sliders, and framing tools below to make changes. When you are done, tap Return Device and describe what you did."
             />
             <HelperMode
@@ -1064,7 +1056,6 @@ export default function Probe2Page() {
             segment={currentSegment}
             pendingRequest={pendingAIRequest}
             onSendResponse={handleAIEditResponse}
-            onApplyEdit={handleApplyEdit}
           />
           <ResearcherHandoverPanel onTriggerSuggestion={handleTriggerSuggestion} currentMode={mode} />
         </div>

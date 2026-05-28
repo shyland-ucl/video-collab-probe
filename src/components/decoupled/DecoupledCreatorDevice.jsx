@@ -187,9 +187,13 @@ export default function DecoupledCreatorDevice({
   return (
     <div>
       {projectUpdate && (
+        // Visual-only toast. The page already calls announce() with the same
+        // summary on EDIT_STATE_UPDATE, so making this a live region too made
+        // TalkBack read every project update twice. aria-hidden so the toast
+        // stays out of the AT tree; the global #sr-announcer is the single
+        // channel for screen-reader feedback on edits.
         <div
-          role="status"
-          aria-live="polite"
+          aria-hidden="true"
           className="rounded-2xl overflow-hidden mb-4 bg-white"
           style={{ border: `1px solid ${accentColor}40`, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
         >

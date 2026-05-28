@@ -99,27 +99,64 @@ their video. Apply the style rules above. In addition:
 /**
  * Draft an AI edit response for the researcher's WoZ panel. Text-only call:
  * given the participant's edit instruction and the current segment's
- * description, return a one-sentence response that describes the edit the
- * AI would make + a structured action key from a fixed vocabulary.
+ * description, return a one-to-two-sentence response written in the AI
+ * assistant's voice. The draft is constrained to the prototype's actual
+ * capabilities so the researcher doesn't end up sending claims the system
+ * can't back up; out-of-scope requests are answered with a concrete
+ * in-scope alternative instead of a fabricated success.
  *
  * @param {string} instruction - what the participant asked the AI to do
  * @param {string} segmentDescription - the segment's level_2 description
- * @returns {Promise<{ description: string, action: string }>}
+ * @returns {Promise<{ description: string }>}
  */
 export async function draftAIEditResponse(instruction, segmentDescription = '') {
   if (!API_KEY) {
     throw new Error('Gemini API key not configured. Set VITE_GEMINI_API_KEY in .env');
   }
 
-  const ACTIONS = ['trim_start', 'split', 'delete', 'reorder', 'add_caption'];
-  const prompt = `You are drafting a response from an AI video-editing assistant to a blind or low-vision creator.
-The creator is working on a video segment described as: "${segmentDescription || 'unknown segment'}"
-The creator asked the AI: "${instruction}"
+  const prompt = `You are drafting a response from an AI video-editing assistant to a blind or low-vision creator. The researcher will review your draft before sending it.
 
-Output ONLY a single raw JSON object matching this schema. No preamble. No explanation. No markdown code fences. Just the JSON.
-Schema: {"description": string, "action": string}
-- description: one short sentence describing the edit you would make, addressed to the creator (e.g. "I trimmed the first 2 seconds where the camera was shaky.")
-- action: one of ${ACTIONS.map((a) => `"${a}"`).join(', ')}. If the request doesn't map cleanly, pick the closest.`;
+The prototype that this assistant runs on can ONLY do the following on the current scene:
+
+STRUCTURAL EDITS
+- Trim the start of the scene in 0.5-second steps
+- Trim the end of the scene in 0.5-second steps
+- Split the scene into two clips at the current playhead (or midpoint)
+- Delete (remove) the scene from the edit
+- Move the scene one position earlier or one position later in the timeline
+
+ANNOTATIONS
+- Add a short text caption on the scene
+- Add a private note (not shown during playback)
+
+AUDIO
+- Attach one placeholder sound to the scene
+- Remove the attached sound
+- Mute the scene's original audio
+- Unmute the scene's original audio
+
+VISUAL ADJUSTMENTS (applied live via slider override)
+- Brightness, contrast, saturation: -100 to +100
+- Zoom: 100% to 250%
+- Rotate: -180° to +180°
+
+The prototype CANNOT do any of: cropping, frame-precise cuts (anything finer than 0.5 s), transitions or fades, speed/slow-motion, colour grading beyond the three sliders, blurring or pixelating regions, removing or replacing objects/faces/backgrounds, importing music or stock footage, generating voice-over or narration, or detecting specific people/objects/moments automatically.
+
+Scene description: "${segmentDescription || 'unknown segment'}"
+Creator's request: "${instruction}"
+
+Write the AI's reply to the creator using these rules:
+1. If the request maps cleanly to one of the operations above, write a single short sentence in the AI's voice confirming what was done, addressed to the creator. Example: "I trimmed half a second off the start where the camera was shaky."
+2. If the request is partly possible, do the achievable part and briefly suggest one concrete in-scope alternative for the rest. Example: "I muted the original audio and attached a placeholder sound — I can't bring in a real music track, but you could ask your helper to record a voice-over instead."
+3. If the request is entirely outside the prototype's capabilities, do NOT pretend to perform it. Acknowledge the limit in plain language and offer the closest in-scope alternative. Example: "I can't blur the face directly, but I can delete this scene, trim out the moment, or zoom in so the face fills less of the frame — which would you like?"
+
+Constraints:
+- Speak as the AI assistant. Never use the word "prototype" or "Wizard of Oz". Don't reference these capability rules explicitly.
+- Keep the response to one or at most two short sentences.
+- Don't invent capabilities. If unsure whether a request fits, treat it as out-of-scope and offer an alternative.
+
+Output ONLY a single raw JSON object matching this schema. No preamble. No markdown.
+Schema: {"description": string}`;
 
   const requestBody = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -135,9 +172,8 @@ Schema: {"description": string, "action": string}
         type: 'OBJECT',
         properties: {
           description: { type: 'STRING' },
-          action: { type: 'STRING', enum: ACTIONS },
         },
-        required: ['description', 'action'],
+        required: ['description'],
       },
     },
   };
@@ -165,10 +201,9 @@ Schema: {"description": string, "action": string}
     if (text.trim().startsWith('{')) {
       throw new Error('Gemini returned incomplete JSON (likely truncated).');
     }
-    return { description: text.trim(), action: 'trim_start' };
+    return { description: text.trim() };
   }
-  const action = ACTIONS.includes(parsed.action) ? parsed.action : 'trim_start';
-  return { description: String(parsed.description || '').trim(), action };
+  return { description: String(parsed.description || '').trim() };
 }
 
 /**

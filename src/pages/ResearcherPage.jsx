@@ -251,6 +251,11 @@ export default function ResearcherPage() {
     };
     setMirrorEditState(newState);
     const changeSummary = summarizeEditStateChange(previous, newState, 'AI');
+    // No real mutation — skip the broadcast and the AI_EDIT_APPLIED log.
+    // Without this, MockEditorVisual remounting on tab switch can fire an
+    // onEditChange with structurally-identical state, which the participant
+    // device used to read aloud as "AI updated the project" via TalkBack.
+    if (!changeSummary.actionText) return;
     wsRelayService.sendData({
       type: 'EDIT_STATE_UPDATE',
       editState: newState,
@@ -297,10 +302,6 @@ export default function ResearcherPage() {
       source: 'researcher_dashboard', response: responseText, responseType,
     });
     wsRelayService.sendData({ type: 'AI_EDIT_RESPONSE', text: responseText, responseType });
-  }, [logEvent]);
-
-  const handleAIEditApply = useCallback((editAction) => {
-    logEvent(EventTypes.AI_EDIT_APPLIED, Actors.RESEARCHER, { action: editAction });
   }, [logEvent]);
 
   useEffect(() => {
@@ -554,7 +555,6 @@ export default function ResearcherPage() {
         segment={aiEditSegment}
         pendingRequest={pendingAIRequest}
         onSendResponse={handleAIEditSendResponse}
-        onApplyEdit={handleAIEditApply}
         showVisualOverride={false}
       />
     </div>
