@@ -13,6 +13,14 @@
 
 const TRIM_STEP_SECONDS = 0.5;
 
+// Monotonic suffix so ids generated within the same millisecond don't collide
+// (Date.now() alone repeats within a tick for rapid split/caption/note actions,
+// which would produce duplicate React keys and clip ids).
+let _idSeq = 0;
+function uniqueSuffix() {
+  return `${Date.now()}-${(_idSeq++).toString(36)}`;
+}
+
 export function trimClipStart(editState, sceneId, direction) {
   // direction: +1 trims more from start (clip becomes shorter from the front),
   //            -1 untrims (clip recovers length up to original start).
@@ -46,7 +54,7 @@ export function splitClip(editState, sceneId, splitTime) {
   const first = { ...clip, endTime: at, trimEnd: 0 };
   const second = {
     ...clip,
-    id: `${clip.id}-split-${Date.now()}`,
+    id: `${clip.id}-split-${uniqueSuffix()}`,
     startTime: at,
     trimStart: 0,
   };
@@ -73,7 +81,7 @@ export function addCaption(editState, sceneId, text) {
   const clip = (editState.clips || []).find((c) => c.id === sceneId);
   if (!clip) return editState;
   const caption = {
-    id: `caption-${Date.now()}`,
+    id: `caption-${uniqueSuffix()}`,
     sceneId,
     text: clean,
     startTime: clip.startTime,
@@ -92,7 +100,7 @@ export function addNote(editState, sceneId, text) {
   const clean = (text || '').trim();
   if (!clean) return editState;
   const note = {
-    id: `note-${Date.now()}`,
+    id: `note-${uniqueSuffix()}`,
     sceneId,
     text: clean,
     timestamp: Date.now(),
@@ -233,7 +241,7 @@ export function applyOperation(editState, sceneId, operation, options = {}) {
       return moveClip(editState, sceneId, 'up');
     case 'move_later':
     case 'move_down':
-      return moveClip(editState, sceneId, options.direction === 'down' ? 'down' : 'down');
+      return moveClip(editState, sceneId, 'down');
     case 'add_caption':
     case 'caption':
       return addCaption(editState, sceneId, options.captionText || 'AI-added caption');

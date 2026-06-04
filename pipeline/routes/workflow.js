@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import { runFootageWorkflow } from '../services/geminiWorkflow.js';
+import { validateIdParam } from '../services/validate.js';
 
 const router = Router();
+
+// projectId is interpolated into filesystem paths — reject path-unsafe ids.
+router.param('projectId', validateIdParam('projectId'));
 
 router.post('/:projectId/run_workflow', async (req, res) => {
   try {

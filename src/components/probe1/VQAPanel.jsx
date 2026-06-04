@@ -56,9 +56,12 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
 
     const videoEl = playerRef?.current?.video;
     if (videoEl) {
-      const frame = captureFrame(videoEl);
       const segDesc = currentSegment?.descriptions?.level_1 || '';
-      askGemini(frame, text, { segmentDescription: segDesc })
+      // captureFrame can throw (tainted canvas / no 2D context); run it inside
+      // the promise chain so the existing .catch handles it gracefully.
+      Promise.resolve()
+        .then(() => captureFrame(videoEl))
+        .then((frame) => askGemini(frame, text, { segmentDescription: segDesc }))
         .then((answer) => {
           if (answeredRef.current) return;
           answeredRef.current = true;
@@ -66,8 +69,12 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
           setThinking(false);
           setMessages((prev) => [...prev, { role: 'ai', text: answer, source: 'gemini' }]);
           logEvent(EventTypes.VQA_ANSWER, Actors.AI, { answer, source: 'gemini' });
+          // Single announcement channel: spoken aloud when audio is enabled,
+          // otherwise pushed to the screen-reader live region.
           if (audioEnabled) {
             ttsService.speak(answer, { rate: speechRate });
+          } else {
+            announce(answer);
           }
         })
         .catch((err) => {
@@ -118,11 +125,13 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col" style={{ maxHeight: '400px' }}>
       {/* Messages */}
+      {/* Not a live region: answers are announced exactly once via TTS (when
+          audio is enabled) or the global #sr-announcer (otherwise). A live
+          region here plus the per-answer announce would double-read. */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-3 space-y-2"
         style={{ minHeight: '120px' }}
-        aria-live="polite"
         aria-label="Conversation"
       >
         {messages.length === 0 && !thinking && (
@@ -142,7 +151,6 @@ export default function VQAPanel({ onQuestion, playerRef, currentSegment }) {
                   : 'bg-gray-100 text-gray-800'
               }`}
               style={msg.role === 'user' ? { backgroundColor: '#2B579A' } : undefined}
-              role={msg.role === 'ai' ? 'status' : undefined}
               aria-label={msg.role === 'ai' ? `Answer: ${msg.text}` : `Your question: ${msg.text}`}
             >
               {msg.text}

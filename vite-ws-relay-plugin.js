@@ -90,11 +90,24 @@ export default function wsRelayPlugin() {
 
           if (msg.type === 'JOIN') {
             role = msg.role;
+            // If the slot is already held by a different, still-open socket
+            // (typically a stale tab that never fired 'close'), evict it
+            // cleanly before taking over — otherwise the old socket is orphaned
+            // (still counted as present) and pairing can wedge.
+            const evictStale = (current) => {
+              if (current && current !== ws && current.readyState === 1) {
+                logRelay(`EVICT (replaced by new ${role} JOIN)`);
+                try { current.terminate(); } catch { /* already closing */ }
+              }
+            };
             if (role === 'creator') {
+              evictStale(creator);
               creator = ws;
             } else if (role === 'helper') {
+              evictStale(helper);
               helper = ws;
             } else if (role === 'researcher') {
+              evictStale(researcher);
               researcher = ws;
             } else if (role === 'participant') {
               participants.add(ws);
@@ -167,6 +180,14 @@ export default function wsRelayPlugin() {
       }, PING_INTERVAL_MS);
 
       wss.on('close', () => clearInterval(heartbeat));
+
+      // Tear down the heartbeat and the WebSocketServer when the dev server
+      // closes (restart / HMR), so we don't leak an interval or a dangling
+      // WebSocketServer across reloads.
+      server.httpServer?.on('close', () => {
+        clearInterval(heartbeat);
+        try { wss.close(); } catch { /* already closed */ }
+      });
 
       // Intercept HTTP upgrade requests on the /__ws_relay path
       server.httpServer.on('upgrade', (req, socket, head) => {

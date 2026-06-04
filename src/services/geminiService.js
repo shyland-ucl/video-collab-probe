@@ -21,9 +21,19 @@ export function captureFrame(videoElement) {
   canvas.width = videoElement.videoWidth || 640;
   canvas.height = videoElement.videoHeight || 360;
   const ctx = canvas.getContext('2d');
-  ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-  return dataUrl.split(',')[1]; // Return just the base64 part
+  if (!ctx) {
+    throw new Error('Could not capture the current frame (no 2D canvas context).');
+  }
+  try {
+    ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+    // toDataURL throws a SecurityError if the video element is cross-origin
+    // "tainted". Convert that into a clean, catchable error rather than an
+    // opaque throw that surfaces to the BLV user mid-VQA.
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+    return dataUrl.split(',')[1]; // Return just the base64 part
+  } catch {
+    throw new Error('Could not capture the current frame from this video.');
+  }
 }
 
 /**

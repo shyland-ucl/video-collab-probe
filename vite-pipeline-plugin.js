@@ -9,6 +9,7 @@ import { getVideoMeta, segmentVideo, resegment } from './pipeline/services/segme
 import { generateDescriptions, generateVideoMeta } from './pipeline/services/geminiDescriptions.js';
 import { readAssignments, writeAssignments } from './pipeline/services/assignmentsStore.js';
 import workflowRouter from './pipeline/routes/workflow.js';
+import { isValidProjectId, isValidSegmentId, validateIdParam } from './pipeline/services/validate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,6 +52,12 @@ export default function pipelinePlugin() {
       app.locals.workspace = WORKSPACE;
       app.use(express.json());
 
+      // Every :id / :segId here is interpolated into a filesystem path
+      // (path.join(WORKSPACE, id, ...)). Reject path-unsafe values before any
+      // handler runs, so "../" can't escape the workspace (read/write/delete).
+      app.param('id', validateIdParam('id'));
+      app.param('segId', validateIdParam('segId'));
+
       // Multer for file uploads
       const upload = multer({
         dest: path.join(WORKSPACE, '.tmp'),
@@ -63,10 +70,6 @@ export default function pipelinePlugin() {
           cb(null, true);
         },
       });
-
-      function isValidProjectId(id) {
-        return /^[a-zA-Z0-9_-]{1,64}$/.test(id);
-      }
 
       // ── Health ──
       app.get('/health', (req, res) => {
@@ -171,6 +174,18 @@ export default function pipelinePlugin() {
           const { id } = req.params;
           const { segments } = req.body;
           if (!Array.isArray(segments)) return res.status(400).json({ error: 'segments must be an array.' });
+
+          // Validate the body before it's persisted or fed to ffmpeg.
+          for (const s of segments) {
+            if (!s || !isValidSegmentId(s.id)) {
+              return res.status(400).json({ error: `Invalid segment id: ${s?.id}` });
+            }
+            const start = Number(s.start_seconds);
+            const end = Number(s.end_seconds);
+            if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < 0) {
+              return res.status(400).json({ error: `Invalid boundaries for segment ${s.id}.` });
+            }
+          }
 
           const project = await readProject(WORKSPACE, id);
           const projectDir = path.join(WORKSPACE, id);
@@ -347,6 +362,18 @@ export default function pipelinePlugin() {
       });
 
       app.use('/projects', workflowRouter);
+
+      // Error handler (must be last, 4-arg signature). Without it, a rejected
+      // upload (oversized, non-.mp4) returns a default HTML 500 and leaves the
+      // multer temp file on disk. Return JSON and clean up.
+      // eslint-disable-next-line no-unused-vars
+      app.use((err, req, res, next) => {
+        if (req.file?.path) {
+          fs.unlink(req.file.path).catch(() => {});
+        }
+        const status = err?.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+        res.status(status).json({ error: err?.message || 'Request failed.' });
+      });
 
       // ── Serve workspace files (videos, keyframes) ──
       // Must be mounted BEFORE the Express app so it doesn't get caught by Express 404

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEventLogger } from '../contexts/EventLoggerContext.jsx';
 import { EventTypes, Actors } from '../utils/eventTypes.js';
@@ -74,6 +74,11 @@ export default function SessionSetupPage() {
     setWaiting(true);
   }, [dyadId, logEvent, setCondition]);
 
+  const waitingHeadingRef = useRef(null);
+  useEffect(() => {
+    if (waiting) waitingHeadingRef.current?.focus();
+  }, [waiting]);
+
   if (waiting) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -88,8 +93,12 @@ export default function SessionSetupPage() {
               <path d="M12 6v6l4 2" />
             </svg>
           </div>
+          {/* Focused on entering the waiting state so keyboard/SR focus isn't
+              dropped to <body> when the Start button unmounts. */}
           <h1
-            className="text-xl font-bold mb-2"
+            ref={waitingHeadingRef}
+            tabIndex={-1}
+            className="text-xl font-bold mb-2 focus:outline-none"
             style={{ color: '#1F3864' }}
           >
             Ready

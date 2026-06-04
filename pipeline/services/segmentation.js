@@ -1,15 +1,23 @@
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
 import ffmpegPath from 'ffmpeg-static';
 import { path as ffprobePath } from 'ffprobe-static';
+import { safeJoinWithin } from './validate.js';
 
-const execAsync = promisify(exec);
+// execFile (argv array, no shell) instead of exec (shell string). This makes
+// command injection structurally impossible: arguments are never parsed by a
+// shell, so values like `0 -i x; rm -rf /` are passed verbatim to ffmpeg as a
+// single argument rather than executed.
+const execFileAsync = promisify(execFile);
 
-// Use bundled ffmpeg/ffprobe binaries
-const FFMPEG = `"${ffmpegPath}"`;
-const FFPROBE = `"${ffprobePath}"`;
+// Bundled ffmpeg/ffprobe binaries (absolute paths from the static packages).
+const FFMPEG = ffmpegPath;
+const FFPROBE = ffprobePath;
+
+// ffmpeg/ffprobe can emit large progress output on stderr for long inputs.
+const EXEC_OPTS = { maxBuffer: 64 * 1024 * 1024 };
 
 /**
  * Get video metadata via FFprobe.
@@ -17,8 +25,10 @@ const FFPROBE = `"${ffprobePath}"`;
  * @returns {Promise<{duration: number, width: number, height: number, fps: number, size: number}>}
  */
 export async function getVideoMeta(filePath) {
-  const { stdout } = await execAsync(
-    `${FFPROBE} -v quiet -print_format json -show_format -show_streams "${filePath}"`
+  const { stdout } = await execFileAsync(
+    FFPROBE,
+    ['-v', 'quiet', '-print_format', 'json', '-show_format', '-show_streams', filePath],
+    EXEC_OPTS
   );
   const info = JSON.parse(stdout);
   const videoStream = info.streams.find(s => s.codec_type === 'video') || {};
@@ -26,12 +36,24 @@ export async function getVideoMeta(filePath) {
   const [num, den] = fpsRatio.split('/').map(Number);
   const stat = await fs.stat(filePath);
 
+  // Some containers omit format.duration; fall back to the video stream's
+  // duration. If neither is a positive number, fail loudly — otherwise the
+  // caller computes Math.ceil(NaN / segLen) and silently produces zero segments.
+  const formatDuration = parseFloat(info.format?.duration);
+  const streamDuration = parseFloat(videoStream.duration);
+  const duration = Number.isFinite(formatDuration) && formatDuration > 0
+    ? formatDuration
+    : (Number.isFinite(streamDuration) && streamDuration > 0 ? streamDuration : NaN);
+  if (!Number.isFinite(duration)) {
+    throw new Error('Could not determine video duration from ffprobe output.');
+  }
+
   // Try to extract creation date from metadata
   const tags = info.format.tags || {};
   const creationTime = tags.creation_time || tags.date || null;
 
   return {
-    duration: parseFloat(info.format.duration),
+    duration,
     width: videoStream.width || 0,
     height: videoStream.height || 0,
     fps: Math.round(num / (den || 1)),
@@ -82,15 +104,20 @@ export async function segmentVideo(projectDir, sourceFile, segmentLength, totalD
     // can only cut at keyframes, which on phone videos are irregularly spaced
     // (e.g. every 5–10s) and rarely line up with requested boundaries, producing
     // wildly variable, overlapping clips.
-    await execAsync(
-      `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
+    await execFileAsync(
+      FFMPEG,
+      ['-y', '-ss', String(start), '-to', String(end), '-i', sourceFile,
+        '-c:v', 'libx264', '-c:a', 'aac', '-preset', 'fast', segFile],
+      EXEC_OPTS
     );
 
     // Extract keyframe at midpoint
     const midpoint = start + duration / 2;
     try {
-      await execAsync(
-        `${FFMPEG} -y -ss ${midpoint} -i "${sourceFile}" -frames:v 1 -q:v 2 "${kfFile}"`
+      await execFileAsync(
+        FFMPEG,
+        ['-y', '-ss', String(midpoint), '-i', sourceFile, '-frames:v', '1', '-q:v', '2', kfFile],
+        EXEC_OPTS
       );
     } catch (err) {
       await logLine(`Segment ${segId}: keyframe extraction failed — ${err.message}`);
@@ -137,18 +164,40 @@ export async function resegment(projectDir, sourceFile, changedSegments) {
   await logLine(`RE-SEGMENT: ${changedSegments.length} segments to re-extract`);
 
   for (const seg of changedSegments) {
-    const segFile = path.join(projectDir, seg.file);
-    const kfFile = path.join(projectDir, seg.keyframe);
-    const { start_seconds: start, end_seconds: end } = seg;
+    // Boundaries come from the request body — coerce to finite numbers and
+    // reject anything malformed before it reaches ffmpeg.
+    const start = Number(seg.start_seconds);
+    const end = Number(seg.end_seconds);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < 0) {
+      await logLine(`Re-segment ${seg.id}: skipped — invalid boundaries (${seg.start_seconds}..${seg.end_seconds})`);
+      continue;
+    }
+
+    // seg.file / seg.keyframe are client-supplied — confine them to projectDir
+    // so a "../" can't redirect ffmpeg's output outside the workspace.
+    let segFile, kfFile;
+    try {
+      segFile = safeJoinWithin(projectDir, seg.file);
+      kfFile = safeJoinWithin(projectDir, seg.keyframe);
+    } catch {
+      await logLine(`Re-segment ${seg.id}: skipped — output path escapes project dir`);
+      continue;
+    }
+
     const midpoint = start + (end - start) / 2;
 
-    await execAsync(
-      `${FFMPEG} -y -ss ${start} -to ${end} -i "${sourceFile}" -c:v libx264 -c:a aac -preset fast "${segFile}"`
+    await execFileAsync(
+      FFMPEG,
+      ['-y', '-ss', String(start), '-to', String(end), '-i', sourceFile,
+        '-c:v', 'libx264', '-c:a', 'aac', '-preset', 'fast', segFile],
+      EXEC_OPTS
     );
 
     try {
-      await execAsync(
-        `${FFMPEG} -y -ss ${midpoint} -i "${sourceFile}" -frames:v 1 -q:v 2 "${kfFile}"`
+      await execFileAsync(
+        FFMPEG,
+        ['-y', '-ss', String(midpoint), '-i', sourceFile, '-frames:v', '1', '-q:v', '2', kfFile],
+        EXEC_OPTS
       );
     } catch (err) {
       await logLine(`Re-segment ${seg.id}: keyframe failed — ${err.message}`);

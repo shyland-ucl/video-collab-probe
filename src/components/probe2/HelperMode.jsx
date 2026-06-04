@@ -228,7 +228,11 @@ export default function HelperMode({
           aria-labelledby="dismiss-modal-title"
           aria-describedby="dismiss-modal-body"
           onKeyDown={(e) => {
-            if (e.key === 'Tab') {
+            if (e.key === 'Escape') {
+              // Escape proceeds to the editor, same as the Continue button.
+              e.preventDefault();
+              setShowDismissModal(false);
+            } else if (e.key === 'Tab') {
               e.preventDefault();
               dismissModalButtonRef.current?.focus();
             }

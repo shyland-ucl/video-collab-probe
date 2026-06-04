@@ -8,7 +8,6 @@ import {
   runProcessingWorkflow,
   updateSegmentDescriptions,
   exportForProbe,
-  getWorkspaceUrl,
 } from '../../services/pipelineApi.js';
 import SegmentCard from '../../components/pipeline/SegmentCard.jsx';
 import DescriptionEditor from '../../components/pipeline/DescriptionEditor.jsx';
@@ -70,6 +69,17 @@ export default function PipelineReviewPage() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [segments.length]);
 
+  // Warn before leaving/refreshing the tab with unsaved segment edits.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirty]);
+
   // Segment mutations
   const updateSeg = useCallback((index, updates) => {
     setSegments((prev) => prev.map((s, i) => (i === index ? { ...s, ...updates } : s)));
@@ -79,10 +89,20 @@ export default function PipelineReviewPage() {
   const adjustTime = useCallback((index, field, delta) => {
     setSegments((prev) => {
       const seg = prev[index];
-      const newVal = Math.max(0, seg[field] + delta);
+      // Clamp so start can never cross end (and vice versa), which would make a
+      // negative-duration / inverted segment that the server now rejects.
+      const MIN_DURATION = 0.1;
+      let newVal = Math.max(0, seg[field] + delta);
+      if (field === 'start_seconds') {
+        newVal = Math.min(newVal, seg.end_seconds - MIN_DURATION);
+      } else {
+        newVal = Math.max(newVal, seg.start_seconds + MIN_DURATION);
+      }
+      newVal = parseFloat(newVal.toFixed(1));
+      const duration = field === 'start_seconds' ? seg.end_seconds - newVal : newVal - seg.start_seconds;
       return prev.map((s, i) =>
         i === index
-          ? { ...s, [field]: parseFloat(newVal.toFixed(1)), duration_seconds: parseFloat((field === 'start_seconds' ? seg.end_seconds - newVal : newVal - seg.start_seconds).toFixed(3)) }
+          ? { ...s, [field]: newVal, duration_seconds: parseFloat(duration.toFixed(3)) }
           : s
       );
     });
@@ -160,6 +180,11 @@ export default function PipelineReviewPage() {
 
   // Generate descriptions
   async function handleGenerate() {
+    // Generation reloads the project from the server afterwards, which would
+    // discard any unsaved local segment edits — confirm first.
+    if (dirty && !window.confirm('You have unsaved segment changes that will be lost when descriptions are generated. Continue anyway?')) {
+      return;
+    }
     setGenerating(true);
     setGenResult(null);
     setError('');

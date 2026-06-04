@@ -4,9 +4,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { readProject, writeProject } from '../services/projectStore.js';
 import { generateDescriptions } from '../services/geminiDescriptions.js';
+import { validateIdParam } from '../services/validate.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router = Router();
+
+// projectId is interpolated into filesystem paths — reject path-unsafe ids.
+router.param('projectId', validateIdParam('projectId'));
 
 // Generate descriptions for all segments
 router.post('/:projectId/generate_descriptions', async (req, res) => {

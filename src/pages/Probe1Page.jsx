@@ -89,8 +89,10 @@ export default function Probe1Page() {
       ? (data.videos || (data.video ? [data.video] : []))
       : [];
 
-    // Read sessionConfig fresh each time so dyadId picks up any change
-    // since mount. Use the assignments fetched from the server (with
+    // Re-read sessionConfig whenever this memo recomputes (data /
+    // pipelineVideos / serverAssignments change) — covers the normal flow
+    // where dyadId is set at session setup before this page loads. Use the
+    // assignments fetched from the server (with
     // case-insensitive + trimmed key lookup so D01 / d01 / "D01 " all match).
     // While serverAssignments is null (still fetching), fall back to
     // unfiltered behaviour so the library isn't empty during the brief

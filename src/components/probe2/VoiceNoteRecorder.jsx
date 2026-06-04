@@ -16,6 +16,12 @@ export default function VoiceNoteRecorder({ onRecordingComplete, disabled = fals
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      // Stop the recorder too, not just the stream — otherwise a recording in
+      // progress keeps running (and its ondataavailable/onstop fire) after the
+      // component is gone.
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }

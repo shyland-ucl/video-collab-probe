@@ -4,20 +4,33 @@ const AccessibilityContext = createContext(null);
 
 const STORAGE_KEY = 'accessibilitySettings';
 
-function loadFromStorage() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
-  } catch { /* ignore */ }
-  return null;
-}
-
 const defaults = {
   textSize: 'medium',
   highContrast: false,
   audioEnabled: false,
   speechRate: 1.2,
 };
+
+// Validate persisted settings before they feed rendering / TTS. A corrupt or
+// hand-edited localStorage value (wrong types, out-of-range rate) would
+// otherwise propagate into speechSynthesis.rate (throws) or class names.
+function loadFromStorage() {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const clean = {};
+    if (['small', 'medium', 'large'].includes(parsed.textSize)) clean.textSize = parsed.textSize;
+    if (typeof parsed.highContrast === 'boolean') clean.highContrast = parsed.highContrast;
+    if (typeof parsed.audioEnabled === 'boolean') clean.audioEnabled = parsed.audioEnabled;
+    if (typeof parsed.speechRate === 'number' && parsed.speechRate >= 0.5 && parsed.speechRate <= 3) {
+      clean.speechRate = parsed.speechRate;
+    }
+    return clean;
+  } catch { /* ignore */ }
+  return null;
+}
 
 const initialState = { ...defaults, ...loadFromStorage() };
 
@@ -42,7 +55,9 @@ export function AccessibilityProvider({ children }) {
   // Persist to localStorage with debounce to avoid thrashing on rapid changes
   useEffect(() => {
     const timer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch { /* quota / serialization — settings persist in memory this session */ }
     }, 500);
     return () => clearTimeout(timer);
   }, [state]);

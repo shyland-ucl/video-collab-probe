@@ -90,11 +90,21 @@ const VideoPlayer = forwardRef(function VideoPlayer({
     setVideoTime(time);
     if (onTimeUpdate) onTimeUpdate(time);
 
-    // Segment detection uses source time for proper segment matching
-    const video = singleVideoRef.current;
-    if (!video) return;
-    const sourceTime = video.currentTime;
-    const seg = findSegment(sourceTime);
+    // Segment detection. Segment times are in *source* coordinates for a single
+    // video, but in *combined-timeline* coordinates for multi-source projects
+    // (buildAllSegments offsets each source). Pick the matching clock — and
+    // critically, in multi-source mode singleVideoRef is null (no single
+    // element is rendered), so reading it here used to make detection a no-op,
+    // never firing SEGMENT_ENTER for the normal pipeline/multi-clip path.
+    let detectTime;
+    if (hasMultiSource) {
+      detectTime = engine.edlTime; // combined-timeline coordinates
+    } else {
+      const video = singleVideoRef.current;
+      if (!video) return;
+      detectTime = video.currentTime; // source coordinates
+    }
+    const seg = findSegment(detectTime);
     if (seg?.id !== currentSegment?.id) {
       setCurrentSegment(seg);
       if (seg) {
@@ -102,19 +112,28 @@ const VideoPlayer = forwardRef(function VideoPlayer({
       }
       if (onSegmentChange) onSegmentChange(seg);
     }
-  }, [findSegment, currentSegment, logEvent, setVideoTime, onTimeUpdate, onSegmentChange, isEngineActive, engine.edlTime]);
+  }, [findSegment, currentSegment, logEvent, setVideoTime, onTimeUpdate, onSegmentChange, isEngineActive, engine.edlTime, hasMultiSource]);
 
-  // For multi-source, use a polling interval to update time from engine
+  // For multi-source, poll the engine's EDL time at a steady 20 Hz. The values
+  // the interval needs (current edlTime, the onTimeUpdate callback) are read
+  // through refs so they don't sit in the effect's dependency array — otherwise
+  // the interval was torn down and recreated on every edlTime change (~60×/sec),
+  // defeating the 50 ms throttle.
+  const edlTimeRef = useRef(0);
+  edlTimeRef.current = engine.edlTime;
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  onTimeUpdateRef.current = onTimeUpdate;
+
   useEffect(() => {
     if (!isEngineActive || !hasMultiSource) return;
     const interval = setInterval(() => {
-      const time = engine.edlTime;
+      const time = edlTimeRef.current;
       setCurrentTime(time);
       setVideoTime(time);
-      if (onTimeUpdate) onTimeUpdate(time);
+      if (onTimeUpdateRef.current) onTimeUpdateRef.current(time);
     }, 50);
     return () => clearInterval(interval);
-  }, [isEngineActive, hasMultiSource, engine.edlTime, setVideoTime, onTimeUpdate]);
+  }, [isEngineActive, hasMultiSource, setVideoTime]);
 
   // Per-clip volume: reads clip.volume (0–200, percent) for the active clip
   // and applies it to the underlying <video> element. Default 100 = unchanged.

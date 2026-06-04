@@ -44,12 +44,15 @@ export default function ResearcherSuggestionPanel({
   const handleComposeDeploy = useCallback(() => {
     const text = composeText.trim();
     if (!text) return;
+    // The input is 1-based ("Scene #", min 1), but relatedScene is consumed as
+    // a 0-based index everywhere (Probe3Page scene matching, fix templates).
+    // Convert here so an ad-hoc suggestion lands on the scene the researcher typed.
     const sceneNum = parseInt(composeScene, 10);
     const adhocSuggestion = {
       id: `adhoc-${Date.now()}`,
       category: composeCategory,
       text,
-      relatedScene: Number.isFinite(sceneNum) ? sceneNum : null,
+      relatedScene: Number.isFinite(sceneNum) && sceneNum >= 1 ? sceneNum - 1 : null,
       _adhoc: true,
     };
     onDeploy?.(adhocSuggestion);

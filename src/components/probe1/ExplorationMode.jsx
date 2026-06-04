@@ -421,6 +421,18 @@ export default function ExplorationMode({
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
       if (e.target.isContentEditable || e.target.getAttribute('role') === 'textbox') return;
 
+      // While a modal (VQA / Edit) is open, the explorer behind it must not
+      // react to global shortcuts — otherwise Space, Arrows, m, Enter mutate
+      // hidden state the user can't see. Only Escape (close the modal) passes.
+      if (isModalOpen) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          if (showVQA) setShowVQA(false);
+          else if (showEditPanel) setShowEditPanel(false);
+        }
+        return;
+      }
+
       switch (e.key) {
         case 'ArrowLeft':
           e.preventDefault();

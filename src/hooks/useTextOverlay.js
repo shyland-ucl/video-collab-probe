@@ -40,6 +40,12 @@ export default function useTextOverlay({
       // a local textOverlays update. Do not revert.
       return;
     }
+    // Don't reconcile from props while the user is actively editing an overlay
+    // (text tool open with a selection). A parent echoing a stale set here
+    // would wipe the in-progress overlay and close the tool mid-edit. The
+    // signature is intentionally NOT recorded, so the sync re-fires and
+    // reconciles once the edit ends (textToolActive flips false).
+    if (textToolActive && activeOverlayId) return;
     lastInitialSignatureRef.current = initialSignature;
     const currentSignature = getOverlaySignature(textOverlays);
     if (initialSignature === currentSignature) return;
@@ -49,7 +55,7 @@ export default function useTextOverlay({
       setActiveOverlayId(null);
       setTextToolActive(false);
     }
-  }, [activeOverlayId, initialOverlays, initialSignature, textOverlays]);
+  }, [activeOverlayId, textToolActive, initialOverlays, initialSignature, textOverlays]);
 
   useEffect(() => {
     if (!onOverlaysChangeRef.current) return;

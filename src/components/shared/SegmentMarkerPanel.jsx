@@ -25,7 +25,6 @@ export default function SegmentMarkerPanel({ segment }) {
   return (
     <div
       className="px-4 py-2 bg-gray-50 border border-gray-200 rounded text-sm"
-      aria-live="polite"
       aria-label="Current segment information"
     >
       {segment ? (

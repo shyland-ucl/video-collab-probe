@@ -21,7 +21,12 @@ export async function readProject(workspace, projectId) {
  */
 export async function writeProject(workspace, projectId, project) {
   const filePath = path.join(workspace, projectId, 'project.json');
-  await fs.writeFile(filePath, JSON.stringify(project, null, 2));
+  // Atomic write: serialize to a temp file then rename over the target, so an
+  // interrupted or concurrent write can't leave a truncated/corrupt project.json
+  // (rename is atomic on the same filesystem).
+  const tmpPath = `${filePath}.tmp`;
+  await fs.writeFile(tmpPath, JSON.stringify(project, null, 2));
+  await fs.rename(tmpPath, filePath);
 }
 
 /**

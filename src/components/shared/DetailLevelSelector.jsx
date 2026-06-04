@@ -35,7 +35,8 @@ export default function DetailLevelSelector({ currentLevel, onLevelChange }) {
           <div
             key={lvl.value}
             tabIndex={0}
-            role="text"
+            role="button"
+            aria-pressed={isActive}
             data-detail-level-value={lvl.value}
             onClick={(event) => activateLevel(event, lvl.value)}
             onKeyDown={(event) => {

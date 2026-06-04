@@ -96,7 +96,9 @@ export default function usePlaybackEngine(videoRef, clips, captions, isEngineAct
         seekingRef.current = false;
         newVideo.removeEventListener('seeked', onSeeked);
         if (shouldPlay) {
-          newVideo.play();
+          // play() rejects if interrupted by a subsequent seek/source switch —
+          // swallow it so it doesn't surface as an unhandled rejection.
+          newVideo.play()?.catch(() => {});
         }
       };
       newVideo.addEventListener('seeked', onSeeked);
@@ -270,12 +272,12 @@ export default function usePlaybackEngine(videoRef, clips, captions, isEngineAct
       const onSeeked = () => {
         seekingRef.current = false;
         video.removeEventListener('seeked', onSeeked);
-        video.play();
+        video.play()?.catch(() => {});
       };
       video.addEventListener('seeked', onSeeked);
       return;
     }
-    video.play();
+    video.play()?.catch(() => {});
   }, [videoRef]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pause = useCallback(() => {

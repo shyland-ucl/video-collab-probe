@@ -123,7 +123,6 @@ export default function Probe3Page() {
   const [deployedSuggestions, setDeployedSuggestions] = useState({});
   const [showSuggestionHistory, setShowSuggestionHistory] = useState(false);
   const suggestionDeployTimeRef = useRef({});
-  const autoSuggestionTimeoutRef = useRef(null);
   // Per-property debounce timers for incoming COLOUR_UPDATE messages so a
   // peer dragging a slider only triggers one final-state announcement.
   const colourAnnounceTimersRef = useRef({});
@@ -672,31 +671,13 @@ export default function Probe3Page() {
     runAnalysisSequence(triggerActor);
   }, [analysisTriggered, analysisInProgress, role, videoSuggestions.length, curatedSuggestions.length, logEvent, runAnalysisSequence]);
 
-  useEffect(() => {
-    if (role !== 'creator' || phase !== 'active' || !currentSegment || activeSuggestion) return undefined;
-
-    const currentSceneNumber = segments.findIndex((segment) => segment.id === currentSegment.id) + 1;
-    if (currentSceneNumber <= 0) return undefined;
-
-    const nextSuggestion = videoSuggestions.find((suggestion) => {
-      if (deployedSuggestions[suggestion.id]) return false;
-      const relatedScenes = Array.isArray(suggestion.relatedScene)
-        ? suggestion.relatedScene
-        : [suggestion.relatedScene];
-      return relatedScenes.includes(currentSceneNumber);
-    });
-
-    if (!nextSuggestion) return undefined;
-
-    autoSuggestionTimeoutRef.current = setTimeout(() => {
-      deploySuggestion(nextSuggestion, Actors.AI, 'auto');
-    }, 1200);
-
-    return () => {
-      clearTimeout(autoSuggestionTimeoutRef.current);
-      autoSuggestionTimeoutRef.current = null;
-    };
-  }, [activeSuggestion, deployedSuggestions, currentSegment, deploySuggestion, phase, role, segments, videoSuggestions]);
+  // (Removed) Legacy auto-deploy effect. It drip-fed suggestions from the full
+  // bank as the creator's current scene changed, ungated by analysisTriggered
+  // and using a 1-based scene number where relatedScene is a 0-based index.
+  // In the v2 participant-triggered design the surfaced suggestions come from
+  // curatedSuggestions via Probe3SceneActions (gated by analysisTriggered);
+  // this effect only emitted spurious, wrong-scene SUGGESTION_DEPLOYED events
+  // that corrupted the study log, so it has been removed.
 
   // WebSocket setup
   const unsubscribeRef = useRef({ data: null, connected: null, disconnected: null });
@@ -1154,18 +1135,30 @@ export default function Probe3Page() {
     announce(`Role selected: ${selectedRole}. Waiting for ${otherRole} to join.`);
   }, [logEvent]);
 
-  // Single source of truth for the WS connection lifecycle.
+  // WS handler registration. setupHandlers' identity changes whenever
+  // runAnalysisSequence does (analysis state / audio / speech-rate changes), so
+  // this effect re-registers the data/connect handlers with the fresh closure —
+  // but it does NOT touch the socket. Declared before the connection effect so
+  // handlers are registered before connect() runs on mount.
+  useEffect(() => {
+    if (!role) return;
+    setupHandlers(role);
+    return () => clearSubscriptions();
+  }, [role, setupHandlers, clearSubscriptions]);
+
+  // Connection lifecycle — keyed on role ONLY, so the socket connects/disconnects
+  // exactly once per role. Previously this also depended on setupHandlers, which
+  // meant every analysis-state or accessibility-setting change tore down and
+  // re-established the WebSocket mid-session, unpairing creator/helper.
   // See Probe2bPage.jsx for the rationale; same StrictMode-safe pattern.
   // docs/walkthrough_findings_2026-04-25_spotcheck.md NF2.
   useEffect(() => {
     if (!role) return;
-    setupHandlers(role);
     wsRelayService.connect(role);
     return () => {
-      clearSubscriptions();
       wsRelayService.disconnect();
     };
-  }, [role, setupHandlers, clearSubscriptions]);
+  }, [role]);
 
   // WoZ AI edit. Participant parks a resolver via handleAskAIEdit; the
   // researcher tab resolves it by sending AI_EDIT_RESPONSE over WS.

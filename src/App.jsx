@@ -1,17 +1,21 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import { wsRelayService } from './services/wsRelayService.js'
 import { announce } from './utils/announcer.js'
 import { EventLoggerProvider } from './contexts/EventLoggerContext.jsx'
 import { AccessibilityProvider, useAccessibility } from './contexts/AccessibilityContext.jsx'
-import SessionSetupPage from './pages/SessionSetupPage.jsx'
-import Probe1Page from './pages/Probe1Page.jsx'
-import Probe2Page from './pages/Probe2Page.jsx'
-import Probe2bPage from './pages/Probe2bPage.jsx'
-import Probe3Page from './pages/Probe3Page.jsx'
-import ResearcherPage from './pages/ResearcherPage.jsx'
-import PipelineUploadPage from './pages/pipeline/PipelineUploadPage.jsx'
-import PipelineReviewPage from './pages/pipeline/PipelineReviewPage.jsx'
+
+// Route-level code splitting: each probe / researcher / pipeline page becomes
+// its own chunk so a participant on a phone only downloads the screen they
+// need, instead of one ~670 kB bundle for the whole app.
+const SessionSetupPage = lazy(() => import('./pages/SessionSetupPage.jsx'))
+const Probe1Page = lazy(() => import('./pages/Probe1Page.jsx'))
+const Probe2Page = lazy(() => import('./pages/Probe2Page.jsx'))
+const Probe2bPage = lazy(() => import('./pages/Probe2bPage.jsx'))
+const Probe3Page = lazy(() => import('./pages/Probe3Page.jsx'))
+const ResearcherPage = lazy(() => import('./pages/ResearcherPage.jsx'))
+const PipelineUploadPage = lazy(() => import('./pages/pipeline/PipelineUploadPage.jsx'))
+const PipelineReviewPage = lazy(() => import('./pages/pipeline/PipelineReviewPage.jsx'))
 
 const TEXT_SIZE_CLASSES = {
   small: 'text-sm',
@@ -61,16 +65,18 @@ function AppShell() {
       <div id="sr-announcer-assertive" role="alert" aria-live="assertive" aria-atomic="true" className="sr-only" />
 
       <main id="main-content">
-        <Routes>
-          <Route path="/" element={<SessionSetupPage />} />
-          <Route path="/probe1" element={<Probe1Page />} />
-          <Route path="/probe2" element={<Probe2Page />} />
-          <Route path="/probe2b" element={<Probe2bPage />} />
-          <Route path="/probe3" element={<Probe3Page />} />
-          <Route path="/researcher" element={<ResearcherPage />} />
-          <Route path="/pipeline" element={<PipelineUploadPage />} />
-          <Route path="/pipeline/review/:projectId" element={<PipelineReviewPage />} />
-        </Routes>
+        <Suspense fallback={<div role="status" aria-live="polite" className="p-8 text-center text-gray-500">Loading…</div>}>
+          <Routes>
+            <Route path="/" element={<SessionSetupPage />} />
+            <Route path="/probe1" element={<Probe1Page />} />
+            <Route path="/probe2" element={<Probe2Page />} />
+            <Route path="/probe2b" element={<Probe2bPage />} />
+            <Route path="/probe3" element={<Probe3Page />} />
+            <Route path="/researcher" element={<ResearcherPage />} />
+            <Route path="/pipeline" element={<PipelineUploadPage />} />
+            <Route path="/pipeline/review/:projectId" element={<PipelineReviewPage />} />
+          </Routes>
+        </Suspense>
       </main>
     </div>
   )

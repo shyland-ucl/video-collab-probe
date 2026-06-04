@@ -224,7 +224,7 @@ export default function ActivityFeed({
           <ul className="space-y-1 max-h-32 overflow-y-auto">
             {creatorActivities.slice(-10).reverse().map((a, i) => (
               <li
-                key={i}
+                key={`${a.timestamp}-${a.actor || ''}-${a.action || ''}`}
                 className="text-xs text-gray-600 focus:outline-2 focus:outline-offset-2 focus:outline-blue-500 rounded"
                 role="article"
                 tabIndex={0}

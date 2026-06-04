@@ -2,8 +2,13 @@ import { Router } from 'express';
 import path from 'path';
 import { readProject, writeProject, listProjects } from '../services/projectStore.js';
 import { resegment } from '../services/segmentation.js';
+import { validateIdParam, isValidSegmentId } from '../services/validate.js';
 
 const router = Router();
+
+// Reject any projectId that isn't [a-zA-Z0-9_-]{1,64} before it reaches a
+// handler — these ids are interpolated into filesystem paths.
+router.param('projectId', validateIdParam('projectId'));
 
 // List all projects
 router.get('/', async (req, res) => {
@@ -34,6 +39,20 @@ router.put('/:projectId/segments', async (req, res) => {
 
     if (!Array.isArray(segments)) {
       return res.status(400).json({ error: 'segments must be an array.' });
+    }
+
+    // Validate the body so we never persist or re-segment garbage: each entry
+    // needs a path-safe id and finite, ordered boundaries. file/keyframe are
+    // further confined to the project dir inside resegment().
+    for (const s of segments) {
+      if (!s || !isValidSegmentId(s.id)) {
+        return res.status(400).json({ error: `Invalid segment id: ${s?.id}` });
+      }
+      const start = Number(s.start_seconds);
+      const end = Number(s.end_seconds);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || start < 0) {
+        return res.status(400).json({ error: `Invalid boundaries for segment ${s.id}.` });
+      }
     }
 
     const project = await readProject(workspace, projectId);

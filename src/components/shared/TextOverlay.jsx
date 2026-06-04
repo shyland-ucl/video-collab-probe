@@ -47,6 +47,24 @@ export default function TextOverlay({ overlay, isEditing, onMove }) {
     onMove(overlay.id, clampedX, clampedY);
   }, [overlay.id, onMove]);
 
+  // Keyboard equivalent of the drag, so the overlay is operable without a
+  // pointer (it was role="button" but not focusable and had no key handler).
+  const handleKeyDown = useCallback((e) => {
+    if (!isEditing) return;
+    const STEP = 5;
+    let x = overlay.x;
+    let y = overlay.y;
+    switch (e.key) {
+      case 'ArrowLeft': x -= STEP; break;
+      case 'ArrowRight': x += STEP; break;
+      case 'ArrowUp': y -= STEP; break;
+      case 'ArrowDown': y += STEP; break;
+      default: return;
+    }
+    e.preventDefault();
+    onMove(overlay.id, Math.max(5, Math.min(95, x)), Math.max(5, Math.min(95, y)));
+  }, [isEditing, overlay.x, overlay.y, overlay.id, onMove]);
+
   return (
     <div
       className={`absolute select-none ${isEditing ? 'cursor-move' : 'pointer-events-none'}`}
@@ -70,7 +88,9 @@ export default function TextOverlay({ overlay, isEditing, onMove }) {
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      aria-label={isEditing ? `Drag to reposition text: ${overlay.content}` : undefined}
+      onKeyDown={isEditing ? handleKeyDown : undefined}
+      tabIndex={isEditing ? 0 : undefined}
+      aria-label={isEditing ? `Reposition text: ${overlay.content}. Use arrow keys to move.` : undefined}
       role={isEditing ? 'button' : undefined}
     >
       {overlay.content}

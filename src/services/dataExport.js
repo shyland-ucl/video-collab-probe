@@ -8,13 +8,14 @@ import { saveAs } from 'file-saver';
 export async function exportSessionData(events, sessionMetadata) {
   const zip = new JSZip();
 
-  // Include phase transition timestamps in metadata
+  // Build the metadata in a local (don't reassign the parameter).
+  let metadata = sessionMetadata;
   try {
     const stored = localStorage.getItem('sessionConfig');
     if (stored) {
       const config = JSON.parse(stored);
       if (config.phaseTransitionTimestamp) {
-        sessionMetadata = {
+        metadata = {
           ...sessionMetadata,
           phaseTransitionTimestamp: config.phaseTransitionTimestamp,
         };
@@ -22,7 +23,7 @@ export async function exportSessionData(events, sessionMetadata) {
     }
   } catch { /* ignore */ }
 
-  zip.file('session_metadata.json', JSON.stringify(sessionMetadata, null, 2));
+  zip.file('session_metadata.json', JSON.stringify(metadata, null, 2));
   zip.file('all_events.json', JSON.stringify(events, null, 2));
 
   const conditions = ['probe1', 'probe2a', 'probe2b', 'probe3'];

@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { announce } from '../utils/announcer.js';
 import { playEarcon } from '../utils/earcon.js';
 
@@ -19,6 +19,13 @@ export default function useSpeechRecognition({
   const [isPreparing, setIsPreparing] = useState(false);
   const recognitionRef = useRef(null);
   const gotResultRef = useRef(false);
+  const mountedRef = useRef(true);
+
+  // Stop recognition and block any further state updates once unmounted.
+  useEffect(() => () => {
+    mountedRef.current = false;
+    try { recognitionRef.current?.abort?.(); } catch { /* ignore */ }
+  }, []);
 
   const toggleListening = useCallback(() => {
     const SpeechRecognition =
@@ -30,6 +37,10 @@ export default function useSpeechRecognition({
     }
 
     if ((isListening || isPreparing) && recognitionRef.current) {
+      // Mark this instance cancelled so a late onstart/onresult (which can fire
+      // after stop() during the preparing window) can't flip us back to
+      // listening or emit a result the user has chosen to discard.
+      recognitionRef.current._cancelled = true;
       recognitionRef.current.stop();
       setIsListening(false);
       setIsPreparing(false);
@@ -46,6 +57,7 @@ export default function useSpeechRecognition({
     // capture begins. This is the correct moment to tell the participant
     // they can speak.
     recognition.onstart = () => {
+      if (recognition._cancelled || !mountedRef.current) return;
       setIsPreparing(false);
       setIsListening(true);
       gotResultRef.current = false;
@@ -54,6 +66,7 @@ export default function useSpeechRecognition({
     };
 
     recognition.onresult = (event) => {
+      if (recognition._cancelled || !mountedRef.current) return;
       const transcript = event.results[0][0].transcript;
       gotResultRef.current = true;
       setIsListening(false);
@@ -63,6 +76,7 @@ export default function useSpeechRecognition({
     };
 
     recognition.onerror = (event) => {
+      if (!mountedRef.current) return;
       setIsListening(false);
       setIsPreparing(false);
       // Chrome on Android refuses microphone access on insecure origins
@@ -94,12 +108,13 @@ export default function useSpeechRecognition({
     };
 
     recognition.onend = () => {
+      if (!mountedRef.current) return;
       setIsListening(false);
       setIsPreparing(false);
-      // If the recogniser ended without ever firing onresult (user stopped
-      // early, silence timeout, etc.), nudge them so they're not left
-      // wondering whether they were heard.
-      if (!gotResultRef.current) {
+      // If the recogniser ended without ever firing onresult (silence timeout,
+      // etc.), nudge them so they're not left wondering whether they were
+      // heard — but stay quiet when the user themselves stopped it.
+      if (!recognition._cancelled && !gotResultRef.current) {
         announce('Microphone closed.');
       }
     };

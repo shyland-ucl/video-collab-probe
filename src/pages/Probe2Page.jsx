@@ -123,6 +123,12 @@ export default function Probe2Page() {
   const [currentSegment, setCurrentSegment] = useState(null);
   const currentSegmentRef = useRef(null);
   useEffect(() => { currentSegmentRef.current = currentSegment; }, [currentSegment]);
+  // Mirror the playback clock and segments into refs so callbacks that only
+  // need their *latest* value (e.g. handleTransitionComplete) don't have to
+  // list currentTime/segments as deps — otherwise their identity changes on
+  // every timeupdate tick, restarting timers/earcons in child effects.
+  const currentTimeRef = useRef(0);
+  useEffect(() => { currentTimeRef.current = currentTime; }, [currentTime]);
   const [pendingQuestion, setPendingQuestion] = useState(null);
   // WoZ: when "Ask AI to Edit" finds no canned match, the request is parked
   // here so the researcher panel can craft a response. The promise from
@@ -514,11 +520,21 @@ export default function Probe2Page() {
       // Restore the previous editState without pushing onto history again
       // (otherwise undo itself would become undoable, which surprises users).
       setEditState(prev);
+      // Re-broadcast the restored state so the researcher dashboard's Live Edit
+      // Mirror reflects the undo — handleEditChange broadcasts every forward
+      // edit, so without this the mirror keeps showing the un-done state.
+      wsRelayService.sendData({
+        type: 'EDIT_STATE_UPDATE',
+        editState: prev,
+        action: 'undo',
+        changeSummary: { announcement: 'Edit undone.', shortText: 'Undo' },
+        actor: mode === 'helper' ? 'HELPER' : 'CREATOR',
+      });
       logEvent(EventTypes.EDIT_ACTION, Actors.CREATOR, { action: 'undo' });
       announce('Undid last edit.');
       return h.slice(0, -1);
     });
-  }, [logEvent]);
+  }, [logEvent, mode]);
 
   // Track play/pause
   useEffect(() => {
@@ -787,7 +803,7 @@ export default function Probe2Page() {
         {
           editState: editStateRef.current,
           colourValues: colourValuesRef.current,
-          fallbackSceneId: currentSegmentRef.current?.id || getSceneIdAtTime(segments, currentTime),
+          fallbackSceneId: currentSegmentRef.current?.id || getSceneIdAtTime(segments, currentTimeRef.current),
         },
         segments,
         helperVisualSceneIdsRef.current,
@@ -802,7 +818,11 @@ export default function Probe2Page() {
       announce(feedback ? `${feedback.announcement} ${talkBackReminder}` : `Phone returned to creator. ${talkBackReminder}`);
     }
     setTransitionDirection(null);
-  }, [transitionDirection, handoverMode, logEvent, segments, currentTime]);
+    // currentTime is read via currentTimeRef so this callback's identity is
+    // stable across playback ticks — otherwise HandoverTransition's effect
+    // (which lists onComplete in its deps) re-arms its 2.5s timer and recreates
+    // its AudioContext on every tick, replaying the handover earcon.
+  }, [transitionDirection, handoverMode, logEvent, segments]);
 
   const handleReturnDevice = useCallback((summary) => {
     logEvent(EventTypes.HELPER_ACTION, Actors.HELPER, { action: 'return_device', summary });

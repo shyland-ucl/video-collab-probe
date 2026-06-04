@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { getWorkspaceUrl } from '../../services/pipelineApi.js';
 
 const LEVEL_LABELS = {
@@ -42,6 +42,10 @@ export default function SegmentCard({
   const [labelValue, setLabelValue] = useState(segment.label);
   const videoRef = useRef(null);
 
+  // Resync the local label when the segment prop changes (e.g. after a
+  // merge/split/save reload) so the input doesn't show a stale value.
+  useEffect(() => { setLabelValue(segment.label); }, [segment.label]);
+
   const videoUrl = getWorkspaceUrl(`${projectId}/${segment.file}`);
   const hasDescriptions = segment.descriptions?.level_1;
   const review = segment.description_review;
@@ -74,6 +78,7 @@ export default function SegmentCard({
             }}
             className="px-3 py-1 text-lg border rounded-md"
             autoFocus
+            aria-label={`Edit name for segment ${index + 1}`}
           />
         ) : (
           <button

@@ -1032,8 +1032,10 @@ export default function MockEditorVisual({
           if (!targetClip || !onEditChange) return;
           const next = setClipSound({ clips, captions, sources }, targetClip.id, sound ? { ...sound, addedBy: 'helper' } : null);
           if (next === undefined) return;
+          // setClips alone — the clips-change effect broadcasts onEditChange
+          // once. Calling onEditChange here too would double-broadcast (and
+          // double-apply the edit on the peer).
           setClips(next.clips);
-          onEditChange(next.clips, next.captions, next.sources);
           if (logEvent) {
             const event = sound ? EventTypes.ADD_SOUND : EventTypes.REMOVE_SOUND;
             logEvent(event, actor, {
@@ -1054,8 +1056,9 @@ export default function MockEditorVisual({
           const newClips = clips.map((c) => (
             c.id === targetClip.id ? { ...c, volume: numVal } : c
           ));
+          // setClips alone — the clips-change effect broadcasts onEditChange
+          // once (a direct call here would double-broadcast).
           setClips(newClips);
-          onEditChange(newClips, captions, sources);
           if (logEvent) {
             logEvent(EventTypes.VOLUME_ADJUST, actor, {
               segmentId: targetClip.id,

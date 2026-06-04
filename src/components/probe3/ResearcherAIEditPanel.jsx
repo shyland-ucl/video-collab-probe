@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { draftAIEditResponse } from '../../services/geminiService.js';
 import { wsRelayService } from '../../services/wsRelayService.js';
 import { useEventLogger } from '../../contexts/EventLoggerContext.jsx';
@@ -137,13 +137,25 @@ export default function ResearcherAIEditPanel({
     }
   }, [pendingRequest, segment]);
 
+  // Clear the pending send timer (and block its setState) if the panel
+  // unmounts before the artificial delay elapses.
+  const sendTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    if (sendTimeoutRef.current) clearTimeout(sendTimeoutRef.current);
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = customResponse.trim();
     if (!text || sending) return;
     setSending(true);
     // Artificial 2–3 s delay so the response feels like AI thinking.
     const delay = 2000 + Math.random() * 1000;
-    setTimeout(() => {
+    if (sendTimeoutRef.current) clearTimeout(sendTimeoutRef.current);
+    sendTimeoutRef.current = setTimeout(() => {
+      sendTimeoutRef.current = null;
+      if (!mountedRef.current) return;
       onSendResponse?.(text, 'success');
       setCustomResponse('');
       setSending(false);

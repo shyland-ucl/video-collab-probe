@@ -59,7 +59,7 @@ export default function HandoverSuggestion({ suggestion, onAccept, onDismiss }) 
         transform: visible && !exiting ? 'translateX(0)' : 'translateX(120%)',
         transition: 'transform 0.3s ease-in-out',
       }}
-      role="alert"
+      role="status"
       aria-live="polite"
       aria-label="Handover suggestion"
     >

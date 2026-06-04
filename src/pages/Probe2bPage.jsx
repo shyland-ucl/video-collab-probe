@@ -94,9 +94,25 @@ export default function Probe2bPage() {
   // Per-property debounce timers for incoming COLOUR_UPDATE messages so a
   // peer dragging a slider only triggers one final-state announcement.
   const colourAnnounceTimersRef = useRef({});
+  // Clear any outstanding colour-announce timers on unmount so their callbacks
+  // can't fire setState after the page is gone.
+  useEffect(() => () => {
+    Object.values(colourAnnounceTimersRef.current).forEach(clearTimeout);
+    colourAnnounceTimersRef.current = {};
+  }, []);
   const [vqaHistories, setVqaHistories] = useState({});
   const [awarenessData, setAwarenessData] = useState({});
   const [keptScenes, setKeptScenes] = useState({});
+  const keptScenesRef = useRef({});
+  useEffect(() => { keptScenesRef.current = keptScenes; }, [keptScenes]);
+  // Toggle "keep/remove scene" locally AND broadcast the new map to the peer,
+  // so both devices play the same EDL (previously the toggle was local-only,
+  // diverging creator and helper playback).
+  const handleToggleKeep = useCallback((id) => {
+    const next = { ...keptScenesRef.current, [id]: keptScenesRef.current[id] === false };
+    setKeptScenes(next);
+    wsRelayService.sendData({ type: 'KEPT_SCENES_UPDATE', keptScenes: next });
+  }, []);
   // Day 1 fix #4: zoom + rotate live alongside colour values.
   const [colourValues, setColourValues] = useState({ brightness: 0, contrast: 0, saturation: 0, zoom: 100, rotate: 0 });
   // Day 1 fix #3: per-scene edit stamp (badge + "What changed" line).
@@ -571,6 +587,14 @@ export default function Probe2bPage() {
           break;
         case 'STATE_UPDATE':
           break;
+        case 'KEPT_SCENES_UPDATE':
+          // Peer toggled "Remove scene" — mirror their kept-scene map so both
+          // devices play the same edited EDL. (Set only; no re-broadcast, so
+          // there's no echo loop.)
+          if (msg.keptScenes && typeof msg.keptScenes === 'object') {
+            setKeptScenes(msg.keptScenes);
+          }
+          break;
         case 'ACTIVITY':
           if (currentRole === 'creator') {
             setHelperActivities((prev) => [...prev, { timestamp: msg.timestamp, actor: msg.actor, action: msg.action, data: msg.data }]);
@@ -579,6 +603,11 @@ export default function Probe2bPage() {
         case 'EDIT_STATE_UPDATE': {
           const previousState = editStateRef.current;
           setEditState(msg.editState);
+          // Reset the local undo stack: every snapshot in it predates this
+          // peer edit, so undoing to one would broadcast a state that erases
+          // the peer's work (cross-device data loss). After a peer commit,
+          // undo only applies to the local user's own subsequent edits.
+          setEditHistory([]);
           const peerLabel = labelEditActor(msg.actor);
           const changeSummary = msg.changeSummary || summarizeEditStateChange(previousState, msg.editState, peerLabel);
           const sceneStamp = buildEditChangeSceneStamp(previousState, msg.editState, {
@@ -1157,7 +1186,7 @@ export default function Probe2bPage() {
                 onSendToHelper={handleSendTaskToHelper}
                 onEditSelf={handleApplySceneEdit}
                 isKept={keptScenes[scene.id] !== false}
-                onToggleKeep={(id) => setKeptScenes((prev) => ({ ...prev, [id]: prev[id] === false }))}
+                onToggleKeep={handleToggleKeep}
                 helperName="helper"
                 accentColor={COLORS.green}
                 editState={editState}

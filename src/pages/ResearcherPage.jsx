@@ -610,6 +610,8 @@ export default function ResearcherPage() {
                     ].join(' ')}
                     style={selectedTab === cond.key ? { borderBottomColor: cond.color } : undefined}
                     role="tab"
+                    id={`tab-${cond.key}`}
+                    aria-controls="condition-tabpanel"
                     aria-selected={selectedTab === cond.key}
                     aria-label={`View ${cond.label} controls`}
                   >
@@ -623,7 +625,7 @@ export default function ResearcherPage() {
                 ))}
               </div>
 
-              <div className="p-4" role="tabpanel">
+              <div className="p-4" role="tabpanel" id="condition-tabpanel" aria-labelledby={`tab-${selectedTab}`} tabIndex={0}>
                 {/* Condition start/end button (not for Materials tab) */}
                 {selectedTab !== 'materials' && (
                 <div className="mb-4 flex items-center gap-3">
@@ -776,7 +778,7 @@ export default function ResearcherPage() {
                       filteredEvents.map((evt, i) => {
                         const colors = ACTOR_COLORS[evt.actor] || ACTOR_COLORS.SYSTEM;
                         return (
-                          <tr key={i} className="border-b border-gray-100 hover:bg-gray-50" style={{ backgroundColor: colors.bg }}>
+                          <tr key={evt.id || i} className="border-b border-gray-100 hover:bg-gray-50" style={{ backgroundColor: colors.bg }}>
                             <td className="px-3 py-1.5 font-mono text-gray-600" title={`Unix ms: ${evt.timestamp}`}>{formatWallClock(evt.timestamp)}</td>
                             <td className="px-3 py-1.5 font-medium text-gray-800">{evt.eventType}</td>
                             <td className="px-3 py-1.5">
